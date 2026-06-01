@@ -1,0 +1,59 @@
+# Android / Gradle build output
+.gradle/
+.kotlin/
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+out/
+
+# Android Studio / IntelliJ local state
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Local machine configuration
+local.properties
+*.local
+
+# Signing keys and release credentials
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+keystore.properties
+signing.properties
+release.properties
+
+# Generated app packages
+*.apk
+*.aab
+*.apks
+*.idsig
+*.mapping
+
+# Secrets and service credentials
+.env
+.env.*
+secrets.properties
+google-services.json
+GoogleService-Info.plist
+service-account*.json
+firebase-*.json
+
+# Logs, reports, and runtime dumps
+*.log
+*.tmp
+*.temp
+*.hprof
+hs_err_pid*
+lint-results*.html
+lint-results*.xml
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

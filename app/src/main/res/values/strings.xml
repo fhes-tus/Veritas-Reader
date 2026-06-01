@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Veritas Reader</string>
+    <string name="widget_player_description">Veritas playback controls</string>
+    <string name="widget_cover_description">Veritas current reading cover</string>
+    <string name="widget_ready">Ready</string>
+    <string name="widget_previous">‹</string>
+    <string name="widget_play">▶</string>
+    <string name="widget_next">›</string>
+    <string name="widget_favorite">♡</string>
+</resources>
