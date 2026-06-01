@@ -43,7 +43,7 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = 24
-        versionName = "0.3.7-beta-release-hardening"
+        versionName = "0.3.7-beta"
     }
 
     buildFeatures {
