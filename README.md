@@ -56,9 +56,7 @@ This project pins Gradle to Android Studio's embedded JDK on this machine in `gr
 - `app/src/main/res/` - Android resources, widgets, icons, themes, and XML config.
 - `app/build.gradle.kts` - app module build and dependency declarations.
 - `gradle/wrapper/` plus `gradlew.bat` - Gradle wrapper files needed for command-line builds.
-- `APK_SHARING_INSTRUCTIONS.md` - how to share/install the debug APK.
-- `FINAL_APK_READINESS.md` - build readiness and final QA checklist.
 - `KNOWN_LIMITATIONS.md` - current technical and product limits.
-- `PRIVACY_POLICY_DRAFT.md` - current privacy policy draft.
+- `PRIVACY_POLICY.md` - current privacy policy.
 
 Generated folders such as `.gradle`, `.kotlin`, `.idea`, and `app/build` are intentionally not part of the clean source bundle. Android Studio and Gradle recreate them automatically.
