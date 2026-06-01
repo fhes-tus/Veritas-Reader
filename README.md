@@ -10,17 +10,18 @@ Compile SDK: API 36.1
 
 ## Current App State
 
-- Import TXT/text shares, PDF, DOCX, EPUB, image files, scanned PDFs, and web links.
-- Extract readable document text with PDFBox, Android PDF rendering, and ML Kit OCR fallback where available. Text-based PDFs open after the foreground import window with ready pages, finish longer extraction in the background, and use per-page column detection so mixed one-column/two-column books keep readable order and spacing.
-- Save readings locally with favorites, Listen Later queue, collections, recent progress, sentence notes, sentence bookmarks, sentence highlights, and document-level notes.
-- Read aloud with Android Text-to-Speech, background media notification, headset/Bluetooth controls, media session support, queue playback, speed/pitch controls, voice selection, and pronunciation rules.
-- Read extracted text as balanced document parts. Parts are page-based, native text selection can span multiple sentences, actions anchor notes/highlights/bookmarks/read-from-here to touched sentences, and double-tapping a sentence starts reading there.
-- Use the actual PDF viewer for stored PDFs, including page sync, sentence highlight, search, rotation, playback controls, voice menu, top-zone deck toggling, and `Read from here` from selected PDF text.
-- Use the legacy actual document canvas for fallback PDF/image viewing with paging, zoom, rotation, and playback controls.
-- Send selected text or generated prompts to AI/share targets and translation apps. External apps receive only the text the user explicitly sends.
-- Export readings to WAV through the installed Android TTS engine.
-- Use Veritas home-screen widgets for playback and current-reading cover controls.
-- Theme the reader with Material You, Veritas, Liquid Glass, One UI-style, and high-contrast options.
+- **Universal Document Import:** Import TXT, PDFs, DOCX, EPUB, image files, scanned PDFs, and web links.
+- **Smart Text Extraction:** Extract readable document text with PDFBox, Android PDF rendering, and ML Kit OCR fallback where available. Mixed one-column/two-column books keep readable order and spacing.
+- **Text-to-Speech Playback (TTS):** Read aloud with Android TTS, background media notification, headset/Bluetooth controls, media session support, queue playback, speed/pitch controls, and deep Voice Management.
+- **Granular Annotations & Study Assistant:** Save readings locally with favorites, Listen Later queue, collections, recent progress, and sentence-level notes, bookmarks, and highlights.
+- **Native PDF Viewer:** Read your PDFs exactly as they look, equipped with page sync, highlighting, search, and native playback controls.
+- **Daily Streak Tracking:** Keep your reading habits strong with built-in daily tracking that monitors and records your longest and current reading streaks.
+- **Audio Export:** Convert and export your readings into standard WAV audio files to listen to anywhere.
+- **Sleep Timer:** Set an automated sleep timer to stop playback automatically.
+- **Reading Lists:** Organize your library by creating custom reading lists and listen-later queues.
+- **Home Screen Widgets:** Control playback and view your current reading cover directly from your Android home screen.
+- **AI & Translation Integration:** Send selected text or generated prompts to AI/share targets and translation apps. External apps receive only the text the user explicitly sends.
+- **Dynamic Theming:** Deep UI customization including Material You, Liquid Glass, One UI-style, and High Contrast themes.
 
 ## Build
 
