@@ -121,10 +121,11 @@ import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -394,8 +395,8 @@ fun ReaderScreen(
                             Text("No readable text found.", modifier = Modifier.padding(18.dp))
                         } else {
                             var showPartMenu by remember(document.id, part.index) { mutableStateOf(false) }
-                            val sentenceBackground = MaterialTheme.colorScheme.primary.copy(alpha = 0.07f)
-                            val highlightBackground = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.62f)
+                            val sentenceBackground = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                            val highlightBackground = MaterialTheme.colorScheme.tertiaryContainer
                             val feedbackBackground = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
                             val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
                             val activeSentenceColor = sentenceBackground.toArgb()
@@ -447,8 +448,8 @@ fun ReaderScreen(
 
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha()),
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.surface,
                                 tonalElevation = 1.dp
                             ) {
                                 Column(
@@ -569,8 +570,8 @@ fun ReaderScreen(
 
                                     if (!note?.note.isNullOrBlank()) {
                                         Card(
-                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)),
-                                            shape = RoundedCornerShape(8.dp)
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                            shape = MaterialTheme.shapes.small
                                         ) {
                                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 Text("Note", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -579,7 +580,7 @@ fun ReaderScreen(
                                         }
                                     }
 
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f))
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                     Text(
                                         "(Part ${part.index + 1} of ${readerModel.parts.size})",
                                         modifier = Modifier.fillMaxWidth(),
@@ -901,8 +902,8 @@ fun SleepTimerDialog(
                 if (activeLabel != null) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
+                        shape = MaterialTheme.shapes.medium,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(activeLabel, fontWeight = FontWeight.Black)
@@ -1256,8 +1257,8 @@ private fun SelectedTextToolbar(
 ) {
     var showMore by remember { mutableStateOf(false) }
     Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.94f))
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.inverseSurface)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp).horizontalScroll(rememberScrollState()),
@@ -1307,8 +1308,8 @@ private fun SearchPanel(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(14.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedTextField(
@@ -1316,8 +1317,8 @@ private fun SearchPanel(
                 onValueChange = onQueryChange,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
+                    .clip(MaterialTheme.shapes.small)
+                    .background(MaterialTheme.colorScheme.surface),
                 label = { Text("Search in this document") },
                 placeholder = { Text("Find a word, phrase, formula, or name…") },
                 singleLine = true
@@ -1433,12 +1434,12 @@ private fun SmartOutlineDialog(
                                 .fillMaxWidth()
                                 .padding(start = (entry.level.coerceIn(0, 5) * 14).dp)
                                 .clickable { onJumpToSection(entry.index) },
-                            shape = RoundedCornerShape(16.dp),
+                            shape = MaterialTheme.shapes.small,
                             colors = CardDefaults.cardColors(
                                 containerColor = when {
-                                    active -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.86f)
-                                    entry.isHeading -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
-                                    else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.70f)
+                                    active -> MaterialTheme.colorScheme.primaryContainer
+                                    entry.isHeading -> MaterialTheme.colorScheme.surfaceVariant
+                                    else -> MaterialTheme.colorScheme.surface
                                 }
                             )
                         ) {
@@ -1727,8 +1728,8 @@ fun DocumentNotesDialog(
                             .trim()
                         Card(
                             modifier = Modifier.fillMaxWidth().clickable { onJumpToSection(note.chunkIndex) },
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                            shape = MaterialTheme.shapes.medium,
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1793,8 +1794,8 @@ private fun BookmarksOverviewDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onJumpToSection(bookmark.chunkIndex) },
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                            shape = MaterialTheme.shapes.medium,
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1848,7 +1849,7 @@ private fun PlayerPanel(
         shape = RoundedCornerShape(50),
         tonalElevation = 2.dp,
         shadowElevation = 2.dp,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+        color = MaterialTheme.colorScheme.surface
     ) {
         Row(
             modifier = Modifier

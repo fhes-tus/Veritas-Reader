@@ -29,7 +29,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalLocale
+
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -99,8 +99,8 @@ fun SettingsHubDialog(
                 ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("App status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
@@ -209,8 +209,8 @@ fun SettingsHubDialog(
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(22.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Release hardening notes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
@@ -225,7 +225,7 @@ fun SettingsHubDialog(
 
 @Composable
 fun SettingsHubSectionTitle(title: String) {
-    val currentLocale = LocalLocale.current.platformLocale
+    val currentLocale = Locale.getDefault()
     Text(
         title.uppercase(currentLocale),
         style = MaterialTheme.typography.labelLarge,
@@ -264,18 +264,18 @@ fun SettingsHubRow(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { onClick() },
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = if (enabled) {
                 MaterialTheme.colorScheme.surface
             } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                MaterialTheme.colorScheme.surfaceVariant
             }
         )
     ) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                modifier = Modifier.size(46.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(16.dp)),
+                modifier = Modifier.size(46.dp).background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.small),
                 contentAlignment = Alignment.Center
             ) {
                 Text(icon, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -528,9 +528,9 @@ fun AskAiSettingsDialog(
                                 onInstallAssistant(option.packageName)
                             }
                         },
-                        shape = RoundedCornerShape(18.dp),
+                        shape = MaterialTheme.shapes.small,
                         colors = CardDefaults.cardColors(
-                            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
                         )
                     ) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -576,7 +576,7 @@ fun VoiceStudioDialog(
     onOpenNarrationStudio: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val currentLocale = LocalLocale.current.platformLocale
+    val currentLocale = Locale.getDefault()
     var managerMenuExpanded by remember { mutableStateOf(false) }
     var engineMenuExpanded by remember { mutableStateOf(false) }
     var languageMenuExpanded by remember { mutableStateOf(false) }
@@ -861,8 +861,8 @@ fun NarrationStudioDialog(
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(if (settings.enabled) "🎭 Narration mode on" else "🎭 Narration mode off", fontWeight = FontWeight.Black)
@@ -943,8 +943,8 @@ fun NarrationStudioDialog(
                 Text("Preview classification", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f))
+                    shape = MaterialTheme.shapes.small,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(sample.take(260), maxLines = 5, overflow = TextOverflow.Ellipsis)
@@ -1002,8 +1002,8 @@ fun PronunciationRulesDialog(
                     rules.take(6).forEach { rule ->
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                            shape = MaterialTheme.shapes.small,
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("${rule.find} → ${rule.replaceWith}", fontWeight = FontWeight.SemiBold)

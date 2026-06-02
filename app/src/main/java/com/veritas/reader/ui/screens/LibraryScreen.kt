@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -32,6 +33,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import com.veritas.reader.*
 
@@ -80,6 +83,10 @@ fun LibraryScreen(
     onOpenAiCenter: () -> Unit,
     onOpenSettingsHub: () -> Unit,
     onRefreshMainPage: () -> Unit,
+    onPickFileBrowserFolder: () -> Unit,
+    onRequestAllFilesAccess: () -> Unit,
+    onRefreshFileBrowser: () -> Unit,
+    onImportBrowserFile: (VeritasBrowserFile) -> Unit,
     onBatchDeleteDocuments: (Set<String>) -> Unit,
     onBatchFavoriteDocuments: (Set<String>) -> Unit,
     onBatchQueueDocuments: (Set<String>) -> Unit,
@@ -89,7 +96,7 @@ fun LibraryScreen(
     val documents = uiState.documents
     val queuedDocuments = uiState.queuedDocuments
     val draftText = uiState.draftText
-    var libraryQuery by remember { mutableStateOf("") }
+    var libraryQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf("All") }
     var sourceFilter by remember { mutableStateOf("All") }
     var collectionFilter by remember { mutableStateOf("All") }
@@ -101,15 +108,22 @@ fun LibraryScreen(
     var confirmBatchDelete by remember { mutableStateOf(false) }
     var showBatchMenu by remember { mutableStateOf(false) }
     var showBatchCollectionDialog by remember { mutableStateOf(false) }
-    var batchCollectionDraft by remember { mutableStateOf("") }
+    var batchCollectionDraft by rememberSaveable { mutableStateOf("") }
     var libraryViewMode by remember { mutableStateOf(LibraryViewMode.MEDIUM) }
     var showLibraryViewMenu by remember { mutableStateOf(false) }
     var showImportMenu by remember { mutableStateOf(false) }
     var selectedHomeTab by remember { mutableStateOf(VeritasHomeTab.DASHBOARD) }
     var showDashboardSidebar by remember { mutableStateOf(false) }
+    var showFilesMenu by remember { mutableStateOf(false) }
     var showReadingStatsDashboard by remember { mutableStateOf(false) }
     var selectedAnnotationKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmAnnotationDelete by remember { mutableStateOf(false) }
+    var fileQuery by rememberSaveable { mutableStateOf("") }
+    var fileTab by remember { mutableStateOf(VeritasBrowserTab.ALL) }
+    var fileViewMode by remember { mutableStateOf(LibraryViewMode.MEDIUM) }
+    var fileSortMode by remember { mutableStateOf(VeritasBrowserSort.DATE) }
+    var fileSortAscending by remember { mutableStateOf(false) }
+    var showFileViewMenu by remember { mutableStateOf(false) }
     val libraryListState = rememberLazyListState()
     var lastMainPageRefreshAt by remember { mutableLongStateOf(0L) }
     val libraryFeatures = remember(documents.size, queuedDocuments.size) {
@@ -174,6 +188,12 @@ fun LibraryScreen(
         }.sortedByDescending { it.updatedAt }
     }
     val annotationSelectionMode = selectedAnnotationKeys.isNotEmpty()
+
+    LaunchedEffect(selectedHomeTab) {
+        if (selectedHomeTab == VeritasHomeTab.FILES) {
+            onRefreshFileBrowser()
+        }
+    }
 
     val visibleDocuments by remember(documents, queuedDocuments, libraryQuery, statusFilter, sourceFilter, collectionFilter, sortMode) {
         androidx.compose.runtime.derivedStateOf {
@@ -452,18 +472,58 @@ fun LibraryScreen(
         item { Spacer(modifier = Modifier.height(10.dp)) }
 
         item {
-            VeritasHomeTopBar(
-                selectedTab = selectedHomeTab,
-                onMenu = {
-                    when (selectedHomeTab) {
-                        VeritasHomeTab.DASHBOARD -> showDashboardSidebar = true
-                        VeritasHomeTab.LIBRARY -> showFilters = true
-                        VeritasHomeTab.FILES,
-                        VeritasHomeTab.BOOKMARKS_NOTES -> Unit
-                    }
-                },
-                onSettings = onOpenSettingsHub
-            )
+            Box {
+                VeritasHomeTopBar(
+                    selectedTab = selectedHomeTab,
+                    onMenu = {
+                        when (selectedHomeTab) {
+                            VeritasHomeTab.DASHBOARD -> showDashboardSidebar = true
+                            VeritasHomeTab.LIBRARY -> showFilters = true
+                            VeritasHomeTab.FILES -> showFilesMenu = true
+                            VeritasHomeTab.BOOKMARKS_NOTES -> Unit
+                        }
+                    },
+                    onSettings = onOpenSettingsHub
+                )
+                DropdownMenu(expanded = showFilesMenu, onDismissRequest = { showFilesMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("PDF and import settings") },
+                        onClick = {
+                            showFilesMenu = false
+                            onAdvancedPdfImport()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Refresh files") },
+                        onClick = {
+                            showFilesMenu = false
+                            onRefreshFileBrowser()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (uiState.fileBrowserAllFilesGranted) "All files access granted" else "Grant all files access") },
+                        enabled = !uiState.fileBrowserAllFilesGranted,
+                        onClick = {
+                            showFilesMenu = false
+                            onRequestAllFilesAccess()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Folders to scan") },
+                        onClick = {
+                            showFilesMenu = false
+                            onPickFileBrowserFolder()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Full folder browser") },
+                        onClick = {
+                            showFilesMenu = false
+                            onOpenFileBrowser()
+                        }
+                    )
+                }
+            }
         }
 
         if (selectedHomeTab == VeritasHomeTab.DASHBOARD) {
@@ -506,48 +566,54 @@ fun LibraryScreen(
         }
 
         if (selectedHomeTab == VeritasHomeTab.DASHBOARD) item {
-            DashboardQuickActions(
-                continueDocument = continueDocument,
-                documentCount = documents.size,
-                draftHasText = draftText.isNotBlank(),
-                onOpenContinue = { document -> onOpenDocument(document) },
-                onClearContinue = { document -> onClearContinueDocument(document) },
-                onImportClick = { showImportMenu = true },
-                onPasteClick = { showQuickPaste = true },
-                onClearClick = {
-                    continueDocument?.let(onClearContinueDocument) ?: onDraftTextChange("")
-                },
-                importMenuExpanded = showImportMenu,
-                onDismissImportMenu = { showImportMenu = false },
-                onOpenFile = {
-                    showImportMenu = false
-                    onImportFile()
-                },
-                onOpenFileBrowser = {
-                    showImportMenu = false
-                    onOpenFileBrowser()
-                },
-                onOpenImportSettings = {
-                    showImportMenu = false
-                    onAdvancedPdfImport()
-                },
-                onPasteText = {
-                    showImportMenu = false
-                    showQuickPaste = true
-                }
-            )
+            if (documents.isEmpty()) {
+                EmbeddedOnboardingBlock(
+                    onOpenFileBrowser = onOpenFileBrowser,
+                    onPasteText = {
+                        showImportMenu = false
+                        showQuickPaste = true
+                    }
+                )
+            } else {
+                DashboardQuickActions(
+                    continueDocument = continueDocument,
+                    documentCount = documents.size,
+                    onOpenContinue = { document -> onOpenDocument(document) },
+                    onClearContinue = { document -> onClearContinueDocument(document) },
+                    onImportClick = { showImportMenu = true },
+                    onPasteClick = { showQuickPaste = true },
+                    importMenuExpanded = showImportMenu,
+                    onDismissImportMenu = { showImportMenu = false },
+                    onOpenFile = {
+                        showImportMenu = false
+                        onImportFile()
+                    },
+                    onOpenFileBrowser = {
+                        showImportMenu = false
+                        onOpenFileBrowser()
+                    },
+                    onOpenImportSettings = {
+                        showImportMenu = false
+                        onAdvancedPdfImport()
+                    },
+                    onPasteText = {
+                        showImportMenu = false
+                        showQuickPaste = true
+                    }
+                )
+            }
         }
 
         if (selectedHomeTab == VeritasHomeTab.DASHBOARD && queuedDocuments.isNotEmpty()) {
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { showQueue = true },
-                    shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            modifier = Modifier.size(56.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(18.dp)),
+                            modifier = Modifier.size(56.dp).background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.medium),
                             contentAlignment = Alignment.Center
                         ) { Text("▶", fontWeight = FontWeight.Black) }
                         Spacer(modifier = Modifier.width(14.dp))
@@ -563,11 +629,33 @@ fun LibraryScreen(
 
         if (selectedHomeTab == VeritasHomeTab.FILES) {
             item {
-                FilesHomePanel(
-                    onOpenBrowser = onOpenFileBrowser,
-                    onOpenFile = onImportFile,
-                    onImportSettings = onAdvancedPdfImport,
-                    onPasteText = { showQuickPaste = true }
+                FilesTabPanel(
+                    entries = uiState.fileBrowserFiles,
+                    query = fileQuery,
+                    onQueryChange = { fileQuery = it },
+                    selectedTab = fileTab,
+                    onSelectedTabChange = { fileTab = it },
+                    viewMode = fileViewMode,
+                    onViewModeChange = { fileViewMode = it },
+                    sortMode = fileSortMode,
+                    sortAscending = fileSortAscending,
+                    onSortModeChange = { fileSortMode = it },
+                    onToggleSortOrder = { fileSortAscending = !fileSortAscending },
+                    showViewMenu = showFileViewMenu,
+                    onShowViewMenu = { showFileViewMenu = true },
+                    onDismissViewMenu = { showFileViewMenu = false },
+                    scanning = uiState.fileBrowserScanning,
+                    message = uiState.fileBrowserMessage,
+                    allFilesAccessGranted = uiState.fileBrowserAllFilesGranted,
+                    approvedRootCount = uiState.fileBrowserRoots.size,
+                    importing = uiState.importInProgress,
+                    importingName = uiState.importSourceName,
+                    onImportFile = onImportBrowserFile,
+                    onRefresh = onRefreshFileBrowser,
+                    onOpenImportSettings = onAdvancedPdfImport,
+                    onRequestAllFilesAccess = onRequestAllFilesAccess,
+                    onPickFolder = onPickFileBrowserFolder,
+                    onOpenFullBrowser = onOpenFileBrowser
                 )
             }
         }
@@ -751,8 +839,8 @@ fun LibraryScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("No matching readings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
@@ -827,11 +915,11 @@ private fun VeritasHomeTopBar(
     onMenu: () -> Unit,
     onSettings: () -> Unit
 ) {
-    val showMenu = selectedTab == VeritasHomeTab.DASHBOARD || selectedTab == VeritasHomeTab.LIBRARY
+    val showMenu = selectedTab == VeritasHomeTab.DASHBOARD || selectedTab == VeritasHomeTab.LIBRARY || selectedTab == VeritasHomeTab.FILES
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.medium,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -852,7 +940,7 @@ private fun VeritasHomeTopBar(
             VeritasWordmark(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = if (showMenu) 42.dp else 0.dp)
+                    .padding(start = 42.dp)
                     .offset(y = (-2).dp)
             )
             TextButton(
@@ -893,7 +981,12 @@ private fun DashboardSidebarDialog(
                     .statusBarsPadding()
                     .navigationBarsPadding()
                     .padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
-                shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp, topStart = 20.dp, bottomStart = 20.dp),
+                shape = RoundedCornerShape(
+                    topEnd = MaterialTheme.shapes.large.topEnd,
+                    bottomEnd = MaterialTheme.shapes.large.bottomEnd,
+                    topStart = MaterialTheme.shapes.medium.topStart,
+                    bottomStart = MaterialTheme.shapes.medium.bottomStart
+                ),
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 6.dp,
                 shadowElevation = 8.dp
@@ -930,8 +1023,8 @@ private fun DashboardSidebarDialog(
 @Composable
 private fun ReaderTrackerSidebarCard(snapshot: ReaderTrackerSnapshot, onOpenStats: () -> Unit) {
     Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f))
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -981,7 +1074,7 @@ private fun ReadingStatsDashboardDialog(snapshot: ReaderTrackerSnapshot, onDismi
                     }
                 }
                 item {
-                    Card(shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Card(shape = MaterialTheme.shapes.large, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                                 BigStat("${snapshot.currentStreak}", "Current streak", Modifier.weight(1f))
@@ -1010,7 +1103,7 @@ private fun ReadingStatsDashboardDialog(snapshot: ReaderTrackerSnapshot, onDismi
                     }
                 } else {
                     items(snapshot.recentCompletions, key = { it.documentId }) { completion ->
-                        Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                        Card(shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                             Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Text("✓", fontWeight = FontWeight.Black, modifier = Modifier.width(32.dp))
                                 Column(modifier = Modifier.weight(1f)) {
@@ -1033,7 +1126,7 @@ private fun SidebarAction(title: String, subtitle: String, icon: String, onClick
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp)),
+            modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small),
             contentAlignment = Alignment.Center
         ) {
             Text(icon, fontWeight = FontWeight.Black)
@@ -1050,7 +1143,7 @@ private fun SidebarAction(title: String, subtitle: String, icon: String, onClick
 private fun CompactStat(value: String, label: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f), RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -1062,7 +1155,7 @@ private fun CompactStat(value: String, label: String, modifier: Modifier = Modif
 
 @Composable
 private fun BigStat(value: String, label: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(modifier = modifier, shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
@@ -1083,7 +1176,15 @@ private fun MiniWeekBars(values: List<Long>, height: androidx.compose.ui.unit.Dp
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight((value.toFloat() / max.toFloat()).coerceIn(0.08f, 1f))
-                    .background(MaterialTheme.colorScheme.secondary, RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                    .background(
+                        MaterialTheme.colorScheme.secondary,
+                        RoundedCornerShape(
+                            topStart = MaterialTheme.shapes.extraSmall.topStart,
+                            topEnd = MaterialTheme.shapes.extraSmall.topEnd,
+                            bottomEnd = androidx.compose.foundation.shape.CornerSize(0.dp),
+                            bottomStart = androidx.compose.foundation.shape.CornerSize(0.dp)
+                        )
+                    )
             )
         }
     }
@@ -1104,12 +1205,10 @@ private fun formatTrackerDuration(millis: Long): String {
 private fun DashboardQuickActions(
     continueDocument: SavedDocument?,
     documentCount: Int,
-    draftHasText: Boolean,
     onOpenContinue: (SavedDocument) -> Unit,
     onClearContinue: (SavedDocument) -> Unit,
     onImportClick: () -> Unit,
     onPasteClick: () -> Unit,
-    onClearClick: () -> Unit,
     importMenuExpanded: Boolean,
     onDismissImportMenu: () -> Unit,
     onOpenFile: () -> Unit,
@@ -1123,10 +1222,10 @@ private fun DashboardQuickActions(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(enabled = continueDocument != null) { continueDocument?.let(onOpenContinue) },
-            shape = RoundedCornerShape(12.dp),
+            shape = MaterialTheme.shapes.small,
             colors = CardDefaults.cardColors(
                 containerColor = if (disabled) {
-                    MaterialTheme.colorScheme.surfaceContainerLow().copy(alpha = 0.62f)
+                    MaterialTheme.colorScheme.surfaceContainerLow()
                 } else {
                     MaterialTheme.colorScheme.surface
                 }
@@ -1146,7 +1245,7 @@ private fun DashboardQuickActions(
                     Text("Continue Listening", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
                     if (continueDocument == null) {
                         Text(
-                            if (documentCount == 0) "No document currently open" else "Open a reading to resume it here",
+                            if (documentCount == 0) "Open a file to start reading" else "Open a reading to resume it here",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium
                         )
@@ -1169,7 +1268,7 @@ private fun DashboardQuickActions(
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = MaterialTheme.shapes.small,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column {
@@ -1197,15 +1296,6 @@ private fun DashboardQuickActions(
                     iconBackground = MaterialTheme.colorScheme.secondaryContainer,
                     iconForeground = MaterialTheme.colorScheme.onSecondaryContainer,
                     onClick = onPasteClick
-                )
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                DashboardActionRow(
-                    icon = "×",
-                    title = "Clear",
-                    body = if (continueDocument != null) "Clear current resume point" else if (draftHasText) "Clear pasted draft" else "Workspace is already clear",
-                    iconBackground = MaterialTheme.colorScheme.errorContainer,
-                    iconForeground = MaterialTheme.colorScheme.onErrorContainer,
-                    onClick = onClearClick
                 )
             }
         }
@@ -1303,61 +1393,310 @@ private fun LibrarySearchAndFilters(
 }
 
 @Composable
-private fun FilesHomePanel(
-    onOpenBrowser: () -> Unit,
-    onOpenFile: () -> Unit,
-    onImportSettings: () -> Unit,
-    onPasteText: () -> Unit
+private fun FilesTabPanel(
+    entries: List<VeritasBrowserFile>,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    selectedTab: VeritasBrowserTab,
+    onSelectedTabChange: (VeritasBrowserTab) -> Unit,
+    viewMode: LibraryViewMode,
+    onViewModeChange: (LibraryViewMode) -> Unit,
+    sortMode: VeritasBrowserSort,
+    sortAscending: Boolean,
+    onSortModeChange: (VeritasBrowserSort) -> Unit,
+    onToggleSortOrder: () -> Unit,
+    showViewMenu: Boolean,
+    onShowViewMenu: () -> Unit,
+    onDismissViewMenu: () -> Unit,
+    scanning: Boolean,
+    message: String?,
+    allFilesAccessGranted: Boolean,
+    approvedRootCount: Int,
+    importing: Boolean,
+    importingName: String,
+    onImportFile: (VeritasBrowserFile) -> Unit,
+    onRefresh: () -> Unit,
+    onOpenImportSettings: () -> Unit,
+    onRequestAllFilesAccess: () -> Unit,
+    onPickFolder: () -> Unit,
+    onOpenFullBrowser: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Files", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
-            Text(
-                "Browse phone storage, approved folders, and importable reading files.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+    val documentEntries = remember(entries) {
+        entries.filter { !it.isDirectory && it.isSupported }
+    }
+    val visibleEntries = remember(documentEntries, query, selectedTab, sortMode, sortAscending) {
+        val needle = query.trim()
+        val filtered = documentEntries
+            .filter { selectedTab == VeritasBrowserTab.ALL || it.type == selectedTab }
+            .filter { file ->
+                needle.isBlank() ||
+                    file.name.contains(needle, ignoreCase = true) ||
+                    file.relativePath.contains(needle, ignoreCase = true) ||
+                    file.rootLabel.contains(needle, ignoreCase = true)
+            }
+        val comparator = when (sortMode) {
+            VeritasBrowserSort.NAME -> compareBy<VeritasBrowserFile> { it.name.lowercase(Locale.getDefault()) }
+            VeritasBrowserSort.DATE -> compareBy { it.modifiedAt }
+            VeritasBrowserSort.SIZE -> compareBy { it.sizeBytes }
+            VeritasBrowserSort.PATH -> compareBy { it.relativePath.lowercase(Locale.getDefault()) }
         }
-        Card(
+        if (sortAscending) filtered.sortedWith(comparator) else filtered.sortedWith(comparator.reversed())
+    }
+    val typeTabs = listOf(
+        VeritasBrowserTab.ALL,
+        VeritasBrowserTab.BOOKS,
+        VeritasBrowserTab.PDF,
+        VeritasBrowserTab.DOC,
+        VeritasBrowserTab.HTML,
+        VeritasBrowserTab.TXT
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("Files", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    "${documentEntries.size} supported file${if (documentEntries.size == 1) "" else "s"} found",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            SoftChip(sortMode.label)
+            Box {
+                TextButton(onClick = onShowViewMenu) { Text("${viewMode.icon} ⋮") }
+                DropdownMenu(expanded = showViewMenu, onDismissRequest = onDismissViewMenu) {
+                    LibraryViewMode.values().forEach { mode ->
+                        DropdownMenuItem(
+                            text = { Text("${mode.icon} ${mode.label}") },
+                            onClick = {
+                                onViewModeChange(mode)
+                                onDismissViewMenu()
+                            }
+                        )
+                    }
+                    HorizontalDivider()
+                    VeritasBrowserSort.entries.forEach { mode ->
+                        DropdownMenuItem(
+                            text = { Text("Sort by ${mode.label}") },
+                            onClick = {
+                                onSortModeChange(mode)
+                                onDismissViewMenu()
+                            }
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text(if (sortAscending) "Descending order" else "Ascending order") },
+                        onClick = {
+                            onToggleSortOrder()
+                            onDismissViewMenu()
+                        }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Refresh files") },
+                        onClick = {
+                            onRefresh()
+                            onDismissViewMenu()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("PDF and import settings") },
+                        onClick = {
+                            onOpenImportSettings()
+                            onDismissViewMenu()
+                        }
+                    )
+                }
+            }
+        }
+
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column {
-                DashboardActionRow(
-                    icon = "⌂",
-                    title = "Phone storage",
-                    body = "Open the navigable file browser",
-                    iconBackground = MaterialTheme.colorScheme.secondaryContainer,
-                    iconForeground = MaterialTheme.colorScheme.onSecondaryContainer,
-                    onClick = onOpenBrowser
-                )
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                DashboardActionRow(
-                    icon = "+",
-                    title = "Import File",
-                    body = "Use Android's picker for one document",
-                    iconBackground = MaterialTheme.colorScheme.primaryContainer,
-                    iconForeground = MaterialTheme.colorScheme.onPrimaryContainer,
-                    onClick = onOpenFile
-                )
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                DashboardActionRow(
-                    icon = "Aa",
-                    title = "Paste text",
-                    body = "Create a reading from clipboard text",
-                    iconBackground = MaterialTheme.colorScheme.surfaceVariant,
-                    iconForeground = MaterialTheme.colorScheme.onSurfaceVariant,
-                    onClick = onPasteText
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+                leadingIcon = { Text("⌕", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                placeholder = { Text("Search files...") },
+                singleLine = true,
+                shape = RoundedCornerShape(50)
+            )
+            OutlinedButton(
+                onClick = onRefresh,
+                enabled = !scanning && (allFilesAccessGranted || approvedRootCount > 0),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                shape = RoundedCornerShape(50)
+            ) { Text("↻") }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            typeTabs.forEach { tab ->
+                val count = if (tab == VeritasBrowserTab.ALL) documentEntries.size else documentEntries.count { it.type == tab }
+                if (selectedTab == tab) {
+                    Button(onClick = { onSelectedTabChange(tab) }, shape = RoundedCornerShape(50)) { Text("${tab.label} $count") }
+                } else {
+                    OutlinedButton(onClick = { onSelectedTabChange(tab) }, shape = RoundedCornerShape(50)) { Text("${tab.label} $count") }
+                }
+            }
+        }
+
+        if (!allFilesAccessGranted && approvedRootCount == 0) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Open phone files", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                    Text(
+                        "Grant All Files access to list supported documents here, or approve a specific folder.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(onClick = onRequestAllFilesAccess, modifier = Modifier.fillMaxWidth()) { Text("Grant all files access") }
+                    OutlinedButton(onClick = onPickFolder, modifier = Modifier.fillMaxWidth()) { Text("Choose folder") }
+                }
+            }
+        }
+
+        message?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        if (importing) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                Text(
+                    "Importing ${importingName.ifBlank { "selected file" }}",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
-        OutlinedButton(onClick = onImportSettings, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(50)) {
-            Text("PDF and import settings")
+
+        when {
+            scanning -> Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text("Scanning supported files...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            visibleEntries.isEmpty() && (allFilesAccessGranted || approvedRootCount > 0) -> HomeActionPanel(
+                title = "No supported files visible",
+                body = "Refresh, change filters, or open the full folder browser to inspect protected folders.",
+                primaryLabel = "Refresh",
+                onPrimary = onRefresh,
+                secondaryLabel = "Full browser",
+                onSecondary = onOpenFullBrowser
+            )
+            visibleEntries.isNotEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(if (viewMode == LibraryViewMode.LIST) 6.dp else 10.dp)) {
+                visibleEntries.forEach { file ->
+                    FileTabDocumentRow(
+                        file = file,
+                        viewMode = viewMode,
+                        importing = importing,
+                        onImport = { onImportFile(file) }
+                    )
+                }
+            }
         }
     }
 }
 
-private fun ColorScheme.surfaceContainerLow(): Color = surfaceVariant.copy(alpha = 0.36f)
+@Composable
+private fun FileTabDocumentRow(
+    file: VeritasBrowserFile,
+    viewMode: LibraryViewMode,
+    importing: Boolean,
+    onImport: () -> Unit
+) {
+    val dense = viewMode == LibraryViewMode.SMALL || viewMode == LibraryViewMode.LIST
+    val showDetails = viewMode == LibraryViewMode.DETAILS || viewMode == LibraryViewMode.LIST
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(enabled = !importing) { onImport() },
+        shape = if (dense) MaterialTheme.shapes.medium else MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier.padding(if (dense) 10.dp else 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(if (dense) 42.dp else 54.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.small),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(file.type.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(file.name, maxLines = if (showDetails) 2 else 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "${fileTabFileSize(file.sizeBytes)} • ${fileTabModified(file.modifiedAt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (showDetails) {
+                    Text(
+                        fileTabFolderLine(file),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            TextButton(onClick = onImport, enabled = !importing) { Text("Open") }
+        }
+    }
+}
+
+private fun fileTabFolderLine(file: VeritasBrowserFile): String {
+    val folderPath = file.relativePath.substringBeforeLast('/', missingDelimiterValue = "")
+    return if (folderPath.isBlank()) file.rootLabel else "${file.rootLabel}/$folderPath"
+}
+
+private fun fileTabFileSize(bytes: Long): String {
+    if (bytes <= 0L) return "Unknown size"
+    val units = listOf("B", "kB", "MB", "GB")
+    var value = bytes.toDouble()
+    var unitIndex = 0
+    while (value >= 1024.0 && unitIndex < units.lastIndex) {
+        value /= 1024.0
+        unitIndex++
+    }
+    return if (unitIndex == 0) {
+        "$bytes ${units[unitIndex]}"
+    } else {
+        String.format(Locale.getDefault(), "%.1f %s", value, units[unitIndex])
+    }
+}
+
+private fun fileTabModified(timestamp: Long): String {
+    if (timestamp <= 0L) return "Unknown date"
+    return SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(Date(timestamp))
+}
+
+private fun ColorScheme.surfaceContainerLow(): Color = surfaceVariant
 
 @Composable
 fun DashboardPanel(
@@ -1374,8 +1713,8 @@ fun DashboardPanel(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(30.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1414,7 +1753,7 @@ private fun HomeActionPanel(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1447,7 +1786,7 @@ private fun AnnotationDocumentCard(
     val selectedDocumentNote = documentNoteKey in selectedKeys
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1462,8 +1801,8 @@ private fun AnnotationDocumentCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            if (selectedDocumentNote) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-                            RoundedCornerShape(14.dp)
+                            if (selectedDocumentNote) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                            MaterialTheme.shapes.small
                         )
                         .pointerInput(selectionMode, selectedDocumentNote, documentNoteKey) {
                             detectTapGestures(
@@ -1498,8 +1837,8 @@ private fun AnnotationDocumentCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else Color.Transparent,
-                            RoundedCornerShape(14.dp)
+                            if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            MaterialTheme.shapes.small
                         )
                         .pointerInput(selectionMode, selected, annotation.stableKey) {
                             detectTapGestures(
@@ -1555,8 +1894,8 @@ fun LibraryControlsCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1645,8 +1984,8 @@ fun QueueSection(
     onClearQueue: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1664,8 +2003,8 @@ fun QueueSection(
 
             if (queuedDocuments.isEmpty()) {
                 Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f))
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Text(
                         "Use Queue on any document card to add it here. Queue order controls what plays next in the background service.",
@@ -1705,15 +2044,15 @@ fun QueueItemRow(
     val progress = progressFraction(document)
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)),
-        shape = RoundedCornerShape(20.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
                         .size(34.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp)),
+                        .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.small),
                     contentAlignment = Alignment.Center
                 ) {
                     Text("$position", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
@@ -1738,8 +2077,8 @@ fun QueueItemRow(
 @Composable
 fun EmptyLibraryCard(onImportFile: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
-        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = MaterialTheme.shapes.large,
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1798,13 +2137,13 @@ fun DocumentCard(
                     }
                 )
             },
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.medium,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
+                MaterialTheme.colorScheme.primaryContainer
             } else {
-                MaterialTheme.colorScheme.surface.copy(alpha = 0.74f)
+                MaterialTheme.colorScheme.surface
             }
         )
     ) {
@@ -1827,7 +2166,7 @@ fun DocumentCard(
                                 if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
                             )
                         ),
-                        RoundedCornerShape(18.dp)
+                        MaterialTheme.shapes.medium
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -1932,16 +2271,16 @@ fun DocumentTileCard(
                 onTap = { if (selectionMode) onToggleSelected() else onOpen() }
             )
         },
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
         )
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 modifier = Modifier.fillMaxWidth().height(98.dp).background(
                     Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surfaceVariant)),
-                    RoundedCornerShape(18.dp)
+                    MaterialTheme.shapes.medium
                 ),
                 contentAlignment = Alignment.Center
             ) {
@@ -1967,6 +2306,66 @@ fun DocumentTileCard(
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { showActions = false; onDelete() })
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmbeddedOnboardingBlock(
+    onOpenFileBrowser: () -> Unit,
+    onPasteText: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.medium),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("🎧", fontSize = 40.sp)
+            }
+            Text(
+                "Listen to anything, eyes-free.",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Black,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Import PDFs, EPUBs, documents, or paste web articles to get started.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = onOpenFileBrowser,
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Text("Browse Files")
+                }
+                FilledTonalButton(
+                    onClick = onPasteText,
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Text("Paste Text")
                 }
             }
         }

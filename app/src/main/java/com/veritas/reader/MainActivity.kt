@@ -137,7 +137,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -282,7 +281,7 @@ fun BrandMark(modifier: Modifier = Modifier, compact: Boolean = false) {
         contentDescription = "Veritas",
         modifier = modifier
             .size(if (compact) 42.dp else 58.dp)
-            .clip(RoundedCornerShape(if (compact) 10.dp else 16.dp)),
+            .clip(if (compact) MaterialTheme.shapes.extraSmall else MaterialTheme.shapes.small),
         contentScale = ContentScale.Fit
     )
 }
@@ -355,7 +354,7 @@ fun SoftChip(label: String, emphasis: Boolean = false) {
     Box(
         modifier = Modifier
             .background(
-                if (emphasis) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                if (emphasis) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                 VeritasPackStyle.chipShape()
             )
             .padding(horizontal = 11.dp, vertical = 6.dp),
@@ -930,6 +929,22 @@ private fun VeritasReaderApp(
                     onOpenAiCenter = { viewModel.updateState { it.copy(showAiCenter = true) } },
                     onOpenSettingsHub = { viewModel.updateState { it.copy(showSettingsHub = true) } },
                     onRefreshMainPage = { viewModel.refreshAll() },
+                    onPickFileBrowserFolder = { folderPickerLauncher.launch(null) },
+                    onRequestAllFilesAccess = {
+                        openAllFilesAccessSettings(context)
+                        viewModel.refreshFileBrowserAccessState()
+                    },
+                    onRefreshFileBrowser = { viewModel.refreshFileBrowser() },
+                    onImportBrowserFile = { file ->
+                        if (file.isSupported && !file.isDirectory) {
+                            viewModel.importDocumentFromUri(
+                                uri = file.uri,
+                                pdfOptions = uiState.advancedPdfOptions,
+                                textOptions = uiState.textImportOptions,
+                                sourceNameHint = file.name
+                            )
+                        }
+                    },
                     onBatchDeleteDocuments = { viewModel.deleteDocuments(it) },
                     onBatchFavoriteDocuments = { viewModel.favoriteDocuments(it) },
                     onBatchQueueDocuments = { viewModel.queueDocuments(it) },
@@ -1931,7 +1946,7 @@ private fun FileBrowserDialog(
                     onClick = onOpenFilePicker,
                     enabled = !importing,
                     modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(22.dp),
-                    shape = RoundedCornerShape(22.dp),
+                    shape = MaterialTheme.shapes.medium,
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp)
                 ) {
                     Text("＋ Import")
@@ -1962,8 +1977,8 @@ private fun FileBrowserEmptyState(
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Card(
             modifier = Modifier.fillMaxWidth().padding(24.dp),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f))
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("No file access yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
@@ -1983,12 +1998,12 @@ private fun ImportProgressOverlay(title: String) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.42f))
+            .background(MaterialTheme.colorScheme.scrim)
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
-            shape = RoundedCornerShape(24.dp),
+            shape = MaterialTheme.shapes.large,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
         ) {
@@ -2030,12 +2045,12 @@ private fun FileBrowserFileRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled) { action() },
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = if (file.isSupported || file.isDirectory) {
                 MaterialTheme.colorScheme.surface
             } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f)
+                MaterialTheme.colorScheme.surfaceVariant
             }
         )
     ) {
@@ -2043,7 +2058,7 @@ private fun FileBrowserFileRow(
             Box(
                 modifier = Modifier.size(48.dp).background(
                     if (file.isDirectory) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primaryContainer,
-                    RoundedCornerShape(14.dp)
+                    MaterialTheme.shapes.small
                 ),
                 contentAlignment = Alignment.Center
             ) {
@@ -2199,12 +2214,12 @@ private fun ReadingHistoryRow(
     val safeIndex = entry.currentIndex.coerceIn(0, safeChunkCount - 1)
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onOpen() },
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp)),
+                modifier = Modifier.size(44.dp).background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.small),
                 contentAlignment = Alignment.Center
             ) {
                 Text(document.sourceLabel.take(3).uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black)
@@ -2528,13 +2543,13 @@ private fun SyncCenterDialog(
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(26.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Box(
-                                modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(18.dp)),
+                                modifier = Modifier.size(48.dp).background(MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text("⇅", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Black, fontSize = 22.sp)
@@ -2553,8 +2568,8 @@ private fun SyncCenterDialog(
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("What the sync file includes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
@@ -2572,8 +2587,8 @@ private fun SyncCenterDialog(
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Manual sync flow", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
@@ -2597,8 +2612,8 @@ private fun SyncCenterDialog(
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Future cloud sync", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
@@ -2643,8 +2658,8 @@ private fun BackupRestoreDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)),
-                    shape = RoundedCornerShape(20.dp)
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    shape = MaterialTheme.shapes.medium
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Current library", fontWeight = FontWeight.Black)
@@ -2676,8 +2691,8 @@ private fun BackupStatusBlock(
     if (!inProgress && message.isNullOrBlank()) return
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-        shape = RoundedCornerShape(18.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = MaterialTheme.shapes.medium
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (inProgress) {
@@ -2764,8 +2779,8 @@ private fun AiFreeModeDialog(
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Free AI approach", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
@@ -2893,8 +2908,8 @@ private fun AiAppStudyDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-                    shape = RoundedCornerShape(20.dp)
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    shape = MaterialTheme.shapes.medium
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(document.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
@@ -3003,7 +3018,7 @@ private fun AiAppStudyDialog(
                             Text("Saved custom prompts will appear here.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             templates.forEach { template ->
-                                Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))) {
+                                Card(shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text(template.title, fontWeight = FontWeight.Black)
                                         Text(template.instruction, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -3025,7 +3040,7 @@ private fun AiAppStudyDialog(
                                 TextButton(onClick = onClearHistory) { Text("Clear history") }
                             }
                             history.take(12).forEach { item ->
-                                Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))) {
+                                Card(shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text("${item.promptType} • ${item.scope}", fontWeight = FontWeight.Black)
                                         Text(item.documentTitle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -3190,8 +3205,8 @@ private fun StudyCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f))
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
@@ -3451,7 +3466,7 @@ private fun TextEditorDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.94f))
+                        .background(MaterialTheme.colorScheme.inverseSurface)
                         .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -3582,7 +3597,7 @@ private fun TutorialDialog(
                                 modifier = Modifier
                                     .size(112.dp)
                                     .graphicsLayer(scaleX = pulse, scaleY = pulse)
-                                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(28.dp)),
+                                    .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.large),
                                 contentAlignment = Alignment.Center
                             ) {
                                 BrandMark(compact = true)
@@ -3610,7 +3625,7 @@ private fun TutorialDialog(
                             label = { Text("Your preferred name") },
                             placeholder = { Text("Name for the dashboard welcome") },
                             singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
+                            shape = MaterialTheme.shapes.small
                         )
                         Text(
                             "This is used to personalize your dashboard and reading experience.",
@@ -3686,22 +3701,22 @@ private fun TutorialDialog(
 private fun TutorialStage(frame: TutorialFrame, progress: Float, pulse: Float) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f))
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(170.dp)
-                    .background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme), RoundedCornerShape(22.dp)),
+                    .background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme), MaterialTheme.shapes.medium),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
                         .size(118.dp)
                         .graphicsLayer(scaleX = pulse, scaleY = pulse)
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f), RoundedCornerShape(28.dp)),
+                        .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.large),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(frame.icon, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
@@ -3712,7 +3727,7 @@ private fun TutorialStage(frame: TutorialFrame, progress: Float, pulse: Float) {
                         .padding(bottom = 14.dp)
                         .fillMaxWidth(0.62f)
                         .height(6.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f), CircleShape),
+                        .background(MaterialTheme.colorScheme.outlineVariant, CircleShape),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Box(
@@ -3744,12 +3759,12 @@ private fun TutorialStep(number: String, title: String, body: String, action: ((
             .fillMaxWidth()
             .graphicsLayer(scaleX = scale, scaleY = scale)
             .clickable { onSelect() },
-        shape = RoundedCornerShape(20.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.62f)
+                MaterialTheme.colorScheme.primaryContainer
             } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                MaterialTheme.colorScheme.surfaceVariant
             }
         )
     ) {
@@ -3810,8 +3825,8 @@ private fun FloatingRecordOverlay(
                         offsetY += dragAmount.y
                     }
                 },
-            shape = RoundedCornerShape(if (awaitingDecision) 24.dp else 18.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            shape = if (awaitingDecision) MaterialTheme.shapes.large else MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surface,
             tonalElevation = 8.dp,
             shadowElevation = 8.dp
         ) {
@@ -3907,8 +3922,8 @@ private fun AppHealthDialog(
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f))
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Veritas Reader beta", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
@@ -3956,8 +3971,8 @@ private fun AppHealthDialog(
 private fun ReadinessBlock(title: String, items: List<String>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.76f))
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
@@ -4086,7 +4101,7 @@ fun themePreviewColors(themeId: String): List<Color> {
 fun AnnotationPill(label: String) {
     Box(
         modifier = Modifier
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f), RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(50))
             .padding(horizontal = 10.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center
     ) {
