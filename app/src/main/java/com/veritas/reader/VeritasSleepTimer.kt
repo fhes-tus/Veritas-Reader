@@ -14,11 +14,14 @@ enum class VeritasSleepTimerAction(val label: String) {
 
 data class VeritasSleepTimerRequest(
     val durationMillis: Long,
-    val action: VeritasSleepTimerAction
+    val action: VeritasSleepTimerAction,
+    val stopAtEndOfSection: Boolean = false
 ) {
     init {
-        require(durationMillis in MIN_DURATION_MILLIS..MAX_DURATION_MILLIS) {
-            "Sleep timer duration must be between 1 minute and 12 hours."
+        if (!stopAtEndOfSection) {
+            require(durationMillis in MIN_DURATION_MILLIS..MAX_DURATION_MILLIS) {
+                "Sleep timer duration must be between 1 minute and 12 hours."
+            }
         }
     }
 
@@ -34,16 +37,18 @@ data class VeritasSleepTimerRequest(
 data class VeritasSleepTimerSnapshot(
     val durationMillis: Long,
     val endsAtMillis: Long,
-    val action: VeritasSleepTimerAction
+    val action: VeritasSleepTimerAction,
+    val stopAtEndOfSection: Boolean = false
 ) {
     fun remainingMillis(nowMillis: Long = System.currentTimeMillis()): Long =
-        (endsAtMillis - nowMillis).coerceAtLeast(0L)
+        if (stopAtEndOfSection) 0L else (endsAtMillis - nowMillis).coerceAtLeast(0L)
 
     fun isActive(nowMillis: Long = System.currentTimeMillis()): Boolean =
-        remainingMillis(nowMillis) > 0L
+        stopAtEndOfSection || remainingMillis(nowMillis) > 0L
 
     fun menuLabel(nowMillis: Long = System.currentTimeMillis()): String =
-        "Sleep timer • ${VeritasSleepTimerFormatter.formatRemaining(remainingMillis(nowMillis))}"
+        if (stopAtEndOfSection) "Sleep timer • End of section"
+        else "Sleep timer • ${VeritasSleepTimerFormatter.formatRemaining(remainingMillis(nowMillis))}"
 }
 
 object VeritasSleepTimerPresets {

@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -52,6 +53,8 @@ class PlaybackService : MediaSessionService() {
     private var chunks: List<String> = emptyList()
     private var artworkDocumentId: String? = null
     private var notificationArtwork: Bitmap? = null
+    private var artworkBytes: ByteArray? = null
+    private var artworkBytesDocumentId: String? = null
     private var activeChunkUtteranceId: String? = null
     private var activeChunkIndex = -1
     private var activeChunkSpeechText = ""
@@ -64,8 +67,13 @@ class PlaybackService : MediaSessionService() {
     private var resumeWordCount = 0
     private var pendingJumpCharOffset: Int? = null
     private var sleepTimerRunnable: Runnable? = null
+    // When true, the sleep timer has fired but we are mid-sentence.
+    // The timer action will execute at the next sentence boundary (onDone)
+    // so playback never cuts off mid-word.
+    private var pendingTimerFire = false
 
     private var audioFocusRequest: android.media.AudioFocusRequest? = null
+    private var pausedDueToTransientFocusLoss = false
     private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
 
     override fun onCreate() {
@@ -138,6 +146,7 @@ class PlaybackService : MediaSessionService() {
         PlaybackStateStore.pitch = extras?.getFloat(PlaybackActions.EXTRA_PITCH, PlaybackStateStore.pitch)
             ?.coerceIn(0.7f, 1.4f) ?: PlaybackStateStore.pitch
 
+        pausedDueToTransientFocusLoss = false
         if (!loadDocument(documentId, startIndex)) return
 
         pendingJumpCharOffset = charOffset
@@ -201,8 +210,9 @@ class PlaybackService : MediaSessionService() {
     private fun handleSetSleepTimer(extras: Bundle?) {
         val durationMillis = extras?.getLong(PlaybackActions.EXTRA_SLEEP_TIMER_DURATION_MILLIS, 0L) ?: 0L
         val action = VeritasSleepTimerAction.fromName(extras?.getString(PlaybackActions.EXTRA_SLEEP_TIMER_ACTION))
+        val stopAtEndOfSection = extras?.getBoolean(PlaybackActions.EXTRA_SLEEP_TIMER_STOP_AT_END_OF_SECTION, false) ?: false
         val request = runCatching {
-            VeritasSleepTimerRequest(durationMillis = durationMillis, action = action)
+            VeritasSleepTimerRequest(durationMillis = durationMillis, action = action, stopAtEndOfSection = stopAtEndOfSection)
         }.getOrNull()
 
         if (request == null) {
@@ -212,7 +222,11 @@ class PlaybackService : MediaSessionService() {
 
         PlaybackStateStore.setSleepTimer(request)
         scheduleSleepTimerFromStore()
-        PlaybackStateStore.statusMessage = "Sleep timer set for ${VeritasSleepTimerFormatter.formatDuration(request.durationMillis)}."
+        PlaybackStateStore.statusMessage = if (stopAtEndOfSection) {
+            "Sleep timer set to stop at end of section."
+        } else {
+            "Sleep timer set for ${VeritasSleepTimerFormatter.formatDuration(request.durationMillis)}."
+        }
         updateMediaSessionState()
         refreshForegroundNotification()
     }
@@ -233,6 +247,8 @@ class PlaybackService : MediaSessionService() {
             if (artworkDocumentId != doc.id) {
                 artworkDocumentId = null
                 notificationArtwork = null
+                artworkBytes = null
+                artworkBytesDocumentId = null
             }
         }
 
@@ -354,6 +370,13 @@ class PlaybackService : MediaSessionService() {
                         PlaybackStateStore.statusMessage = "Selected text finished."
                         refreshForegroundNotification()
                     } else if (PlaybackStateStore.isPlaying) {
+                        // If the sleep timer fired while this sentence was playing,
+                        // execute it now at the clean sentence boundary.
+                        if (pendingTimerFire) {
+                            pendingTimerFire = false
+                            executePendingTimerFire()
+                            return@post
+                        }
                         clearResumePoint()
                         advanceAfterSection()
                     }
@@ -472,7 +495,30 @@ class PlaybackService : MediaSessionService() {
     private fun advanceAfterSection() {
         if (!PlaybackStateStore.isPlaying || chunks.isEmpty()) return
 
+        // Fallback check: Did the sleep timer expire during deep sleep?
+        val now = System.currentTimeMillis()
+        val timer = PlaybackStateStore.activeSleepTimerSnapshot(now)
+        if (timer != null && !timer.stopAtEndOfSection && now >= timer.endsAtMillis) {
+            fireSleepTimer()
+            return
+        }
+
         val current = PlaybackStateStore.currentIndex
+
+        // Section sleep timer check
+        if (timer != null && timer.stopAtEndOfSection) {
+            val doc = activeDocument
+            if (doc != null) {
+                val rawText = repository.readText(doc)
+                val readerModel = ReaderTextModelCache.get(doc.id, rawText, doc.pageCount)
+                val currentPart = readerModel.partForSentence(current)
+                if (currentPart != null && current == currentPart.sentenceEndIndexExclusive - 1) {
+                    fireSleepTimer()
+                    return
+                }
+            }
+        }
+
         if (current < chunks.lastIndex) {
             PlaybackStateStore.currentIndex = current + 1
             activeDocument?.let { repository.updateProgress(it.id, PlaybackStateStore.currentIndex, chunks.size) }
@@ -542,6 +588,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun pauseSpeech(message: String = "Paused.") {
+        pausedDueToTransientFocusLoss = false
         rememberPausePoint()
         tts?.stop()
         PlaybackStateStore.isPlaying = false
@@ -554,6 +601,21 @@ class PlaybackService : MediaSessionService() {
         updateMediaSessionState()
         refreshForegroundNotification()
         abandonAudioFocus()
+    }
+
+    private fun pauseSpeechTransiently(message: String) {
+        rememberPausePoint()
+        tts?.stop()
+        PlaybackStateStore.isPlaying = false
+        if (PlaybackStateStore.isForegroundActive) {
+            PlaybackStateStore.isForegroundActive = false
+            stopForeground(STOP_FOREGROUND_DETACH)
+        }
+        PlaybackStateStore.statusMessage = message
+        activeDocument?.let { repository.updateProgress(it.id, PlaybackStateStore.currentIndex, chunks.size) }
+        updateMediaSessionState()
+        refreshForegroundNotification()
+        // Do NOT call abandonAudioFocus() here
     }
 
     private fun rememberPausePoint() {
@@ -636,6 +698,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun stopSpeechAndService(message: String = "Stopped.") {
+        pausedDueToTransientFocusLoss = false
         pendingSpeak = false
         pendingSelectionText = null
         cancelSleepTimerCallback()
@@ -655,6 +718,9 @@ class PlaybackService : MediaSessionService() {
     private fun scheduleSleepTimerFromStore() {
         cancelSleepTimerCallback()
         val snapshot = PlaybackStateStore.activeSleepTimerSnapshot() ?: return
+        if (snapshot.stopAtEndOfSection) {
+            return
+        }
         val runnable = Runnable { fireSleepTimer() }
         sleepTimerRunnable = runnable
         mainHandler.postDelayed(runnable, snapshot.remainingMillis().coerceAtLeast(1L))
@@ -676,10 +742,33 @@ class PlaybackService : MediaSessionService() {
     private fun fireSleepTimer() {
         val snapshot = PlaybackStateStore.activeSleepTimerSnapshot() ?: return
         cancelSleepTimerCallback()
-        PlaybackStateStore.clearSleepTimer()
-        when (snapshot.action) {
-            VeritasSleepTimerAction.PAUSE -> pauseSpeech("Sleep timer paused playback.")
-            VeritasSleepTimerAction.STOP -> stopSpeechAndService("Sleep timer stopped playback.")
+        // If TTS is actively speaking, defer the action until the current
+        // sentence finishes (pendingTimerFire checked in onDone).
+        // If not playing, fire immediately.
+        if (PlaybackStateStore.isPlaying) {
+            pendingTimerFire = true
+            // Store the snapshot action so executePendingTimerFire can use it.
+            // We clear the store timer here so the section-advance logic doesn't
+            // re-trigger, but we keep the action locally.
+            PlaybackStateStore.clearSleepTimer()
+            // Store the action in a field for deferred execution.
+            pendingTimerAction = snapshot.action
+        } else {
+            PlaybackStateStore.clearSleepTimer()
+            when (snapshot.action) {
+                VeritasSleepTimerAction.PAUSE -> pauseSpeech("Sleep timer paused playback.")
+                VeritasSleepTimerAction.STOP  -> stopSpeechAndService("Sleep timer stopped playback.")
+            }
+        }
+    }
+
+    private var pendingTimerAction: VeritasSleepTimerAction = VeritasSleepTimerAction.PAUSE
+
+    private fun executePendingTimerFire() {
+        clearResumePoint()
+        when (pendingTimerAction) {
+            VeritasSleepTimerAction.PAUSE -> pauseSpeech("Sleep timer paused after sentence.")
+            VeritasSleepTimerAction.STOP  -> stopSpeechAndService("Sleep timer stopped after sentence.")
         }
     }
 
@@ -745,12 +834,25 @@ class PlaybackService : MediaSessionService() {
     private fun requestAudioFocus(): Boolean {
         val focusChangeListener = android.media.AudioManager.OnAudioFocusChangeListener { focusChange ->
             when (focusChange) {
-                android.media.AudioManager.AUDIOFOCUS_LOSS -> pauseSpeech("Paused — audio focus lost.")
-                android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pauseSpeech("Paused — interrupted.")
-                android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> tts?.setSpeechRate(PlaybackStateStore.rate * 0.75f)
+                android.media.AudioManager.AUDIOFOCUS_LOSS -> {
+                    pausedDueToTransientFocusLoss = false
+                    pauseSpeech("Paused — audio focus lost.")
+                }
+                android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    if (PlaybackStateStore.isPlaying) {
+                        pausedDueToTransientFocusLoss = true
+                        pauseSpeechTransiently("Paused — interrupted.")
+                    }
+                }
+                android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    tts?.setSpeechRate(PlaybackStateStore.rate * 0.75f)
+                }
                 android.media.AudioManager.AUDIOFOCUS_GAIN -> {
                     tts?.setSpeechRate(PlaybackStateStore.rate)
-                    if (!PlaybackStateStore.isPlaying) handlePlay(null)
+                    if (pausedDueToTransientFocusLoss) {
+                        pausedDueToTransientFocusLoss = false
+                        handlePlay(null)
+                    }
                 }
             }
         }
@@ -913,8 +1015,18 @@ class PlaybackService : MediaSessionService() {
         } else {
             PlaybackStateStore.statusMessage
         }
+        val documentId = PlaybackStateStore.activeDocumentId.orEmpty()
+        // Load artwork bytes lazily and cache per-document
+        if (artworkBytesDocumentId != documentId) {
+            artworkBytes = documentId.takeIf { it.isNotBlank() }?.let { id ->
+                CoverExtractor.coverFile(this, id)?.takeIf { it.exists() }?.let { file ->
+                    runCatching { file.readBytes() }.getOrNull()
+                }
+            }
+            artworkBytesDocumentId = documentId
+        }
         return VeritasMediaSessionPlayer.PlaybackSnapshot(
-            documentId = PlaybackStateStore.activeDocumentId.orEmpty(),
+            documentId = documentId,
             title = PlaybackStateStore.documentTitle.ifBlank { getString(R.string.app_name) },
             sourceLabel = PlaybackStateStore.sourceLabel.ifBlank { "Text-to-speech reader" },
             sectionLabel = sectionLabel,
@@ -925,7 +1037,8 @@ class PlaybackService : MediaSessionService() {
             durationMs = estimatedDurationMs(),
             positionMs = estimatedPositionMs(),
             rate = PlaybackStateStore.rate,
-            pitch = PlaybackStateStore.pitch
+            pitch = PlaybackStateStore.pitch,
+            artworkData = artworkBytes
         )
     }
 
@@ -955,18 +1068,28 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun loadNotificationCover(document: SavedDocument): Bitmap? {
-        val original = repository.originalFile(document) ?: return null
+        // 1. Try to load pre-extracted cover if it exists
+        CoverExtractor.coverFile(this, document.id)?.let { file ->
+            runCatching {
+                BitmapFactory.decodeFile(file.absolutePath)
+            }.getOrNull()?.let { return it }
+        }
+
+        // 2. Fallback to on-the-fly loading/rendering
+        val original = repository.originalUri(document) ?: return null
         val mime = document.originalMimeType.lowercase()
         return when {
-            mime.startsWith("image/") -> BitmapFactory.decodeFile(original.absolutePath)
-            mime == "application/pdf" || original.extension.equals("pdf", ignoreCase = true) -> renderPdfFirstPage(original)
+            mime.startsWith("image/") -> {
+                contentResolver.openInputStream(original)?.use { BitmapFactory.decodeStream(it) }
+            }
+            mime == "application/pdf" || document.originalFileName.endsWith(".pdf", ignoreCase = true) -> renderPdfFirstPage(original)
             else -> null
         }
     }
 
-    private fun renderPdfFirstPage(file: File): Bitmap? {
+    private fun renderPdfFirstPage(uri: Uri): Bitmap? {
         return runCatching {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
                 PdfRenderer(descriptor).use { renderer ->
                     if (renderer.pageCount <= 0) return@use null
                     renderer.openPage(0).use { page ->

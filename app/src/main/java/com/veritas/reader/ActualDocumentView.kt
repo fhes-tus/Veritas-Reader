@@ -8,20 +8,28 @@ import android.graphics.pdf.PdfRenderer
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.AnchoredDraggableState
+import androidx.compose.foundation.gestures.DraggableAnchors
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.anchoredDraggable
+import androidx.compose.foundation.gestures.animateTo
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +41,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -40,19 +56,25 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,58 +94,122 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ActualDocumentView(
     document: SavedDocument,
     repository: DocumentRepository,
     readingProgress: Float,
     isPlaying: Boolean,
+    statusMessage: String,
     queueCount: Int,
     rate: Float,
     pitch: Float,
     fontSizeSp: Int,
+    canGoPrevious: Boolean,
+    canGoNext: Boolean,
+    onPrevious: () -> Unit,
     onPlayPause: () -> Unit,
+    onNext: () -> Unit,
     onPageChanged: (Int, Int) -> Unit,
     onOpenExternal: () -> Unit,
     onRateChange: (Float) -> Unit,
     onPitchChange: (Float) -> Unit,
     onFontSizeChange: (Int) -> Unit,
     onOpenVoiceStudio: () -> Unit,
+    voices: List<TtsVoiceOption>,
+    voiceSettings: VoiceSettings,
+    onVoiceSelected: (TtsVoiceOption) -> Unit,
     onClose: () -> Unit
 ) {
-    val original = repository.originalFile(document)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val original = repository.originalUri(document)
     var pageIndex by remember(document.id) { mutableIntStateOf(0) }
     var pageCount by remember(document.id) { mutableIntStateOf(1) }
     var bitmap by remember(document.id) { mutableStateOf<Bitmap?>(null) }
     var message by remember(document.id) { mutableStateOf<String?>(null) }
     var showMenu by remember { mutableStateOf(false) }
-    var showBottomMenu by remember { mutableStateOf(false) }
     var zoomScale by remember(document.id) { mutableFloatStateOf(1f) }
     var zoomOffset by remember(document.id) { mutableStateOf(Offset.Zero) }
     var rotationDegrees by remember(document.id) { mutableIntStateOf(0) }
 
-    val isPdf = document.originalMimeType.contains("pdf", ignoreCase = true) ||
-        document.originalFileName.endsWith(".pdf", ignoreCase = true)
-    val isImage = document.originalMimeType.startsWith("image/") ||
-        listOf(".jpg", ".jpeg", ".png", ".webp", ".bmp").any {
-            document.originalFileName.endsWith(it, ignoreCase = true)
+    val isPdf = remember(document) {
+        if (document.originalMimeType.contains("pdf", ignoreCase = true) ||
+            document.originalFileName.endsWith(".pdf", ignoreCase = true) ||
+            document.title.lowercase().contains(".pdf")
+        ) {
+            true
+        } else {
+            val file = repository.originalFile(document)
+            if (file != null && file.exists()) {
+                runCatching {
+                    file.inputStream().use { input ->
+                        val bytes = ByteArray(4)
+                        val read = input.read(bytes)
+                        read == 4 && bytes[0] == '%'.code.toByte() && bytes[1] == 'P'.code.toByte() && bytes[2] == 'D'.code.toByte() && bytes[3] == 'F'.code.toByte()
+                    }
+                }.getOrDefault(false)
+            } else if (document.originalFileName.startsWith("content://")) {
+                runCatching {
+                    (context.contentResolver.openInputStream(android.net.Uri.parse(document.originalFileName))?.use { input ->
+                        val bytes = ByteArray(4)
+                        val read = input.read(bytes)
+                        read == 4 && bytes[0] == '%'.code.toByte() && bytes[1] == 'P'.code.toByte() && bytes[2] == 'D'.code.toByte() && bytes[3] == 'F'.code.toByte()
+                    } ?: false)
+                }.getOrDefault(false)
+            } else {
+                false
+            }
         }
+    }
 
-    LaunchedEffect(original?.absolutePath, pageIndex) {
+    val isImage = remember(document, isPdf) {
+        if (isPdf) {
+            false
+        } else if (document.originalMimeType.startsWith("image/") ||
+            listOf(".jpg", ".jpeg", ".png", ".webp", ".bmp").any {
+                document.originalFileName.endsWith(it, ignoreCase = true)
+            }
+        ) {
+            true
+        } else {
+            val file = repository.originalFile(document)
+            if (file != null && file.exists()) {
+                runCatching {
+                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(file.absolutePath, options)
+                    options.outWidth > 0 && options.outHeight > 0
+                }.getOrDefault(false)
+            } else if (document.originalFileName.startsWith("content://")) {
+                runCatching {
+                    (context.contentResolver.openInputStream(android.net.Uri.parse(document.originalFileName))?.use { input ->
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeStream(input, null, options)
+                        options.outWidth > 0 && options.outHeight > 0
+                    } ?: false)
+                }.getOrDefault(false)
+            } else {
+                false
+            }
+        }
+    }
+
+    LaunchedEffect(original?.toString(), pageIndex) {
         bitmap = null
         message = null
         if (original == null) {
-            message = "No stored original is available for this reading. Re-import the file to enable actual document view."
+            message = "No stored original is available for this reading. Re-import the file to enable Original View."
             return@LaunchedEffect
         }
 
         if (isPdf) {
             val rendered = withContext(Dispatchers.IO) {
                 runCatching {
-                    android.os.ParcelFileDescriptor.open(original, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                    context.contentResolver.openFileDescriptor(original, "r")?.use { pfd ->
                         PdfRenderer(pfd).use { renderer ->
                             val count = renderer.pageCount.coerceAtLeast(1)
                             val safePage = pageIndex.coerceIn(0, count - 1)
@@ -138,7 +224,7 @@ internal fun ActualDocumentView(
                                 RenderedPage(count, output)
                             }
                         }
-                    }
+                    } ?: throw IllegalStateException("Could not open PDF descriptor")
                 }
             }
             rendered.onSuccess {
@@ -151,7 +237,11 @@ internal fun ActualDocumentView(
             }
         } else if (isImage) {
             val decoded = withContext(Dispatchers.IO) {
-                runCatching { BitmapFactory.decodeFile(original.absolutePath) }
+                runCatching {
+                    context.contentResolver.openInputStream(original)?.use { input ->
+                        BitmapFactory.decodeStream(input)
+                    } ?: throw IllegalStateException("Could not open image stream")
+                }
             }
             decoded.onSuccess { image ->
                 bitmap = image
@@ -203,7 +293,7 @@ internal fun ActualDocumentView(
             TextButton(onClick = onClose) { Text("←", style = MaterialTheme.typography.headlineSmall) }
             Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    if (isPdf) "Page ${pageIndex + 1} / $pageCount" else "Actual document",
+                    if (isPdf) "Page ${pageIndex + 1} / $pageCount" else "Original View",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -230,7 +320,7 @@ internal fun ActualDocumentView(
                     zoomScale = 1f
                     zoomOffset = Offset.Zero
                 }
-            ) { Text("⟳", style = MaterialTheme.typography.headlineSmall) }
+            ) { Text("🔄", style = MaterialTheme.typography.headlineSmall) }
             Box {
                 TextButton(onClick = { showMenu = true }) { Text("⋮", style = MaterialTheme.typography.headlineSmall) }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
@@ -366,7 +456,7 @@ internal fun ActualDocumentView(
                 message == null && (isPdf || isImage) -> {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         CircularProgressIndicator(modifier = Modifier.size(26.dp))
-                        Text("Rendering actual document…")
+                        Text("Rendering original…")
                     }
                 }
                 else -> {
@@ -378,7 +468,7 @@ internal fun ActualDocumentView(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
                     ) {
                         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Actual document", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                            Text("Original View", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
                             Text(message.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(onClick = onOpenExternal, enabled = original != null) { Text("Open original") }
@@ -389,110 +479,26 @@ internal fun ActualDocumentView(
                 }
             }
         }
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-            tonalElevation = 8.dp,
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(50.dp)
-                        .background(
-                            Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.tertiaryContainer)),
-                            androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.veritas_reader_icon),
-                        contentDescription = "Veritas",
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
-                        contentScale = ContentScale.Fit
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                CanvasControlButton(
-                    text = "‹",
-                    enabled = isPdf && pageIndex > 0,
-                    onClick = { selectPage(pageIndex - 1) }
-                )
-                CanvasControlButton(
-                    text = if (isPlaying) "Ⅱ" else "▶",
-                    prominent = true,
-                    onClick = onPlayPause
-                )
-                CanvasControlButton(
-                    text = "›",
-                    enabled = isPdf && pageIndex < pageCount - 1,
-                    onClick = { selectPage(pageIndex + 1) }
-                )
-                Box {
-                    TextButton(onClick = { showBottomMenu = true }) { Text("⋮") }
-                    DropdownMenu(
-                        expanded = showBottomMenu,
-                        onDismissRequest = { showBottomMenu = false },
-                        modifier = Modifier.width(300.dp)
-                    ) {
-                        Text(
-                            "Playback",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            "Tune the reading voice for the actual document view.",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                        Text(
-                            "Speed ${"%.2f".format(rate)}x",
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Slider(
-                            value = rate,
-                            onValueChange = onRateChange,
-                            valueRange = 0.5f..2.0f,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        Text(
-                            "Pitch ${"%.2f".format(pitch)}",
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Slider(
-                            value = pitch,
-                            onValueChange = onPitchChange,
-                            valueRange = 0.7f..1.4f,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Voice and language") },
-                            onClick = {
-                                showBottomMenu = false
-                                onOpenVoiceStudio()
-                            }
-                        )
-                    }
-                }
-                if (queueCount > 0) {
-                    Text("$queueCount", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
+        DocPlayerPanel(
+            isPlaying = isPlaying,
+            statusMessage = statusMessage,
+            rate = rate,
+            pitch = pitch,
+            fontSizeSp = fontSizeSp,
+            queueCount = queueCount,
+            canGoPrevious = canGoPrevious,
+            canGoNext = canGoNext,
+            onPrevious = onPrevious,
+            onPlayPause = onPlayPause,
+            onNext = onNext,
+            onRateChange = onRateChange,
+            onPitchChange = onPitchChange,
+            onFontSizeChange = onFontSizeChange,
+            onOpenVoiceStudio = onOpenVoiceStudio,
+            voices = voices,
+            voiceSettings = voiceSettings,
+            onVoiceSelected = onVoiceSelected
+        )
     }
 }
 
@@ -500,6 +506,319 @@ private data class RenderedPage(
     val pageCount: Int,
     val bitmap: Bitmap
 )
+
+private enum class DocPanelDragValue { Collapsed, Expanded }
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DocPlayerPanel(
+    isPlaying: Boolean,
+    statusMessage: String,
+    rate: Float,
+    pitch: Float,
+    fontSizeSp: Int,
+    queueCount: Int,
+    canGoPrevious: Boolean,
+    canGoNext: Boolean,
+    onPrevious: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onRateChange: (Float) -> Unit,
+    onPitchChange: (Float) -> Unit,
+    onFontSizeChange: (Int) -> Unit,
+    onOpenVoiceStudio: () -> Unit,
+    voices: List<TtsVoiceOption>,
+    voiceSettings: VoiceSettings,
+    onVoiceSelected: (TtsVoiceOption) -> Unit
+) {
+    val density = LocalDensity.current
+    val maxOffsetPx = with(density) { 152.dp.toPx() }
+
+    @Suppress("DEPRECATION")
+    val draggableState = remember {
+        AnchoredDraggableState(
+            initialValue = DocPanelDragValue.Collapsed,
+            positionalThreshold = { distance: Float -> distance * 0.5f },
+            velocityThreshold = { with(density) { 100.dp.toPx() } },
+            snapAnimationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            decayAnimationSpec = androidx.compose.animation.core.exponentialDecay()
+        )
+    }
+    val anchors = remember(maxOffsetPx) {
+        DraggableAnchors {
+            DocPanelDragValue.Collapsed at maxOffsetPx
+            DocPanelDragValue.Expanded at 0f
+        }
+    }
+    SideEffect { draggableState.updateAnchors(anchors) }
+
+    val currentOffset = if (draggableState.offset.isNaN()) maxOffsetPx else draggableState.requireOffset()
+    val progress = (1f - (currentOffset / maxOffsetPx)).coerceIn(0f, 1f)
+    val heightDp = 72.dp + (152.dp * progress)
+
+    val coroutineScope = rememberCoroutineScope()
+
+    val availableVoices = remember(voices, voiceSettings.localeTag) {
+        if (voiceSettings.localeTag.isBlank()) voices.take(8)
+        else voices.filter { it.localeTag.equals(voiceSettings.localeTag, ignoreCase = true) }
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .height(heightDp)
+            .anchoredDraggable(
+                state = draggableState,
+                orientation = Orientation.Vertical
+            ),
+        shape = RoundedCornerShape(20.dp),
+        tonalElevation = 2.dp,
+        shadowElevation = 2.dp,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Header Row — visible in both Collapsed and Expanded state
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Tap to toggle expand / collapse
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            draggableState.animateTo(
+                                if (draggableState.currentValue == DocPanelDragValue.Collapsed)
+                                    DocPanelDragValue.Expanded
+                                else
+                                    DocPanelDragValue.Collapsed
+                            )
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primaryContainer,
+                                        MaterialTheme.colorScheme.tertiaryContainer
+                                    )
+                                ),
+                                RoundedCornerShape(10.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.veritas_reader_icon),
+                            contentDescription = "Veritas",
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                }
+
+                // Playback controls
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    IconButton(
+                        onClick = onPrevious,
+                        enabled = canGoPrevious
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.NavigateBefore,
+                            contentDescription = "Previous",
+                            tint = if (canGoPrevious) MaterialTheme.colorScheme.onSurface
+                                   else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        )
+                    }
+                    FilledTonalIconButton(onClick = onPlayPause) {
+                        Icon(
+                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play"
+                        )
+                    }
+                    IconButton(
+                        onClick = onNext,
+                        enabled = canGoNext
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.NavigateNext,
+                            contentDescription = "Next",
+                            tint = if (canGoNext) MaterialTheme.colorScheme.onSurface
+                                   else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        )
+                    }
+                }
+
+                // Voice Studio shortcut (visible in header)
+                TextButton(
+                    onClick = onOpenVoiceStudio,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text("Voice ›", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+
+            // Expanded area — Speed, Pitch, Font, Voice picker
+            if (progress > 0.05f) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .graphicsLayer { alpha = progress }
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        statusMessage.ifBlank { if (isPlaying) "Now reading" else "Original View" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                    // Speed row
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Speed ${"%.2f".format(rate)}x",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { onRateChange((rate - 0.05f).coerceIn(0.5f, 2.0f)) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("-", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            }
+                            TextButton(
+                                onClick = { onRateChange((rate + 0.05f).coerceIn(0.5f, 2.0f)) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("+", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                    }
+                    Slider(
+                        value = rate,
+                        onValueChange = onRateChange,
+                        valueRange = 0.5f..2.0f,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+
+                    // Pitch & Font Size row
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Pitch ${"%.2f".format(pitch)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Slider(
+                                value = pitch,
+                                onValueChange = onPitchChange,
+                                valueRange = 0.7f..1.4f
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Text size ${fontSizeSp}sp",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Slider(
+                                value = fontSizeSp.toFloat(),
+                                onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
+                                valueRange = 14f..28f,
+                                steps = 13
+                            )
+                        }
+                    }
+
+                    // Quick Voice Picker
+                    if (availableVoices.isNotEmpty()) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                        Text(
+                            "Voice",
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            availableVoices.forEach { voice ->
+                                val isSelected = voice.name == voiceSettings.voiceName
+                                if (isSelected) {
+                                    Button(
+                                        onClick = { onVoiceSelected(voice) },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text(voice.name, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { onVoiceSelected(voice) },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        shape = RoundedCornerShape(50),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text(voice.name, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Full Voice Studio link
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = onOpenVoiceStudio,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Voice Studio ›", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun SlimPageSlider(

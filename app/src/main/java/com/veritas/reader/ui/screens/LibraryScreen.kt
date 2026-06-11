@@ -1,10 +1,12 @@
 package com.veritas.reader.ui.screens
 
-import com.veritas.reader.ui.ReaderUiState
-
+import android.graphics.BitmapFactory
+import android.content.Context
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -16,33 +18,66 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.veritas.reader.VeritasPackStyle
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.core.content.edit
+import com.veritas.reader.*
+import com.veritas.reader.ui.ReaderUiState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.veritas.reader.*
 
-private enum class VeritasHomeTab(val label: String, val icon: String) {
-    DASHBOARD("Dashboard", "▦"),
-    LIBRARY("Library", "▤"),
-    FILES("Files", "▣"),
-    BOOKMARKS_NOTES("Notes", "★")
+private enum class VeritasHomeTab {
+    HOME,
+    LIBRARY,
+    STUDY
 }
 
 private data class MarkedDocument(
@@ -52,6 +87,22 @@ private data class MarkedDocument(
     val updatedAt: Long
 )
 
+private enum class ImportSheetMode {
+    MENU,
+    WEB,
+    PASTE
+}
+
+private enum class ImportOption {
+    FILE,
+    WEB,
+    PASTE,
+    SCAN,
+    BROWSE,
+    WRITE_NOTE
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     uiState: ReaderUiState,
@@ -59,6 +110,7 @@ fun LibraryScreen(
     onCreateFromDraft: () -> Unit,
     onImportWebArticle: (String) -> Unit,
     onImportFile: () -> Unit,
+    onImportImage: () -> Unit,
     onAdvancedPdfImport: () -> Unit,
     onOpenFileBrowser: () -> Unit,
     onOpenReadingLists: () -> Unit,
@@ -78,52 +130,65 @@ fun LibraryScreen(
     onMoveQueueDown: (SavedDocument) -> Unit,
     onRemoveFromQueue: (SavedDocument) -> Unit,
     onClearQueue: () -> Unit,
-    onBackupRestore: () -> Unit,
     onOpenSyncCenter: () -> Unit,
-    onOpenAiCenter: () -> Unit,
     onOpenSettingsHub: () -> Unit,
     onRefreshMainPage: () -> Unit,
-    onPickFileBrowserFolder: () -> Unit,
-    onRequestAllFilesAccess: () -> Unit,
-    onRefreshFileBrowser: () -> Unit,
-    onImportBrowserFile: (VeritasBrowserFile) -> Unit,
     onBatchDeleteDocuments: (Set<String>) -> Unit,
     onBatchFavoriteDocuments: (Set<String>) -> Unit,
     onBatchQueueDocuments: (Set<String>) -> Unit,
     onBatchSetCollectionDocuments: (Set<String>, String) -> Unit,
-    onDeleteAnnotations: (Set<String>) -> Unit
+    onDeleteAnnotations: (Set<String>) -> Unit,
+    onWriteGeneralNote: () -> Unit,
+    onEditGeneralNote: (GeneralNote) -> Unit,
+    onCreateReadingList: (String, String?) -> Unit = { _, _ -> },
+    onAddDocumentToReadingList: (String, String) -> Unit = { _, _ -> },
+    onRemoveDocumentFromReadingList: (String, String) -> Unit = { _, _ -> },
+    onRemoveVocabularyWord: (String, String) -> Unit = { _, _ -> },
+    onClearReadingHistory: () -> Unit = {}
 ) {
     val documents = uiState.documents
+    val configuration = LocalConfiguration.current
+    val columnCount = when {
+        configuration.screenWidthDp >= 840 -> 4
+        configuration.screenWidthDp >= 600 -> 3
+        else -> 2
+    }
     val queuedDocuments = uiState.queuedDocuments
     val draftText = uiState.draftText
     var libraryQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf("All") }
     var sourceFilter by remember { mutableStateOf("All") }
     var collectionFilter by remember { mutableStateOf("All") }
+    var readingListFilter by remember { mutableStateOf("All") }
+    var manageListsDocument by remember { mutableStateOf<SavedDocument?>(null) }
     var sortMode by remember { mutableStateOf("Updated") }
-    var showQuickPaste by remember { mutableStateOf(false) }
-    var showFilters by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var selectedDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmBatchDelete by remember { mutableStateOf(false) }
     var showBatchMenu by remember { mutableStateOf(false) }
     var showBatchCollectionDialog by remember { mutableStateOf(false) }
     var batchCollectionDraft by rememberSaveable { mutableStateOf("") }
-    var libraryViewMode by remember { mutableStateOf(LibraryViewMode.MEDIUM) }
+    val context = LocalContext.current
+    val libraryPrefs = remember { context.getSharedPreferences("veritas_library_settings", Context.MODE_PRIVATE) }
+    var libraryViewMode by remember {
+        mutableStateOf(
+            runCatching {
+                LibraryViewMode.valueOf(
+                    libraryPrefs.getString("library_view_mode", LibraryViewMode.TILES.name) ?: LibraryViewMode.TILES.name
+                )
+            }.getOrDefault(LibraryViewMode.TILES)
+        )
+    }
     var showLibraryViewMenu by remember { mutableStateOf(false) }
-    var showImportMenu by remember { mutableStateOf(false) }
-    var selectedHomeTab by remember { mutableStateOf(VeritasHomeTab.DASHBOARD) }
-    var showDashboardSidebar by remember { mutableStateOf(false) }
-    var showFilesMenu by remember { mutableStateOf(false) }
-    var showReadingStatsDashboard by remember { mutableStateOf(false) }
+    var selectedHomeTab by remember { mutableStateOf(VeritasHomeTab.HOME) }
+    var showHomeSidebar by remember { mutableStateOf(false) }
+    var showImportSheet by remember { mutableStateOf(false) }
+    var importSheetMode by remember { mutableStateOf(ImportSheetMode.MENU) }
+    var showReadingStatsHome by remember { mutableStateOf(false) }
     var selectedAnnotationKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmAnnotationDelete by remember { mutableStateOf(false) }
-    var fileQuery by rememberSaveable { mutableStateOf("") }
-    var fileTab by remember { mutableStateOf(VeritasBrowserTab.ALL) }
-    var fileViewMode by remember { mutableStateOf(LibraryViewMode.MEDIUM) }
-    var fileSortMode by remember { mutableStateOf(VeritasBrowserSort.DATE) }
-    var fileSortAscending by remember { mutableStateOf(false) }
-    var showFileViewMenu by remember { mutableStateOf(false) }
+    var annotationFilter by remember { mutableStateOf("Bookmarks") }
+    var expandedVocabDocIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val libraryListState = rememberLazyListState()
     var lastMainPageRefreshAt by remember { mutableLongStateOf(0L) }
     val libraryFeatures = remember(documents.size, queuedDocuments.size) {
@@ -139,11 +204,11 @@ fun LibraryScreen(
     fun libraryFeature(id: VeritasFeatureId): ResolvedVeritasFeature =
         libraryFeatures.requireResolvedFeature(id)
 
-    val completedCount by remember(documents) { androidx.compose.runtime.derivedStateOf { documents.count { it.chunkCount > 0 && it.currentIndex >= it.chunkCount - 1 } } }
-    val readingCount by remember(documents) { androidx.compose.runtime.derivedStateOf { documents.count { it.chunkCount > 1 && it.currentIndex in 1 until it.chunkCount - 1 } } }
-    val favoriteCount by remember(documents) { androidx.compose.runtime.derivedStateOf { documents.count { it.favorite } } }
-    val sourceOptions by remember(documents) { androidx.compose.runtime.derivedStateOf { listOf("All") + documents.map { it.sourceLabel.ifBlank { "Text" } }.distinct().sorted() } }
-    val collectionOptions by remember(documents) { androidx.compose.runtime.derivedStateOf { listOf("All", "Unfiled") + documents.map { it.collection.trim() }.filter { it.isNotBlank() }.distinct().sorted() } }
+    val completedCount by remember(documents) { derivedStateOf { documents.count { it.chunkCount > 0 && it.currentIndex >= it.chunkCount - 1 } } }
+    val readingCount by remember(documents) { derivedStateOf { documents.count { it.chunkCount > 1 && it.currentIndex in 1 until it.chunkCount - 1 } } }
+    val favoriteCount by remember(documents) { derivedStateOf { documents.count { it.favorite } } }
+    val sourceOptions by remember(documents) { derivedStateOf { listOf("All") + documents.map { it.sourceLabel.ifBlank { "Text" } }.distinct().sorted() } }
+    val collectionOptions by remember(documents) { derivedStateOf { listOf("All", "Unfiled") + documents.map { it.collection.trim() }.filter { it.isNotBlank() }.distinct().sorted() } }
     val continueDocument by remember(documents) {
         androidx.compose.runtime.derivedStateOf {
             documents
@@ -152,16 +217,20 @@ fun LibraryScreen(
         }
     }
     val selectionMode = selectedDocumentIds.isNotEmpty()
+    val currentStreak = uiState.readerTrackerSnapshot.currentStreak
+    val longestStreak = uiState.readerTrackerSnapshot.longestStreak
     val welcomeName = uiState.userName.trim().ifBlank { "Reader" }
-    val dashboardHeadline = if (uiState.hasImportedOrOpenedDocument) {
-        "Enjoy your read, $welcomeName."
-    } else {
-        "Welcome, $welcomeName"
-    }
-    val dashboardSubtitle = if (uiState.hasImportedOrOpenedDocument) {
-        "Pick up where you left off, or choose something new."
-    } else {
-        "What do you want to read today?"
+    val (dashboardHeadline, dashboardSubtitle) = when {
+        documents.isEmpty() -> {
+            "Welcome to Veritas." to "Add your first reading to get started."
+        }
+        currentStreak >= 2 -> {
+            val subMsg = if (currentStreak >= 7) "You're on a roll!" else "Keep it going!"
+            "$welcomeName, you're on a $currentStreak-day streak 🔥" to subMsg
+        }
+        else -> {
+            "Welcome back, $welcomeName." to "Pick up where you left off."
+        }
     }
     val annotatedDocuments = remember(documents, uiState.allAnnotations, uiState.documentNotes) {
         val annotationsByDocument = uiState.allAnnotations
@@ -187,17 +256,50 @@ fun LibraryScreen(
             }
         }.sortedByDescending { it.updatedAt }
     }
-    val annotationSelectionMode = selectedAnnotationKeys.isNotEmpty()
-
-    LaunchedEffect(selectedHomeTab) {
-        if (selectedHomeTab == VeritasHomeTab.FILES) {
-            onRefreshFileBrowser()
+    val filteredAnnotatedDocuments = remember(annotatedDocuments, annotationFilter) {
+        annotatedDocuments.map { markedDoc ->
+            val bookmarks = markedDoc.annotations.filter { it.type == AnnotationType.BOOKMARK }
+            val notes = markedDoc.annotations.filter { it.type == AnnotationType.NOTE }
+            markedDoc.copy(
+                annotations = when (annotationFilter) {
+                    "Bookmarks" -> bookmarks
+                    "Notes" -> notes
+                    else -> markedDoc.annotations
+                },
+                documentNote = if (annotationFilter == "Bookmarks") "" else markedDoc.documentNote
+            )
+        }.filter {
+            (annotationFilter == "All") || it.annotations.isNotEmpty() || it.documentNote.isNotBlank()
         }
     }
+    val annotationSelectionMode = selectedAnnotationKeys.isNotEmpty()
 
-    val visibleDocuments by remember(documents, queuedDocuments, libraryQuery, statusFilter, sourceFilter, collectionFilter, sortMode) {
-        androidx.compose.runtime.derivedStateOf {
-            documents
+    val bookmarksOnly = remember(filteredAnnotatedDocuments) {
+        filteredAnnotatedDocuments.filter { markedDoc -> markedDoc.annotations.any { it.type == AnnotationType.BOOKMARK } }
+    }
+    val notesOnly = remember(filteredAnnotatedDocuments) {
+        filteredAnnotatedDocuments.filter { markedDoc -> markedDoc.annotations.any { it.type == AnnotationType.NOTE } || markedDoc.documentNote.isNotBlank() }
+    }
+    val vocabDocs = remember(uiState.generalNotes, uiState.documents) {
+        uiState.generalNotes
+            .filter { it.title.startsWith("__vocab__") }
+            .mapNotNull { note ->
+                val docId = note.title.removePrefix("__vocab__")
+                val doc = uiState.documents.firstOrNull { it.id == docId } ?: return@mapNotNull null
+                val entries = parseVocabularyNoteContent(note.content)
+                if (entries.isNotEmpty()) {
+                    Triple(doc, note, entries)
+                } else {
+                    null
+                }
+            }
+    }
+    val trueGeneralNotes = remember(uiState.generalNotes) {
+        uiState.generalNotes.filterNot { it.title.startsWith("__vocab__") }
+    }
+    val visibleDocuments by remember(documents, queuedDocuments, libraryQuery, statusFilter, sourceFilter, collectionFilter, readingListFilter, sortMode, uiState.readingListCatalog) {
+        derivedStateOf {
+            documents.asSequence()
                 .filter { doc ->
                     val q = libraryQuery.trim()
                     q.isBlank() || doc.title.contains(q, ignoreCase = true) || doc.preview.contains(q, ignoreCase = true) || doc.sourceLabel.contains(q, ignoreCase = true) || doc.collection.contains(q, ignoreCase = true)
@@ -220,6 +322,15 @@ fun LibraryScreen(
                         else -> doc.collection == collectionFilter
                     }
                 }
+                .filter { doc ->
+                    if (readingListFilter == "All") {
+                        true
+                    } else {
+                        val list = uiState.readingListCatalog.list(readingListFilter)
+                        list?.contains(doc.id) == true
+                    }
+                }
+                .toList()
                 .let { list ->
                     when (sortMode) {
                         "Title" -> list.sortedBy { it.title.lowercase(Locale.getDefault()) }
@@ -231,70 +342,90 @@ fun LibraryScreen(
                 }
         }
     }
-
-    if (showQuickPaste) {
-        AlertDialog(
-            onDismissRequest = { showQuickPaste = false },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onCreateFromDraft()
-                        showQuickPaste = false
-                    },
-                    enabled = draftText.isNotBlank()
-                ) { Text("Save") }
+    if (showImportSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = {
+                showImportSheet = false
+                importSheetMode = ImportSheetMode.MENU
             },
-            dismissButton = { TextButton(onClick = { showQuickPaste = false }) { Text("Cancel") } },
-            title = { Text("Quick paste / web article") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Paste loose text or a web article link and save it as a reading item.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(
-                        value = draftText,
-                        onValueChange = onDraftTextChange,
-                        modifier = Modifier.fillMaxWidth().height(220.dp),
-                        label = { Text("Text to read") },
-                        placeholder = { Text("Paste a URL, article, note, chapter, or paragraph…") }
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ) {
+            when (importSheetMode) {
+                ImportSheetMode.MENU -> {
+                    ImportSheetMenu(
+                        onSelectOption = { option ->
+                            when (option) {
+                                ImportOption.FILE -> {
+                                    showImportSheet = false
+                                    onImportFile()
+                                }
+                                ImportOption.WEB -> {
+                                    importSheetMode = ImportSheetMode.WEB
+                                }
+                                ImportOption.PASTE -> {
+                                    importSheetMode = ImportSheetMode.PASTE
+                                }
+                                ImportOption.SCAN -> {
+                                    showImportSheet = false
+                                    onImportImage()
+                                }
+                                ImportOption.BROWSE -> {
+                                    showImportSheet = false
+                                    onOpenFileBrowser()
+                                }
+                                ImportOption.WRITE_NOTE -> {
+                                    showImportSheet = false
+                                    onWriteGeneralNote()
+                                }
+                            }
+                        },
+                        onDismiss = { showImportSheet = false }
                     )
-                    if (WebArticleExtractor.looksLikeUrl(draftText)) {
-                        OutlinedButton(
-                            onClick = {
-                                onImportWebArticle(draftText)
-                                showQuickPaste = false
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Import web article") }
-                    }
                 }
+                ImportSheetMode.WEB -> {
+                    ImportSheetWeb(
+                        urlText = draftText,
+                        onUrlChange = onDraftTextChange,
+                        onImport = { url ->
+                            onImportWebArticle(url)
+                            showImportSheet = false
+                            importSheetMode = ImportSheetMode.MENU
+                        },
+                        onBack = { importSheetMode = ImportSheetMode.MENU }
+                    )
+                }
+                ImportSheetMode.PASTE -> {
+                    ImportSheetPaste(
+                        pastedText = draftText,
+                        onTextChange = onDraftTextChange,
+                        onSave = {
+                            onCreateFromDraft()
+                            showImportSheet = false
+                            importSheetMode = ImportSheetMode.MENU
+                        },
+                        onBack = { importSheetMode = ImportSheetMode.MENU }
+                    )
             }
-        )
+        }
+    }
     }
 
-    if (showFilters) {
-        AlertDialog(
-            onDismissRequest = { showFilters = false },
-            confirmButton = { TextButton(onClick = { showFilters = false }) { Text("Done") } },
-            title = { Text("Library filters") },
-            text = {
-                Column(modifier = Modifier.height(520.dp).verticalScroll(rememberScrollState())) {
-                    LibraryControlsCard(
-                        query = libraryQuery,
-                        onQueryChange = { libraryQuery = it },
-                        statusFilter = statusFilter,
-                        onStatusFilterChange = { statusFilter = it },
-                        sourceFilter = sourceFilter,
-                        onSourceFilterChange = { sourceFilter = it },
-                        collectionFilter = collectionFilter,
-                        onCollectionFilterChange = { collectionFilter = it },
-                        sortMode = sortMode,
-                        onSortModeChange = { sortMode = it },
-                        sourceOptions = sourceOptions,
-                        collectionOptions = collectionOptions,
-                        visibleCount = visibleDocuments.size,
-                        totalCount = documents.size
-                    )
-                }
-            }
+    // Filter dialog removed — filters are handled inline via chip row and
+    // the LibraryControlsCard. No modal needed.
+
+    manageListsDocument?.let { doc ->
+        ManageDocumentListsDialog(
+            document = doc,
+            catalog = uiState.readingListCatalog,
+            onDismiss = { manageListsDocument = null },
+            onCreateReadingList = { title ->
+                onCreateReadingList(title, doc.id)
+            },
+            onAddDocumentToReadingList = onAddDocumentToReadingList,
+            onRemoveDocumentFromReadingList = onRemoveDocumentFromReadingList
         )
     }
 
@@ -302,7 +433,7 @@ fun LibraryScreen(
         AlertDialog(
             onDismissRequest = { showQueue = false },
             confirmButton = { TextButton(onClick = { showQueue = false }) { Text("Close") } },
-            title = { Text("Listen Later") },
+            title = { Text("Queue") },
             text = {
                 Column(modifier = Modifier.height(520.dp).verticalScroll(rememberScrollState())) {
                     QueueSection(
@@ -359,30 +490,30 @@ fun LibraryScreen(
         )
     }
 
-    if (showDashboardSidebar) {
-        DashboardSidebarDialog(
+    if (showHomeSidebar) {
+        HomeSidebarDialog(
             name = welcomeName,
             snapshot = uiState.readerTrackerSnapshot,
-            onDismiss = { showDashboardSidebar = false },
+            onDismiss = { showHomeSidebar = false },
             onOpenLibrary = {
                 selectedHomeTab = VeritasHomeTab.LIBRARY
-                showDashboardSidebar = false
+                showHomeSidebar = false
             },
             onOpenStats = {
-                showReadingStatsDashboard = true
-                showDashboardSidebar = false
+                showReadingStatsHome = true
+                showHomeSidebar = false
             },
             onOpenSettings = {
-                showDashboardSidebar = false
+                showHomeSidebar = false
                 onOpenSettingsHub()
             }
         )
     }
 
-    if (showReadingStatsDashboard) {
+    if (showReadingStatsHome) {
         ReadingStatsDashboardDialog(
             snapshot = uiState.readerTrackerSnapshot,
-            onDismiss = { showReadingStatsDashboard = false }
+            onDismiss = { showReadingStatsHome = false }
         )
     }
 
@@ -416,195 +547,622 @@ fun LibraryScreen(
         )
     }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp
+    if (uiState.isOpeningDocument) {
+        Dialog(
+            onDismissRequest = { },
+            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+        ) {
+            Card(
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
-                VeritasHomeTab.values().forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedHomeTab == tab,
-                        onClick = { selectedHomeTab = tab },
-                        icon = { Text(tab.icon) },
-                        label = { Text(tab.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    )
-                }
-            }
-        }
-    ) { homePadding ->
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .pointerInput(libraryListState) {
-                var pullDistance = 0f
-                detectVerticalDragGestures(
-                    onDragStart = { pullDistance = 0f },
-                    onVerticalDrag = { _, dragAmount ->
-                        val atTop = libraryListState.firstVisibleItemIndex == 0 && libraryListState.firstVisibleItemScrollOffset == 0
-                        if (atTop && dragAmount > 0f) pullDistance += dragAmount
-                    },
-                    onDragEnd = {
-                        val now = System.currentTimeMillis()
-                        if (pullDistance > 120f && now - lastMainPageRefreshAt > 1500L) {
-                            lastMainPageRefreshAt = now
-                            onRefreshMainPage()
-                        }
-                        pullDistance = 0f
-                    },
-                    onDragCancel = { pullDistance = 0f }
-                )
-            }
-            .padding(horizontal = 18.dp),
-        state = libraryListState,
-        contentPadding = PaddingValues(bottom = homePadding.calculateBottomPadding() + 22.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item { Spacer(modifier = Modifier.height(10.dp)) }
-
-        item {
-            Box {
-                VeritasHomeTopBar(
-                    selectedTab = selectedHomeTab,
-                    onMenu = {
-                        when (selectedHomeTab) {
-                            VeritasHomeTab.DASHBOARD -> showDashboardSidebar = true
-                            VeritasHomeTab.LIBRARY -> showFilters = true
-                            VeritasHomeTab.FILES -> showFilesMenu = true
-                            VeritasHomeTab.BOOKMARKS_NOTES -> Unit
-                        }
-                    },
-                    onSettings = onOpenSettingsHub
-                )
-                DropdownMenu(expanded = showFilesMenu, onDismissRequest = { showFilesMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("PDF and import settings") },
-                        onClick = {
-                            showFilesMenu = false
-                            onAdvancedPdfImport()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Refresh files") },
-                        onClick = {
-                            showFilesMenu = false
-                            onRefreshFileBrowser()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (uiState.fileBrowserAllFilesGranted) "All files access granted" else "Grant all files access") },
-                        enabled = !uiState.fileBrowserAllFilesGranted,
-                        onClick = {
-                            showFilesMenu = false
-                            onRequestAllFilesAccess()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Folders to scan") },
-                        onClick = {
-                            showFilesMenu = false
-                            onPickFileBrowserFolder()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Full folder browser") },
-                        onClick = {
-                            showFilesMenu = false
-                            onOpenFileBrowser()
-                        }
-                    )
-                }
-            }
-        }
-
-        if (selectedHomeTab == VeritasHomeTab.DASHBOARD) {
-            item {
-                Column(
-                    modifier = Modifier.padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                Row(
+                    modifier = Modifier.padding(24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text(
-                        dashboardHeadline,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.primary
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    Text("Opening document...", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme))) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            floatingActionButton = {
+                if (selectedHomeTab == VeritasHomeTab.LIBRARY) {
+                    ExtendedFloatingActionButton(
+                        onClick = { showImportSheet = true },
+                        shape = VeritasPackStyle.chipShape(),
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        icon = { Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
+                        text = { Text("Add") }
                     )
-                    Text(
-                        dashboardSubtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            },
+            topBar = {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .widthIn(max = 760.dp)
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            when (selectedHomeTab) {
+                                VeritasHomeTab.HOME -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            TextButton(
+                                                onClick = { showHomeSidebar = true },
+                                                contentPadding = PaddingValues(horizontal = 0.dp),
+                                                modifier = Modifier.size(40.dp)
+                                            ) {
+                                                Text("☰", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            VeritasWordmark()
+                                        }
+                                        IconButton(onClick = onOpenSettingsHub) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Settings,
+                                                contentDescription = "Settings",
+                                                tint = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                                VeritasHomeTab.LIBRARY -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            "Your library",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        IconButton(onClick = onOpenSettingsHub) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Settings,
+                                                contentDescription = "Settings",
+                                                tint = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                    BasicTextField(
+                                        value = libraryQuery,
+                                        onValueChange = { libraryQuery = it },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(36.dp)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                                        singleLine = true,
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+                                        decorationBox = { innerTextField ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(horizontal = 14.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Search,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Box(
+                                                    modifier = Modifier.weight(1f),
+                                                    contentAlignment = Alignment.CenterStart
+                                                ) {
+                                                    if (libraryQuery.isEmpty()) {
+                                                        Text(
+                                                            text = "Search library...",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                        )
+                                                    }
+                                                    innerTextField()
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                                VeritasHomeTab.STUDY -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                "Study",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            val bookmarkCount = uiState.allAnnotations.count { it.type == AnnotationType.BOOKMARK }
+                                            val noteCount = uiState.allAnnotations.count { it.type == AnnotationType.NOTE } + uiState.documentNotes.size
+                                            Text(
+                                                "$bookmarkCount bookmark${if (bookmarkCount == 1) "" else "s"} • $noteCount note${if (noteCount == 1) "" else "s"}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                            )
+                                        }
+                                        Button(
+                                            onClick = onOpenSyncCenter,
+                                            shape = VeritasPackStyle.chipShape(),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                            ),
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Sync,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Text("Sync", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val filterOptions = listOf("Bookmarks", "Notes", "Vocab", "General", "History")
+                                        filterOptions.forEach { option ->
+                                            val active = annotationFilter == option
+                                            if (active) {
+                                                Button(
+                                                    onClick = { annotationFilter = option },
+                                                    shape = VeritasPackStyle.chipShape(),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.primary,
+                                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text(option)
+                                                }
+                                            } else {
+                                                OutlinedButton(
+                                                    onClick = { annotationFilter = option },
+                                                    shape = VeritasPackStyle.chipShape(),
+                                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                                                    colors = ButtonDefaults.outlinedButtonColors(
+                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text(option)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            bottomBar = {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        Row(
+                            modifier = Modifier
+                                .widthIn(max = 760.dp)
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            BottomNavItem(
+                                selected = selectedHomeTab == VeritasHomeTab.HOME,
+                                onClick = { selectedHomeTab = VeritasHomeTab.HOME },
+                                icon = { color ->
+                                    Icon(
+                                        imageVector = Icons.Filled.Home,
+                                        contentDescription = "Home",
+                                        tint = color,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                },
+                                label = "Home"
+                            )
+
+                            BottomNavItem(
+                                selected = selectedHomeTab == VeritasHomeTab.LIBRARY,
+                                onClick = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                icon = { color ->
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.List,
+                                        contentDescription = "Library",
+                                        tint = color,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                },
+                                label = "Library"
+                            )
+
+                            BottomNavItem(
+                                selected = selectedHomeTab == VeritasHomeTab.STUDY,
+                                onClick = { selectedHomeTab = VeritasHomeTab.STUDY },
+                                icon = { color ->
+                                    Icon(
+                                        imageVector = Icons.Filled.Edit,
+                                        contentDescription = "Study",
+                                        tint = color,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                },
+                                label = "Study"
+                            )
+                        }
+                    }
+                }
+            }
+        ) { homePadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        top = homePadding.calculateTopPadding(),
+                        bottom = homePadding.calculateBottomPadding()
+                    ),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 760.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (selectedHomeTab == VeritasHomeTab.LIBRARY) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 2.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val options = listOf("All Docs", "Recent", "Favorites", "Unread")
+                            options.forEach { option ->
+                                val active = when (option) {
+                                    "All Docs" -> statusFilter == "All"
+                                    "Recent" -> false
+                                    else -> statusFilter == option
+                                }
+                                if (active) {
+                                    Button(
+                                        onClick = { statusFilter = if (option == "All Docs") "All" else option },
+                                        shape = RoundedCornerShape(50),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(option, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = {
+                                            statusFilter = if (option == "All Docs") "All" else option
+                                            if (option == "Recent") {
+                                                statusFilter = "All"
+                                                sortMode = "Updated"
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(50),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(option, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(libraryListState) {
+                                var pullDistance = 0f
+                                detectVerticalDragGestures(
+                                    onDragStart = { pullDistance = 0f },
+                                    onVerticalDrag = { _, dragAmount ->
+                                        val atTop = libraryListState.firstVisibleItemIndex == 0 && libraryListState.firstVisibleItemScrollOffset == 0
+                                        if (atTop && dragAmount > 0f) pullDistance += dragAmount
+                                    },
+                                    onDragEnd = {
+                                        val now = System.currentTimeMillis()
+                                        if (pullDistance > 120f && now - lastMainPageRefreshAt > 1500L) {
+                                            lastMainPageRefreshAt = now
+                                            onRefreshMainPage()
+                                        }
+                                        pullDistance = 0f
+                                    },
+                                    onDragCancel = { pullDistance = 0f }
+                                )
+                            }
+                            .padding(horizontal = 18.dp),
+                        state = libraryListState,
+                        contentPadding = PaddingValues(
+                            top = if (selectedHomeTab == VeritasHomeTab.LIBRARY) 0.dp else 10.dp,
+                            bottom = 22.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+
+        if (selectedHomeTab == VeritasHomeTab.HOME) {
+            item {
+                val tracker = uiState.readerTrackerSnapshot
+                val hasPositiveStreak = tracker.currentStreak >= 2
+                
+                if (hasPositiveStreak) {
+                    val streak = tracker.currentStreak
+                    val streakHeadline = when {
+                        streak >= 7 -> "You're doing amazing! 🌟"
+                        streak in 2..6 -> "Keep it going! 🔥"
+                        tracker.documentsCompletedThisMonth >= 3 -> "Reading superstar! 📚"
+                        tracker.weeklyUsageMillis > 120 * 60 * 1000L -> "In the zone! ⚡"
+                        else -> "Great progress! ✨"
+                    }
+                    val streakSubtitle = when {
+                        streak >= 7 -> "Incredible $streak-day streak! You are a reading champion."
+                        streak in 2..6 -> "$streak-day streak! Keep up the momentum."
+                        tracker.documentsCompletedThisMonth >= 3 -> "You've finished ${tracker.documentsCompletedThisMonth} books this month."
+                        tracker.weeklyUsageMillis > 0 -> "You've read for ${(tracker.weeklyUsageMillis / 60000L)}m this week."
+                        else -> "Keep up the great momentum"
+                    }
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        shape = VeritasPackStyle.cardShape(),
+                        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            Color(0xFF7C6FFF),
+                                            Color(0xFF5B4FCF)
+                                        )
+                                    )
+                                )
+                                .padding(20.dp)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .background(Color.White.copy(alpha = 0.2f), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("⚡", fontSize = 20.sp)
+                                        }
+                                        Column {
+                                            Text(
+                                                streakHeadline,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                            Text(
+                                                streakSubtitle,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.White.copy(alpha = 0.75f)
+                                            )
+                                        }
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(50))
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "${tracker.currentStreak}-day streak 🔥",
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val weeklyMinutes = tracker.weeklyUsageMillis / 60000L
+                                    
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "${tracker.currentStreak}",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Streak",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.7f)
+                                        )
+                                    }
+
+                                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.15f)))
+
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "${weeklyMinutes}m",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "This week",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.7f)
+                                        )
+                                    }
+
+                                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color.White.copy(alpha = 0.15f)))
+
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "${tracker.documentsCompletedThisMonth}",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Done",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            dashboardHeadline,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            dashboardSubtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            if (documents.isNotEmpty()) {
+                item {
+                    val collectionCount = remember(documents) { documents.map { it.collection.trim() }.filter { it.isNotBlank() }.distinct().size }
+                    val sourceCount = remember(documents) { documents.map { it.sourceLabel.trim().ifBlank { "Text" } }.distinct().size }
+                    val unreadCount = remember(documents) { documents.count { it.currentIndex <= 0 } }
+                    
+                    HomePanel(
+                        totalCount = documents.size,
+                        unreadCount = unreadCount,
+                        inProgressCount = readingCount,
+                        completedCount = completedCount,
+                        favoriteCount = favoriteCount,
+                        queuedCount = queuedDocuments.size,
+                        collectionCount = collectionCount,
+                        sourceCount = sourceCount,
+                        onOpenQueue = { showQueue = true }
                     )
                 }
             }
         }
 
-        if (selectedHomeTab == VeritasHomeTab.LIBRARY) {
-            item {
-                LibrarySearchAndFilters(
-                    query = libraryQuery,
-                    onQueryChange = { libraryQuery = it },
-                    statusFilter = statusFilter,
-                    onStatusFilterChange = { filter ->
-                        statusFilter = filter
-                        if (filter == "Recent") {
-                            statusFilter = "All"
-                            sortMode = "Updated"
-                        }
-                    },
-                    onSync = onOpenSyncCenter
-                )
-            }
-        }
+        // Library search and filters block removed from middle.
 
-        if (selectedHomeTab == VeritasHomeTab.DASHBOARD) item {
+        if (selectedHomeTab == VeritasHomeTab.HOME) item {
             if (documents.isEmpty()) {
                 EmbeddedOnboardingBlock(
                     onOpenFileBrowser = onOpenFileBrowser,
                     onPasteText = {
-                        showImportMenu = false
-                        showQuickPaste = true
+                        showImportSheet = true
                     }
                 )
             } else {
-                DashboardQuickActions(
+                HomeQuickActions(
                     continueDocument = continueDocument,
                     documentCount = documents.size,
+                    longestStreak = longestStreak,
                     onOpenContinue = { document -> onOpenDocument(document) },
                     onClearContinue = { document -> onClearContinueDocument(document) },
-                    onImportClick = { showImportMenu = true },
-                    onPasteClick = { showQuickPaste = true },
-                    importMenuExpanded = showImportMenu,
-                    onDismissImportMenu = { showImportMenu = false },
+                    onImportClick = { showImportSheet = true },
+                    onPasteClick = { showImportSheet = true },
+                    importMenuExpanded = false,
+                    onDismissImportMenu = { },
                     onOpenFile = {
-                        showImportMenu = false
-                        onImportFile()
+                        showImportSheet = true
                     },
                     onOpenFileBrowser = {
-                        showImportMenu = false
                         onOpenFileBrowser()
                     },
                     onOpenImportSettings = {
-                        showImportMenu = false
                         onAdvancedPdfImport()
                     },
                     onPasteText = {
-                        showImportMenu = false
-                        showQuickPaste = true
+                        showImportSheet = true
                     }
                 )
             }
         }
 
-        if (selectedHomeTab == VeritasHomeTab.DASHBOARD && queuedDocuments.isNotEmpty()) {
+        if (selectedHomeTab == VeritasHomeTab.HOME && queuedDocuments.isNotEmpty()) {
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { showQueue = true },
@@ -618,7 +1176,7 @@ fun LibraryScreen(
                         ) { Text("▶", fontWeight = FontWeight.Black) }
                         Spacer(modifier = Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Listen Later", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                            Text("Queue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
                             Text("${queuedDocuments.size} queued reading${if (queuedDocuments.size == 1) "" else "s"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Button(onClick = onPlayQueue) { Text("Play") }
@@ -627,107 +1185,333 @@ fun LibraryScreen(
             }
         }
 
-        if (selectedHomeTab == VeritasHomeTab.FILES) {
-            item {
-                FilesTabPanel(
-                    entries = uiState.fileBrowserFiles,
-                    query = fileQuery,
-                    onQueryChange = { fileQuery = it },
-                    selectedTab = fileTab,
-                    onSelectedTabChange = { fileTab = it },
-                    viewMode = fileViewMode,
-                    onViewModeChange = { fileViewMode = it },
-                    sortMode = fileSortMode,
-                    sortAscending = fileSortAscending,
-                    onSortModeChange = { fileSortMode = it },
-                    onToggleSortOrder = { fileSortAscending = !fileSortAscending },
-                    showViewMenu = showFileViewMenu,
-                    onShowViewMenu = { showFileViewMenu = true },
-                    onDismissViewMenu = { showFileViewMenu = false },
-                    scanning = uiState.fileBrowserScanning,
-                    message = uiState.fileBrowserMessage,
-                    allFilesAccessGranted = uiState.fileBrowserAllFilesGranted,
-                    approvedRootCount = uiState.fileBrowserRoots.size,
-                    importing = uiState.importInProgress,
-                    importingName = uiState.importSourceName,
-                    onImportFile = onImportBrowserFile,
-                    onRefresh = onRefreshFileBrowser,
-                    onOpenImportSettings = onAdvancedPdfImport,
-                    onRequestAllFilesAccess = onRequestAllFilesAccess,
-                    onPickFolder = onPickFileBrowserFolder,
-                    onOpenFullBrowser = onOpenFileBrowser
-                )
-            }
-        }
-
-        if (selectedHomeTab == VeritasHomeTab.BOOKMARKS_NOTES) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Bookmarks & Notes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                        Text(
-                            if (annotationSelectionMode) {
-                                "${selectedAnnotationKeys.size} selected"
-                            } else {
-                                val bookmarkCount = uiState.allAnnotations.count { it.type == AnnotationType.BOOKMARK }
-                                val noteCount = uiState.allAnnotations.count { it.type == AnnotationType.NOTE } + uiState.documentNotes.size
-                                "$bookmarkCount bookmarks • $noteCount notes"
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (annotationSelectionMode) {
-                        TextButton(onClick = { selectedAnnotationKeys = emptySet() }) { Text("Cancel") }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Button(onClick = { confirmAnnotationDelete = true }) { Text("Delete") }
+        if (selectedHomeTab == VeritasHomeTab.STUDY) {
+            when (annotationFilter) {
+                "Bookmarks" -> {
+                    if (bookmarksOnly.isEmpty()) {
+                        item {
+                            StudyEmptyState(
+                                emoji = "🔖",
+                                title = "No bookmarks yet",
+                                description = "Bookmark key passages while reading. Your bookmarked sentences will show up here.",
+                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onImportFile = onImportFile
+                            )
+                        }
                     } else {
-                        OutlinedButton(onClick = onOpenSyncCenter) { Text("Sync") }
+                        bookmarksOnly.forEach { markedDocument ->
+                            val doc = markedDocument.document
+                            item(key = "marks-bookmarks-${doc.id}") {
+                                AnnotationDocumentCard(
+                                    document = doc,
+                                    annotations = markedDocument.annotations.filter { it.type == AnnotationType.BOOKMARK },
+                                    documentNote = "",
+                                    selectedKeys = selectedAnnotationKeys,
+                                    selectionMode = annotationSelectionMode,
+                                    onToggleDocumentNoteSelected = {},
+                                    onLongPressDocumentNote = {},
+                                    onToggleSelected = { annotation ->
+                                        selectedAnnotationKeys = if (annotation.stableKey in selectedAnnotationKeys) {
+                                            selectedAnnotationKeys - annotation.stableKey
+                                        } else {
+                                            selectedAnnotationKeys + annotation.stableKey
+                                        }
+                                    },
+                                    onLongPressAnnotation = { annotation -> selectedAnnotationKeys = selectedAnnotationKeys + annotation.stableKey },
+                                    onOpenDocumentNote = {},
+                                    onOpenAt = { index -> onOpenDocumentAt(doc, index) }
+                                )
+                            }
+                        }
                     }
                 }
-            }
-            if (annotatedDocuments.isEmpty()) {
-                item {
-                    HomeActionPanel(
-                        title = "No saved marks yet",
-                        body = "Bookmark a sentence or save a general note while reading. It will stay here for reference.",
-                        primaryLabel = "Go to library",
-                        onPrimary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
-                        secondaryLabel = "Import",
-                        onSecondary = onImportFile
-                    )
+                "Notes" -> {
+                    if (notesOnly.isEmpty()) {
+                        item {
+                            StudyEmptyState(
+                                emoji = "✏️",
+                                title = "No notes yet",
+                                description = "Add notes to sentences or write general document notes while reading.",
+                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onImportFile = onImportFile
+                            )
+                        }
+                    } else {
+                        notesOnly.forEach { markedDocument ->
+                            val doc = markedDocument.document
+                            item(key = "marks-notes-${doc.id}") {
+                                AnnotationDocumentCard(
+                                    document = doc,
+                                    annotations = markedDocument.annotations.filter { it.type == AnnotationType.NOTE },
+                                    documentNote = markedDocument.documentNote,
+                                    selectedKeys = selectedAnnotationKeys,
+                                    selectionMode = annotationSelectionMode,
+                                    onToggleDocumentNoteSelected = {
+                                        val key = documentNoteStableKey(doc.id)
+                                        selectedAnnotationKeys = if (key in selectedAnnotationKeys) {
+                                            selectedAnnotationKeys - key
+                                        } else {
+                                            selectedAnnotationKeys + key
+                                        }
+                                    },
+                                    onLongPressDocumentNote = {
+                                        selectedAnnotationKeys = selectedAnnotationKeys + documentNoteStableKey(doc.id)
+                                    },
+                                    onToggleSelected = { annotation ->
+                                        selectedAnnotationKeys = if (annotation.stableKey in selectedAnnotationKeys) {
+                                            selectedAnnotationKeys - annotation.stableKey
+                                        } else {
+                                            selectedAnnotationKeys + annotation.stableKey
+                                        }
+                                    },
+                                    onLongPressAnnotation = { annotation -> selectedAnnotationKeys = selectedAnnotationKeys + annotation.stableKey },
+                                    onOpenDocumentNote = { onOpenDocumentAt(doc, doc.currentIndex.coerceAtLeast(0)) },
+                                    onOpenAt = { index -> onOpenDocumentAt(doc, index) }
+                                )
+                            }
+                        }
+                    }
                 }
-            } else {
-                annotatedDocuments.forEach { markedDocument ->
-                    val document = markedDocument.document
-                    item(key = "marks-${document.id}") {
-                        AnnotationDocumentCard(
-                            document = document,
-                            annotations = markedDocument.annotations,
-                            documentNote = markedDocument.documentNote,
-                            selectedKeys = selectedAnnotationKeys,
-                            selectionMode = annotationSelectionMode,
-                            onToggleDocumentNoteSelected = {
-                                val key = documentNoteStableKey(document.id)
-                                selectedAnnotationKeys = if (key in selectedAnnotationKeys) {
-                                    selectedAnnotationKeys - key
-                                } else {
-                                    selectedAnnotationKeys + key
+                "Vocab" -> {
+                    if (vocabDocs.isEmpty()) {
+                        item {
+                            StudyEmptyState(
+                                emoji = "📘",
+                                title = "No vocabulary words yet",
+                                description = "Select words in the reader and click Ask AI, Google Search, or Translate to automatically accumulate lookups here.",
+                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onImportFile = onImportFile
+                            )
+                        }
+                    } else {
+                        vocabDocs.forEach { (doc, note, entries) ->
+                            val isExpanded = doc.id in expandedVocabDocIds
+                            item(key = "vocab-doc-${doc.id}") {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        shape = VeritasPackStyle.compactShape(),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                    ) {
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        expandedVocabDocIds = if (isExpanded) {
+                                                            expandedVocabDocIds - doc.id
+                                                        } else {
+                                                            expandedVocabDocIds + doc.id
+                                                        }
+                                                    }
+                                                    .padding(14.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(doc.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                                    Text("📘 Vocabulary (${entries.size} word${if (entries.size == 1) "" else "s"})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                                Icon(
+                                                    imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+
+                                            if (isExpanded) {
+                                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(horizontal = 14.dp))
+                                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    entries.forEach { entry ->
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                                Text(entry.word, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                                                Text(entry.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                                Text(
+                                                                    text = entry.source,
+                                                                    color = MaterialTheme.colorScheme.primary,
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier.clickable { onOpenDocumentAt(doc, entry.sentenceIndex) }
+                                                                )
+                                                            }
+                                                            IconButton(onClick = { onRemoveVocabularyWord(doc.id, entry.word) }) {
+                                                                Icon(Icons.Default.Delete, contentDescription = "Delete entry", tint = MaterialTheme.colorScheme.error)
+                                                            }
+                                                        }
+                                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                            },
-                            onLongPressDocumentNote = {
-                                selectedAnnotationKeys = selectedAnnotationKeys + documentNoteStableKey(document.id)
-                            },
-                            onToggleSelected = { annotation ->
-                                selectedAnnotationKeys = if (annotation.stableKey in selectedAnnotationKeys) {
-                                    selectedAnnotationKeys - annotation.stableKey
-                                } else {
-                                    selectedAnnotationKeys + annotation.stableKey
+                            }
+                        }
+                    }
+                "General" -> {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onWriteGeneralNote() },
+                            shape = VeritasPackStyle.cardShape(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Edit,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
                                 }
-                            },
-                            onLongPressAnnotation = { annotation -> selectedAnnotationKeys = selectedAnnotationKeys + annotation.stableKey },
-                            onOpenDocumentNote = { onOpenDocumentAt(document, document.currentIndex.coerceAtLeast(0)) },
-                            onOpenAt = { index -> onOpenDocumentAt(document, index) }
-                        )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "Write a note",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        "Personal notes, goals, or general thoughts",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    if (trueGeneralNotes.isEmpty()) {
+                        item {
+                            StudyEmptyState(
+                                emoji = "📝",
+                                title = "No general notes yet",
+                                description = "Write personal notes, goals, or general thoughts here.",
+                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onImportFile = onImportFile
+                            )
+                        }
+                    } else {
+                        trueGeneralNotes.forEach { generalNote ->
+                            item(key = "general-note-${generalNote.id}") {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onEditGeneralNote(generalNote) }
+                                        .padding(vertical = 4.dp),
+                                    shape = VeritasPackStyle.compactShape(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        if (generalNote.title.isNotBlank()) {
+                                            Text(generalNote.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                        Text(
+                                            generalNote.content,
+                                            maxLines = 3,
+                                            overflow = TextOverflow.Ellipsis,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        val locale = LocalConfiguration.current.locales[0]
+                                        val updatedTime = remember(generalNote.updatedAt, locale) {
+                                            SimpleDateFormat("dd MMM, HH:mm", locale).format(Date(generalNote.updatedAt))
+                                        }
+                                        Text(
+                                            text = "Last updated $updatedTime",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "History" -> {
+                    val readingHistory = uiState.readingHistory
+                    if (readingHistory.isEmpty()) {
+                        item {
+                            StudyEmptyState(
+                                emoji = "↺",
+                                title = "No reading history yet",
+                                description = "Documents you read will show up here.",
+                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onImportFile = onImportFile
+                            )
+                        }
+                    } else {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Recent history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                TextButton(onClick = onClearReadingHistory) {
+                                    Text("Clear all", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                        readingHistory.forEach { historyEntry ->
+                            val doc = uiState.documents.firstOrNull { it.id == historyEntry.documentId }
+                            item(key = "history-entry-${historyEntry.documentId}-${historyEntry.openedAt}") {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            if (doc != null) {
+                                                onOpenDocumentAt(doc, historyEntry.currentIndex)
+                                            }
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    shape = VeritasPackStyle.compactShape(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(historyEntry.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                text = "Sentence ${historyEntry.currentIndex + 1} of ${historyEntry.chunkCount}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            val locale = LocalConfiguration.current.locales[0]
+                                            val openedTime = remember(historyEntry.openedAt, locale) {
+                                                SimpleDateFormat("dd MMM, HH:mm", locale).format(Date(historyEntry.openedAt))
+                                            }
+                                            Text(
+                                                text = "Opened $openedTime",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -736,9 +1520,12 @@ fun LibraryScreen(
         if (selectedHomeTab == VeritasHomeTab.LIBRARY) item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Your library", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
                     Text(
-                        if (selectionMode) "${selectedDocumentIds.size} selected • ${visibleDocuments.size} showing" else "$readingCount in progress • $completedCount completed • ${visibleDocuments.size} showing",
+                        if (selectionMode) {
+                            "${selectedDocumentIds.size} selected • ${visibleDocuments.size} showing"
+                        } else {
+                            "${documents.size} total • $readingCount in progress • $completedCount completed"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -770,7 +1557,7 @@ fun LibraryScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Add to Listen Later") },
+                                text = { Text("Add to Queue") },
                                 onClick = {
                                     onBatchQueueDocuments(selectedDocumentIds)
                                     selectedDocumentIds = emptySet()
@@ -800,11 +1587,14 @@ fun LibraryScreen(
                         Box {
                             TextButton(onClick = { showLibraryViewMenu = true }) { Text("${libraryViewMode.icon} ⋮") }
                             DropdownMenu(expanded = showLibraryViewMenu, onDismissRequest = { showLibraryViewMenu = false }) {
-                                LibraryViewMode.values().forEach { mode ->
+                                LibraryViewMode.entries.forEach { mode ->
                                     DropdownMenuItem(
                                         text = { Text("${mode.icon} ${mode.label}") },
                                         onClick = {
                                             libraryViewMode = mode
+                                            libraryPrefs.edit {
+                                                putString("library_view_mode", mode.name)
+                                            }
                                             showLibraryViewMenu = false
                                         }
                                     )
@@ -845,14 +1635,29 @@ fun LibraryScreen(
                     Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("No matching readings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
                         Text("Clear the search or change filters to see more saved readings.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        OutlinedButton(onClick = { showFilters = true }) { Text("Change filters") }
+                        OutlinedButton(
+                            onClick = {
+                                libraryQuery = ""
+                                statusFilter = "All"
+                                sourceFilter = "All"
+                                collectionFilter = "All"
+                                readingListFilter = "All"
+                            }
+                        ) {
+                            Text("Clear filters")
+                        }
                     }
                 }
             }
         } else if (selectedHomeTab == VeritasHomeTab.LIBRARY) {
             if (libraryViewMode == LibraryViewMode.TILES) {
-                itemsIndexed(visibleDocuments.chunked(2), key = { index, row -> row.joinToString("-") { it.id }.ifBlank { "row-$index" } }) { _, rowDocs ->
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                itemsIndexed(visibleDocuments.chunked(columnCount), key = { index, row -> row.joinToString("-") { it.id }.ifBlank { "row-$index" } }) { _, rowDocs ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         rowDocs.forEach { doc ->
                             DocumentTileCard(
                                 document = doc,
@@ -870,10 +1675,14 @@ fun LibraryScreen(
                                 onRename = { onRenameDocument(doc) },
                                 onSetCollection = { onSetCollection(doc) },
                                 onShowDetails = { onShowDetails(doc) },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                onManageLists = { manageListsDocument = doc }
                             )
                         }
-                        if (rowDocs.size == 1) Spacer(modifier = Modifier.weight(1f))
+                        val remainder = columnCount - rowDocs.size
+                        repeat(remainder) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
             } else {
@@ -898,7 +1707,8 @@ fun LibraryScreen(
                         onToggleFavorite = { onToggleFavorite(doc) },
                         onRename = { onRenameDocument(doc) },
                         onSetCollection = { onSetCollection(doc) },
-                        onShowDetails = { onShowDetails(doc) }
+                        onShowDetails = { onShowDetails(doc) },
+                        onManageLists = { manageListsDocument = doc }
                     )
                 }
             }
@@ -906,56 +1716,15 @@ fun LibraryScreen(
 
         item { Spacer(modifier = Modifier.height(22.dp)) }
     }
-    }
-}
-
-@Composable
-private fun VeritasHomeTopBar(
-    selectedTab: VeritasHomeTab,
-    onMenu: () -> Unit,
-    onSettings: () -> Unit
-) {
-    val showMenu = selectedTab == VeritasHomeTab.DASHBOARD || selectedTab == VeritasHomeTab.LIBRARY || selectedTab == VeritasHomeTab.FILES
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        Box(modifier = Modifier.fillMaxWidth().height(56.dp)) {
-            if (showMenu) {
-                TextButton(
-                    onClick = onMenu,
-                    contentPadding = PaddingValues(horizontal = 0.dp),
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .offset(x = (-18).dp)
-                        .width(44.dp)
-                        .height(48.dp)
-                ) {
-                    Text("☰", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
-            VeritasWordmark(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 42.dp)
-                    .offset(y = (-2).dp)
-            )
-            TextButton(
-                onClick = onSettings,
-                contentPadding = PaddingValues(horizontal = 8.dp),
-                modifier = Modifier.align(Alignment.CenterEnd)
-            ) {
-                Text("⚙", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
 
+
 @Composable
-private fun DashboardSidebarDialog(
+private fun HomeSidebarDialog(
     name: String,
     snapshot: ReaderTrackerSnapshot,
     onDismiss: () -> Unit,
@@ -977,22 +1746,23 @@ private fun DashboardSidebarDialog(
             Surface(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(318.dp)
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
+                    .width(318.dp),
                 shape = RoundedCornerShape(
-                    topEnd = MaterialTheme.shapes.large.topEnd,
-                    bottomEnd = MaterialTheme.shapes.large.bottomEnd,
-                    topStart = MaterialTheme.shapes.medium.topStart,
-                    bottomStart = MaterialTheme.shapes.medium.bottomStart
+                    topEnd = 24.dp,
+                    bottomEnd = 24.dp,
+                    topStart = 0.dp,
+                    bottomStart = 0.dp
                 ),
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 6.dp,
                 shadowElevation = 8.dp
             ) {
                 Column(
-                    modifier = Modifier.fillMaxSize().padding(18.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1006,8 +1776,8 @@ private fun DashboardSidebarDialog(
                     }
                     ReaderTrackerSidebarCard(snapshot = snapshot, onOpenStats = onOpenStats)
                     HorizontalDivider()
-                    SidebarAction("Library", "Saved readings and filters", "▤", onOpenLibrary)
-                    SidebarAction("Settings", "Reader, voice, import, AI, and backup", "⚙", onOpenSettings)
+                    SidebarAction("Library", "Saved readings and filters", "🗄️", onOpenLibrary)
+                    SidebarAction("Settings", "Reader, voice, import, AI, and backup", "⚙️", onOpenSettings)
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
                         "All stats are stored locally on this device.",
@@ -1202,9 +1972,10 @@ private fun formatTrackerDuration(millis: Long): String {
 }
 
 @Composable
-private fun DashboardQuickActions(
+private fun HomeQuickActions(
     continueDocument: SavedDocument?,
     documentCount: Int,
+    longestStreak: Int,
     onOpenContinue: (SavedDocument) -> Unit,
     onClearContinue: (SavedDocument) -> Unit,
     onImportClick: () -> Unit,
@@ -1216,95 +1987,187 @@ private fun DashboardQuickActions(
     onOpenImportSettings: () -> Unit,
     onPasteText: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         val disabled = continueDocument == null
+        val context = LocalContext.current
+        val coverFile = remember(continueDocument?.id) { continueDocument?.id?.let { CoverExtractor.coverFile(context, it) } }
+        val coverBitmap = remember(coverFile) {
+            coverFile?.let { file ->
+                runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+            }
+        }
+
+        val isFirstDay = longestStreak <= 1
+        val headerTitle = if (continueDocument != null && isFirstDay) "First day of reading" else "Continue reading"
+
+        Text(
+            text = headerTitle,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(enabled = continueDocument != null) { continueDocument?.let(onOpenContinue) },
-            shape = MaterialTheme.shapes.small,
+            shape = VeritasPackStyle.cardShape(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
             colors = CardDefaults.cardColors(
                 containerColor = if (disabled) {
-                    MaterialTheme.colorScheme.surfaceContainerLow()
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f * VeritasPackStyle.surfaceAlpha())
                 } else {
-                    MaterialTheme.colorScheme.surface
+                    MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
                 }
+            ),
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             )
         ) {
             Row(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                ActionIcon(
-                    label = "♪",
-                    background = MaterialTheme.colorScheme.surfaceVariant,
-                    foreground = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Continue Listening", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                // Larger Premium Cover Thumbnail
+                Box(
+                    modifier = Modifier
+                        .width(72.dp)
+                        .height(96.dp)
+                        .clip(VeritasPackStyle.compactShape())
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (coverBitmap != null) {
+                        Image(
+                            bitmap = coverBitmap.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text("🎧", fontSize = 28.sp)
+                    }
+                }
+                
+                // Detailed Information
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     if (continueDocument == null) {
                         Text(
-                            if (documentCount == 0) "Open a file to start reading" else "Open a reading to resume it here",
+                            text = "Resume reading",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = if (documentCount == 0) "Open a file to start reading" else "Pick a document from your library to begin.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium
                         )
                     } else {
                         Text(
-                            "${continueDocument.title} • ${progressPercent(continueDocument)}%",
-                            maxLines = 1,
+                            text = continueDocument.title,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleMedium
                         )
-                        LinearProgressIndicator(progress = { progressFraction(continueDocument) }, modifier = Modifier.fillMaxWidth())
+                        
+                        val progressPercentVal = progressPercent(continueDocument)
+                        
+                        Text(
+                            text = "Sentence ${continueDocument.currentIndex + 1} of ${continueDocument.chunkCount} • $progressPercentVal% read",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        // Inline Progress Bar
+                        LinearProgressIndicator(
+                            progress = { progressFraction(continueDocument) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                        )
                     }
                 }
+                
+                // Audio controls inline
                 if (continueDocument != null) {
-                    TextButton(onClick = { onClearContinue(continueDocument) }) { Text("Clear") }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                .clickable { onOpenContinue(continueDocument) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("▶", color = MaterialTheme.colorScheme.onPrimary, fontSize = 18.sp, modifier = Modifier.padding(start = 3.dp))
+                        }
+                        IconButton(
+                            onClick = { onClearContinue(continueDocument) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Text("✕", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
         }
 
+        Text(
+            text = "Add content",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.small,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            )
         ) {
-            Column {
-                Box {
-                    DashboardActionRow(
-                        icon = "⇧",
-                        title = "Import",
-                        body = "Upload PDF, EPUB, DOCX, TXT, or HTML",
-                        iconBackground = MaterialTheme.colorScheme.primaryContainer,
-                        iconForeground = MaterialTheme.colorScheme.onPrimaryContainer,
-                        onClick = onImportClick
-                    )
-                    DropdownMenu(expanded = importMenuExpanded, onDismissRequest = onDismissImportMenu) {
-                        DropdownMenuItem(text = { Text("Open file") }, onClick = onOpenFile)
-                        DropdownMenuItem(text = { Text("File browser") }, onClick = onOpenFileBrowser)
-                        DropdownMenuItem(text = { Text("Import settings") }, onClick = onOpenImportSettings)
-                        DropdownMenuItem(text = { Text("Paste text or URL") }, onClick = onPasteText)
-                    }
-                }
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                DashboardActionRow(
-                    icon = "▣",
-                    title = "Paste",
-                    body = "Insert text from clipboard",
-                    iconBackground = MaterialTheme.colorScheme.secondaryContainer,
-                    iconForeground = MaterialTheme.colorScheme.onSecondaryContainer,
-                    onClick = onPasteClick
+            Box {
+                HomeActionRow(
+                    icon = Icons.Filled.Add,
+                    title = "Import file",
+                    body = "Upload PDF, EPUB, DOCX, TXT, or HTML",
+                    iconBackground = Color(0xFFF0F3FF),
+                    iconForeground = Color(0xFF7C6FFF),
+                    onClick = onImportClick
                 )
+                DropdownMenu(expanded = importMenuExpanded, onDismissRequest = onDismissImportMenu) {
+                    DropdownMenuItem(text = { Text("Open file") }, onClick = onOpenFile)
+                    DropdownMenuItem(text = { Text("File browser") }, onClick = onOpenFileBrowser)
+                    DropdownMenuItem(text = { Text("Import settings") }, onClick = onOpenImportSettings)
+                    DropdownMenuItem(text = { Text("Paste text or URL") }, onClick = onPasteText)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun DashboardActionRow(
-    icon: String,
+private fun HomeActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     body: String,
     iconBackground: Color,
@@ -1312,314 +2175,35 @@ private fun DashboardActionRow(
     onClick: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        ActionIcon(label = icon, background = iconBackground, foreground = iconForeground)
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(iconBackground, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconForeground,
+                modifier = Modifier.size(20.dp)
+            )
+        }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("→", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
     }
 }
 
-@Composable
-private fun ActionIcon(
-    label: String,
-    background: Color,
-    foreground: Color
-) {
-    Box(
-        modifier = Modifier.size(46.dp).background(background, RoundedCornerShape(50)),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, color = foreground, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-    }
-}
 
-@Composable
-private fun LibrarySearchAndFilters(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    statusFilter: String,
-    onStatusFilterChange: (String) -> Unit,
-    onSync: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
-                leadingIcon = { Text("⌕", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                placeholder = { Text("Search library...") },
-                singleLine = true,
-                shape = RoundedCornerShape(50)
-            )
-            OutlinedButton(
-                onClick = onSync,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                shape = RoundedCornerShape(50)
-            ) { Text("↻") }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf("All", "Recent", "Favorites", "Unread").forEach { option ->
-                val active = when (option) {
-                    "All" -> statusFilter == "All"
-                    "Recent" -> false
-                    else -> statusFilter == option
-                }
-                if (active) {
-                    Button(onClick = { onStatusFilterChange(option) }, shape = RoundedCornerShape(50)) {
-                        Text(if (option == "All") "All Documents" else option)
-                    }
-                } else {
-                    OutlinedButton(onClick = { onStatusFilterChange(option) }, shape = RoundedCornerShape(50)) {
-                        Text(if (option == "All") "All Documents" else option)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FilesTabPanel(
-    entries: List<VeritasBrowserFile>,
-    query: String,
-    onQueryChange: (String) -> Unit,
-    selectedTab: VeritasBrowserTab,
-    onSelectedTabChange: (VeritasBrowserTab) -> Unit,
-    viewMode: LibraryViewMode,
-    onViewModeChange: (LibraryViewMode) -> Unit,
-    sortMode: VeritasBrowserSort,
-    sortAscending: Boolean,
-    onSortModeChange: (VeritasBrowserSort) -> Unit,
-    onToggleSortOrder: () -> Unit,
-    showViewMenu: Boolean,
-    onShowViewMenu: () -> Unit,
-    onDismissViewMenu: () -> Unit,
-    scanning: Boolean,
-    message: String?,
-    allFilesAccessGranted: Boolean,
-    approvedRootCount: Int,
-    importing: Boolean,
-    importingName: String,
-    onImportFile: (VeritasBrowserFile) -> Unit,
-    onRefresh: () -> Unit,
-    onOpenImportSettings: () -> Unit,
-    onRequestAllFilesAccess: () -> Unit,
-    onPickFolder: () -> Unit,
-    onOpenFullBrowser: () -> Unit
-) {
-    val documentEntries = remember(entries) {
-        entries.filter { !it.isDirectory && it.isSupported }
-    }
-    val visibleEntries = remember(documentEntries, query, selectedTab, sortMode, sortAscending) {
-        val needle = query.trim()
-        val filtered = documentEntries
-            .filter { selectedTab == VeritasBrowserTab.ALL || it.type == selectedTab }
-            .filter { file ->
-                needle.isBlank() ||
-                    file.name.contains(needle, ignoreCase = true) ||
-                    file.relativePath.contains(needle, ignoreCase = true) ||
-                    file.rootLabel.contains(needle, ignoreCase = true)
-            }
-        val comparator = when (sortMode) {
-            VeritasBrowserSort.NAME -> compareBy<VeritasBrowserFile> { it.name.lowercase(Locale.getDefault()) }
-            VeritasBrowserSort.DATE -> compareBy { it.modifiedAt }
-            VeritasBrowserSort.SIZE -> compareBy { it.sizeBytes }
-            VeritasBrowserSort.PATH -> compareBy { it.relativePath.lowercase(Locale.getDefault()) }
-        }
-        if (sortAscending) filtered.sortedWith(comparator) else filtered.sortedWith(comparator.reversed())
-    }
-    val typeTabs = listOf(
-        VeritasBrowserTab.ALL,
-        VeritasBrowserTab.BOOKS,
-        VeritasBrowserTab.PDF,
-        VeritasBrowserTab.DOC,
-        VeritasBrowserTab.HTML,
-        VeritasBrowserTab.TXT
-    )
-
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Files", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
-                Text(
-                    "${documentEntries.size} supported file${if (documentEntries.size == 1) "" else "s"} found",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            SoftChip(sortMode.label)
-            Box {
-                TextButton(onClick = onShowViewMenu) { Text("${viewMode.icon} ⋮") }
-                DropdownMenu(expanded = showViewMenu, onDismissRequest = onDismissViewMenu) {
-                    LibraryViewMode.values().forEach { mode ->
-                        DropdownMenuItem(
-                            text = { Text("${mode.icon} ${mode.label}") },
-                            onClick = {
-                                onViewModeChange(mode)
-                                onDismissViewMenu()
-                            }
-                        )
-                    }
-                    HorizontalDivider()
-                    VeritasBrowserSort.entries.forEach { mode ->
-                        DropdownMenuItem(
-                            text = { Text("Sort by ${mode.label}") },
-                            onClick = {
-                                onSortModeChange(mode)
-                                onDismissViewMenu()
-                            }
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text(if (sortAscending) "Descending order" else "Ascending order") },
-                        onClick = {
-                            onToggleSortOrder()
-                            onDismissViewMenu()
-                        }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Refresh files") },
-                        onClick = {
-                            onRefresh()
-                            onDismissViewMenu()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("PDF and import settings") },
-                        onClick = {
-                            onOpenImportSettings()
-                            onDismissViewMenu()
-                        }
-                    )
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
-                leadingIcon = { Text("⌕", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                placeholder = { Text("Search files...") },
-                singleLine = true,
-                shape = RoundedCornerShape(50)
-            )
-            OutlinedButton(
-                onClick = onRefresh,
-                enabled = !scanning && (allFilesAccessGranted || approvedRootCount > 0),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                shape = RoundedCornerShape(50)
-            ) { Text("↻") }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            typeTabs.forEach { tab ->
-                val count = if (tab == VeritasBrowserTab.ALL) documentEntries.size else documentEntries.count { it.type == tab }
-                if (selectedTab == tab) {
-                    Button(onClick = { onSelectedTabChange(tab) }, shape = RoundedCornerShape(50)) { Text("${tab.label} $count") }
-                } else {
-                    OutlinedButton(onClick = { onSelectedTabChange(tab) }, shape = RoundedCornerShape(50)) { Text("${tab.label} $count") }
-                }
-            }
-        }
-
-        if (!allFilesAccessGranted && approvedRootCount == 0) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Open phone files", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                    Text(
-                        "Grant All Files access to list supported documents here, or approve a specific folder.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Button(onClick = onRequestAllFilesAccess, modifier = Modifier.fillMaxWidth()) { Text("Grant all files access") }
-                    OutlinedButton(onClick = onPickFolder, modifier = Modifier.fillMaxWidth()) { Text("Choose folder") }
-                }
-            }
-        }
-
-        message?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        if (importing) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                Text(
-                    "Importing ${importingName.ifBlank { "selected file" }}",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        when {
-            scanning -> Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CircularProgressIndicator()
-                    Text("Scanning supported files...", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            visibleEntries.isEmpty() && (allFilesAccessGranted || approvedRootCount > 0) -> HomeActionPanel(
-                title = "No supported files visible",
-                body = "Refresh, change filters, or open the full folder browser to inspect protected folders.",
-                primaryLabel = "Refresh",
-                onPrimary = onRefresh,
-                secondaryLabel = "Full browser",
-                onSecondary = onOpenFullBrowser
-            )
-            visibleEntries.isNotEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(if (viewMode == LibraryViewMode.LIST) 6.dp else 10.dp)) {
-                visibleEntries.forEach { file ->
-                    FileTabDocumentRow(
-                        file = file,
-                        viewMode = viewMode,
-                        importing = importing,
-                        onImport = { onImportFile(file) }
-                    )
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun FileTabDocumentRow(
@@ -1628,28 +2212,66 @@ private fun FileTabDocumentRow(
     importing: Boolean,
     onImport: () -> Unit
 ) {
-    val dense = viewMode == LibraryViewMode.SMALL || viewMode == LibraryViewMode.LIST
+    val padding = when (viewMode) {
+        LibraryViewMode.SMALL -> 6.dp
+        LibraryViewMode.LIST -> 8.dp
+        LibraryViewMode.MEDIUM -> 12.dp
+        LibraryViewMode.DETAILS -> 14.dp
+        else -> 10.dp
+    }
+    val coverSize = when (viewMode) {
+        LibraryViewMode.SMALL -> 36.dp
+        LibraryViewMode.LIST -> 46.dp
+        LibraryViewMode.MEDIUM -> 58.dp
+        LibraryViewMode.DETAILS -> 72.dp
+        else -> 54.dp
+    }
+    val titleStyle = when (viewMode) {
+        LibraryViewMode.SMALL -> MaterialTheme.typography.bodyMedium
+        LibraryViewMode.LIST -> MaterialTheme.typography.bodyLarge
+        LibraryViewMode.MEDIUM -> MaterialTheme.typography.titleSmall
+        LibraryViewMode.DETAILS -> MaterialTheme.typography.titleMedium
+        else -> MaterialTheme.typography.bodyLarge
+    }
     val showDetails = viewMode == LibraryViewMode.DETAILS || viewMode == LibraryViewMode.LIST
+    val shape = if (viewMode == LibraryViewMode.SMALL || viewMode == LibraryViewMode.LIST) MaterialTheme.shapes.medium else MaterialTheme.shapes.large
+
+    val (icon, tint, bg) = when (file.type) {
+        VeritasBrowserTab.PDF -> Triple(Icons.AutoMirrored.Filled.List, Color(0xFFE24B4A), Color(0xFFFFF0F0))
+        VeritasBrowserTab.DOC -> Triple(Icons.Filled.Edit, Color(0xFF7C6FFF), Color(0xFFF0F3FF))
+        VeritasBrowserTab.BOOKS -> Triple(Icons.Filled.Star, Color(0xFF1D9E75), Color(0xFFF0FAF5))
+        else -> Triple(Icons.Filled.Info, Color(0xFF888888), Color(0xFFF5F5F5))
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth().clickable(enabled = !importing) { onImport() },
-        shape = if (dense) MaterialTheme.shapes.medium else MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+        )
     ) {
         Row(
-            modifier = Modifier.padding(if (dense) 10.dp else 14.dp),
+            modifier = Modifier.padding(padding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(if (dense) 42.dp else 54.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.small),
+                    .size(coverSize)
+                    .background(bg, MaterialTheme.shapes.small),
                 contentAlignment = Alignment.Center
             ) {
-                Text(file.type.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(if (viewMode == LibraryViewMode.SMALL) 18.dp else 24.dp)
+                )
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(file.name, maxLines = if (showDetails) 2 else 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                Text(file.name, maxLines = if (showDetails) 2 else 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, style = titleStyle)
                 Text(
                     "${fileTabFileSize(file.sizeBytes)} • ${fileTabModified(file.modifiedAt)}",
                     style = MaterialTheme.typography.bodySmall,
@@ -1665,7 +2287,97 @@ private fun FileTabDocumentRow(
                     )
                 }
             }
-            TextButton(onClick = onImport, enabled = !importing) { Text("Open") }
+            Box(
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
+                    .clickable(enabled = !importing) { onImport() }
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "Open",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileTabDocumentTileCard(
+    file: VeritasBrowserFile,
+    importing: Boolean,
+    onImport: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val (icon, tint, bg) = when (file.type) {
+        VeritasBrowserTab.PDF -> Triple(Icons.AutoMirrored.Filled.List, Color(0xFFE24B4A), Color(0xFFFFF0F0))
+        VeritasBrowserTab.DOC -> Triple(Icons.Filled.Edit, Color(0xFF7C6FFF), Color(0xFFF0F3FF))
+        VeritasBrowserTab.BOOKS -> Triple(Icons.Filled.Star, Color(0xFF1D9E75), Color(0xFFF0FAF5))
+        else -> Triple(Icons.Filled.Info, Color(0xFF888888), Color(0xFFF5F5F5))
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = !importing) { onImport() },
+        shape = VeritasPackStyle.compactShape(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1.2f)
+                    .background(bg, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            Text(
+                text = file.name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "${fileTabFileSize(file.sizeBytes)} • ${fileTabModified(file.modifiedAt)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
+                        .clickable(enabled = !importing) { onImport() }
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "Open",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }
@@ -1696,10 +2408,9 @@ private fun fileTabModified(timestamp: Long): String {
     return SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(Date(timestamp))
 }
 
-private fun ColorScheme.surfaceContainerLow(): Color = surfaceVariant
 
 @Composable
-fun DashboardPanel(
+fun HomePanel(
     totalCount: Int,
     unreadCount: Int,
     inProgressCount: Int,
@@ -1708,36 +2419,32 @@ fun DashboardPanel(
     queuedCount: Int,
     collectionCount: Int,
     sourceCount: Int,
-    onOpenQueue: () -> Unit,
-    onOpenFilters: () -> Unit
+    onOpenQueue: () -> Unit = {},
+    onOpenFilters: () -> Unit = {}
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Dashboard", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                    Text("A quick view of your reading library", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                OutlinedButton(onClick = onOpenFilters) { Text("⌕") }
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedButton(onClick = onOpenQueue, enabled = queuedCount > 0) { Text("▶ $queuedCount") }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                StatTile(value = "$totalCount", label = "Saved", modifier = Modifier.width(112.dp))
-                StatTile(value = "$unreadCount", label = "Unread", modifier = Modifier.width(112.dp))
-                StatTile(value = "$inProgressCount", label = "Reading", modifier = Modifier.width(112.dp))
-                StatTile(value = "$completedCount", label = "Done", modifier = Modifier.width(112.dp))
-                StatTile(value = "$favoriteCount", label = "Starred", modifier = Modifier.width(112.dp))
-                StatTile(value = "$collectionCount", label = "Collections", modifier = Modifier.width(132.dp))
-                StatTile(value = "$sourceCount", label = "Formats", modifier = Modifier.width(112.dp))
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "Reading Overview",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StatTile(value = "$totalCount", label = "Saved", modifier = Modifier.width(84.dp))
+            StatTile(value = "$unreadCount", label = "Unread", modifier = Modifier.width(84.dp))
+            StatTile(value = "$inProgressCount", label = "Reading", modifier = Modifier.width(84.dp))
+            StatTile(value = "$completedCount", label = "Done", modifier = Modifier.width(72.dp))
+            StatTile(value = "$favoriteCount", label = "Starred", modifier = Modifier.width(72.dp))
+            StatTile(value = "$collectionCount", label = "Collections", modifier = Modifier.width(80.dp))
+            StatTile(value = "$sourceCount", label = "Formats", modifier = Modifier.width(72.dp))
         }
     }
 }
@@ -1784,165 +2491,244 @@ private fun AnnotationDocumentCard(
     val hasDocumentNote = documentNote.isNotBlank()
     val documentNoteKey = documentNoteStableKey(document.id)
     val selectedDocumentNote = documentNoteKey in selectedKeys
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(document.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                "${annotations.count { it.type == AnnotationType.BOOKMARK }} bookmarks • ${annotations.count { it.type == AnnotationType.NOTE } + if (hasDocumentNote) 1 else 0} notes",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (hasDocumentNote) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (selectedDocumentNote) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                            MaterialTheme.shapes.small
-                        )
-                        .pointerInput(selectionMode, selectedDocumentNote, documentNoteKey) {
-                            detectTapGestures(
-                                onLongPress = { onLongPressDocumentNote() },
-                                onTap = {
-                                    if (selectionMode) onToggleDocumentNoteSelected() else onOpenDocumentNote()
-                                }
-                            )
-                        }
-                        .padding(horizontal = 6.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        if (selectedDocumentNote) "✓" else "✎",
-                        modifier = Modifier.width(30.dp),
-                        fontWeight = FontWeight.Black
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("General note", fontWeight = FontWeight.SemiBold)
-                        Text(documentNote, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (selectionMode) {
-                        TextButton(onClick = onToggleDocumentNoteSelected) { Text(if (selectedDocumentNote) "Selected" else "Select") }
-                    } else {
-                        TextButton(onClick = onOpenDocumentNote) { Text("Open") }
-                    }
-                }
-            }
-            annotations.take(8).forEach { annotation ->
-                val selected = annotation.stableKey in selectedKeys
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            MaterialTheme.shapes.small
-                        )
-                        .pointerInput(selectionMode, selected, annotation.stableKey) {
-                            detectTapGestures(
-                                onLongPress = { onLongPressAnnotation(annotation) },
-                                onTap = {
-                                    if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex)
-                                }
-                            )
-                        }
-                        .padding(horizontal = 6.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        if (selected) "✓" else if (annotation.type == AnnotationType.BOOKMARK) "★" else "✎",
-                        modifier = Modifier.width(30.dp),
-                        fontWeight = FontWeight.Black
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Sentence ${annotation.chunkIndex + 1}", fontWeight = FontWeight.SemiBold)
-                        if (annotation.note.isNotBlank()) {
-                            Text(annotation.note, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    if (selectionMode) {
-                        TextButton(onClick = { onToggleSelected(annotation) }) { Text(if (selected) "Selected" else "Select") }
-                    } else {
-                        TextButton(onClick = { onOpenAt(annotation.chunkIndex) }) { Text("Open") }
-                    }
-                }
-            }
-            if (annotations.size > 8) {
-                Text("+ ${annotations.size - 8} more", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
+    val bookmarkAnnotations = remember(annotations) { annotations.filter { it.type == AnnotationType.BOOKMARK } }
+    val noteAnnotations = remember(annotations) { annotations.filter { it.type == AnnotationType.NOTE } }
+    
+    var expanded by rememberSaveable(document.id) { mutableStateOf(false) }
 
-@Composable
-fun LibraryControlsCard(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    statusFilter: String,
-    onStatusFilterChange: (String) -> Unit,
-    sourceFilter: String,
-    onSourceFilterChange: (String) -> Unit,
-    collectionFilter: String,
-    onCollectionFilterChange: (String) -> Unit,
-    sortMode: String,
-    onSortModeChange: (String) -> Unit,
-    sourceOptions: List<String>,
-    collectionOptions: List<String>,
-    visibleCount: Int,
-    totalCount: Int
-) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        shape = VeritasPackStyle.cardShape(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+        )
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Find and organize", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                    Text("$visibleCount of $totalCount readings visible", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        text = document.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${bookmarkAnnotations.size} bookmark${if (bookmarkAnnotations.size == 1) "" else "s"} • ${noteAnnotations.size + if (hasDocumentNote) 1 else 0} note${if (noteAnnotations.size + (if (hasDocumentNote) 1 else 0) == 1) "" else "s"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                TextButton(onClick = {
-                    onQueryChange("")
-                    onStatusFilterChange("All")
-                    onSourceFilterChange("All")
-                    onCollectionFilterChange("All")
-                    onSortModeChange("Updated")
-                }) { Text("Reset") }
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Search library") },
-                placeholder = { Text("Title, preview, source, or collection") },
-                singleLine = true
-            )
-            FilterRow(
-                title = "Status",
-                options = listOf("All", "Favorites", "Queued", "Unread", "In progress", "Completed"),
-                selected = statusFilter,
-                onSelected = onStatusFilterChange
-            )
-            FilterRow(
-                title = "Source",
-                options = sourceOptions,
-                selected = sourceFilter,
-                onSelected = onSourceFilterChange
-            )
-            FilterRow(
-                title = "Collection",
-                options = collectionOptions,
-                selected = collectionFilter,
-                onSelected = onCollectionFilterChange
-            )
-            FilterRow(
-                title = "Sort",
-                options = listOf("Updated", "Newest", "Title", "Progress", "Type"),
-                selected = sortMode,
-                onSelected = onSortModeChange
-            )
+
+            if (expanded) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(horizontal = 14.dp))
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (hasDocumentNote || noteAnnotations.isNotEmpty()) {
+                        Text(
+                            text = "Notes",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (hasDocumentNote) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (selectedDocumentNote) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .pointerInput(selectionMode, selectedDocumentNote, documentNoteKey) {
+                                        detectTapGestures(
+                                            onLongPress = { onLongPressDocumentNote() },
+                                            onTap = {
+                                                if (selectionMode) onToggleDocumentNoteSelected() else onOpenDocumentNote()
+                                            }
+                                        )
+                                    }
+                                    .padding(vertical = 6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(if (selectedDocumentNote) Color(0xFFE2F0D9) else Color(0xFFFFF7F0), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (selectedDocumentNote) Icons.Filled.Check else Icons.Filled.Edit,
+                                        contentDescription = null,
+                                        tint = if (selectedDocumentNote) Color(0xFF137333) else Color(0xFFF2994A),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("General document note", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    Text(documentNote, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
+                                        .clickable { if (selectionMode) onToggleDocumentNoteSelected() else onOpenDocumentNote() }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = if (selectionMode) (if (selectedDocumentNote) "Selected" else "Select") else "Open",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                        noteAnnotations.take(10).forEach { annotation ->
+                            val selected = annotation.stableKey in selectedKeys
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .pointerInput(selectionMode, selected, annotation.stableKey) {
+                                        detectTapGestures(
+                                            onLongPress = { onLongPressAnnotation(annotation) },
+                                            onTap = {
+                                                if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex)
+                                            }
+                                        )
+                                    }
+                                    .padding(vertical = 6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(if (selected) Color(0xFFE2F0D9) else Color(0xFFFFF7F0), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (selected) Icons.Filled.Check else Icons.AutoMirrored.Filled.List,
+                                        contentDescription = null,
+                                        tint = if (selected) Color(0xFF137333) else Color(0xFFF2994A),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("Sentence ${annotation.chunkIndex + 1}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    if (annotation.note.isNotBlank()) {
+                                        Text(annotation.note, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
+                                        .clickable { if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex) }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = if (selectionMode) (if (selected) "Selected" else "Select") else "Open",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                        if (noteAnnotations.size > 10) {
+                            Text("+ ${noteAnnotations.size - 10} more notes", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    if (bookmarkAnnotations.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Bookmarks",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        bookmarkAnnotations.take(10).forEach { annotation ->
+                            val selected = annotation.stableKey in selectedKeys
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .pointerInput(selectionMode, selected, annotation.stableKey) {
+                                        detectTapGestures(
+                                            onLongPress = { onLongPressAnnotation(annotation) },
+                                            onTap = {
+                                                if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex)
+                                            }
+                                        )
+                                    }
+                                    .padding(vertical = 6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(if (selected) Color(0xFFE2F0D9) else Color(0xFFF0F3FF), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (selected) Icons.Filled.Check else Icons.Filled.Star,
+                                        contentDescription = null,
+                                        tint = if (selected) Color(0xFF137333) else Color(0xFF7C6FFF),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("Sentence ${annotation.chunkIndex + 1}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    if (annotation.note.isNotBlank()) {
+                                        Text(annotation.note, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
+                                        .clickable { if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex) }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = if (selectionMode) (if (selected) "Selected" else "Select") else "Open",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                        if (bookmarkAnnotations.size > 10) {
+                            Text("+ ${bookmarkAnnotations.size - 10} more bookmarks", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1974,6 +2760,32 @@ fun FilterRow(
 }
 
 @Composable
+fun FilterRowWithLabels(
+    title: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelected: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            options.forEach { (value, label) ->
+                if (value == selected) {
+                    Button(onClick = { onSelected(value) }, contentPadding = ButtonDefaults.ContentPadding) { Text(label) }
+                } else {
+                    OutlinedButton(onClick = { onSelected(value) }, contentPadding = ButtonDefaults.ContentPadding) { Text(label) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun QueueSection(
     queuedDocuments: List<SavedDocument>,
     onPlayQueue: () -> Unit,
@@ -1990,7 +2802,7 @@ fun QueueSection(
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Listen Later", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                    Text("Queue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
                     Text(
                         if (queuedDocuments.isEmpty()) "Build a playlist from your library." else "${queuedDocuments.size} queued item${if (queuedDocuments.size == 1) "" else "s"} ready for continuous playback.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2077,8 +2889,8 @@ fun QueueItemRow(
 @Composable
 fun EmptyLibraryCard(onImportFile: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+        shape = VeritasPackStyle.cardShape(),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2108,7 +2920,8 @@ fun DocumentCard(
     onToggleFavorite: () -> Unit,
     onRename: () -> Unit,
     onSetCollection: () -> Unit,
-    onShowDetails: () -> Unit
+    onShowDetails: () -> Unit,
+    onManageLists: () -> Unit = {}
 ) {
     val progress = progressFraction(document)
     var showActions by remember { mutableStateOf(false) }
@@ -2118,12 +2931,20 @@ fun DocumentCard(
         label = "documentCardSelectionScale"
     )
     val coverSize = when (viewMode) {
-        LibraryViewMode.SMALL, LibraryViewMode.LIST -> 46.dp
-        LibraryViewMode.DETAILS -> 70.dp
+        LibraryViewMode.SMALL, LibraryViewMode.LIST -> 48.dp
+        LibraryViewMode.DETAILS -> 72.dp
         else -> 64.dp
     }
     val showChips = viewMode == LibraryViewMode.MEDIUM || viewMode == LibraryViewMode.DETAILS
     val showPreview = viewMode == LibraryViewMode.DETAILS
+
+    val context = LocalContext.current
+    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
+    val coverBitmap = remember(coverFile) {
+        coverFile?.let { file ->
+            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+        }
+    }
 
     Card(
         modifier = Modifier
@@ -2137,24 +2958,25 @@ fun DocumentCard(
                     }
                 )
             },
-        shape = MaterialTheme.shapes.medium,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = VeritasPackStyle.compactShape(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
             } else {
-                MaterialTheme.colorScheme.surface
+                MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
             }
         )
     ) {
         Row(
-            modifier = Modifier.padding(if (viewMode == LibraryViewMode.LIST) 8.dp else 12.dp),
+            modifier = Modifier.padding(if (viewMode == LibraryViewMode.LIST) 10.dp else 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Box(
                 modifier = Modifier
-                        .size(coverSize)
+                    .size(coverSize)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(
                         Brush.linearGradient(
                             listOf(
@@ -2165,23 +2987,31 @@ fun DocumentCard(
                                 },
                                 if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
                             )
-                        ),
-                        MaterialTheme.shapes.medium
+                        )
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    when {
-                        selected -> "✓"
-                        document.favorite -> "★"
-                        else -> document.sourceLabel.take(3).uppercase()
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Black,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimary else Color.Unspecified
-                )
+                if (coverBitmap != null && !selected) {
+                    Image(
+                        bitmap = coverBitmap.asImageBitmap(),
+                        contentDescription = "Cover",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(
+                        when {
+                            selected -> "✓"
+                            document.favorite -> "★"
+                            else -> document.sourceLabel.take(3).uppercase()
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+                    )
+                }
             }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     document.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -2190,17 +3020,25 @@ fun DocumentCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    "${document.sourceLabel} • ${progressPercent(document)}% • ${document.chunkCount} sentences",
+                    "${document.sourceLabel} • ${progressPercent(document)}% read • ${document.chunkCount} sentences",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (showPreview) {
-                    Text(document.preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(document.preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 if (viewMode != LibraryViewMode.LIST) {
-                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
                 }
                 if (showChips) {
                     Row(
@@ -2214,13 +3052,51 @@ fun DocumentCard(
                     }
                 }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 if (selectionMode) {
-                    TextButton(onClick = onToggleSelected) { Text(if (selected) "✓" else "+") }
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
+                                CircleShape
+                            )
+                            .clickable { onToggleSelected() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(if (selected) "✓" else "+", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
                 } else {
-                    TextButton(onClick = onToggleQueue) { Text(if (isQueued) "✓" else "+") }
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(
+                                if (isQueued) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                CircleShape
+                            )
+                            .clickable { onToggleQueue() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isQueued) "✓" else "+",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
                     Box {
-                        TextButton(onClick = { showActions = true }) { Text("⋮", style = MaterialTheme.typography.titleLarge) }
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), CircleShape)
+                                .clickable { showActions = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("⋮", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
                         DropdownMenu(
                             expanded = showActions,
                             onDismissRequest = { showActions = false },
@@ -2228,8 +3104,9 @@ fun DocumentCard(
                         ) {
                             DropdownMenuItem(text = { Text("Open reading") }, onClick = { showActions = false; onOpen() })
                             DropdownMenuItem(text = { Text(if (document.favorite) "Remove from favorites" else "Add to favorites") }, onClick = { showActions = false; onToggleFavorite() })
-                            DropdownMenuItem(text = { Text(if (isQueued) "Remove from Listen Later" else "Add to Listen Later") }, onClick = { showActions = false; onToggleQueue() })
+                            DropdownMenuItem(text = { Text(if (isQueued) "Remove from Queue" else "Add to Queue") }, onClick = { showActions = false; onToggleQueue() })
                             DropdownMenuItem(text = { Text("Move to collection") }, onClick = { showActions = false; onSetCollection() })
+                            DropdownMenuItem(text = { Text("Save to lists") }, onClick = { showActions = false; onManageLists() })
                             DropdownMenuItem(text = { Text("Rename") }, onClick = { showActions = false; onRename() })
                             DropdownMenuItem(text = { Text("Details") }, onClick = { showActions = false; onShowDetails() })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { showActions = false; onDelete() })
@@ -2256,7 +3133,8 @@ fun DocumentTileCard(
     onRename: () -> Unit,
     onSetCollection: () -> Unit,
     onShowDetails: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onManageLists: () -> Unit = {}
 ) {
     var showActions by remember { mutableStateOf(false) }
     val selectionScale by animateFloatAsState(
@@ -2264,49 +3142,205 @@ fun DocumentTileCard(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
         label = "documentTileSelectionScale"
     )
+    val context = LocalContext.current
+    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
+    val coverBitmap = remember(coverFile) {
+        coverFile?.let { file ->
+            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+        }
+    }
+    val isUnread = document.currentIndex == 0
+
     Card(
-        modifier = modifier.graphicsLayer(scaleX = selectionScale, scaleY = selectionScale).pointerInput(selectionMode, selected, document.id) {
-            detectTapGestures(
-                onLongPress = { onLongPress() },
-                onTap = { if (selectionMode) onToggleSelected() else onOpen() }
-            )
-        },
-        shape = MaterialTheme.shapes.medium,
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer(scaleX = selectionScale, scaleY = selectionScale),
+        shape = VeritasPackStyle.cardShape(),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
+            } else {
+                MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+            }
         )
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { if (selectionMode) onToggleSelected() else onOpen() }
+                .pointerInput(selectionMode, selected, document.id) {
+                    detectTapGestures(
+                        onLongPress = { onLongPress() },
+                        onTap = { if (selectionMode) onToggleSelected() else onOpen() }
+                    )
+                }
+        ) {
             Box(
-                modifier = Modifier.fillMaxWidth().height(98.dp).background(
-                    Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surfaceVariant)),
-                    MaterialTheme.shapes.medium
-                ),
-                contentAlignment = Alignment.Center
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(0.75f)
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             ) {
-                Text(if (selected) "✓" else document.sourceLabel.take(3).uppercase(), fontWeight = FontWeight.Black)
-            }
-            Text(document.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-            Text("${progressPercent(document)}% • ${document.chunkCount} sentences", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            LinearProgressIndicator(progress = { progressFraction(document) }, modifier = Modifier.fillMaxWidth())
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (selectionMode) {
-                    TextButton(onClick = onToggleSelected) { Text(if (selected) "✓" else "+") }
+                if (coverBitmap != null) {
+                    Image(
+                        bitmap = coverBitmap.asImageBitmap(),
+                        contentDescription = "Cover",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 } else {
-                    TextButton(onClick = onToggleQueue) { Text(if (isQueued) "✓" else "+") }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = document.sourceLabel.take(3).uppercase(),
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 20.sp
+                        )
+                    }
+                }
+
+                if (selectionMode) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("✓", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (isUnread) {
+                            Box(
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    "NEW",
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        if (document.favorite) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Color.Yellow.copy(alpha = 0.9f), CircleShape)
+                                    .size(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("★", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
                     Box {
-                        TextButton(onClick = { showActions = true }) { Text("⋮") }
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                .clickable { showActions = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("⋮", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
                         DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }) {
                             DropdownMenuItem(text = { Text("Open reading") }, onClick = { showActions = false; onOpen() })
                             DropdownMenuItem(text = { Text(if (document.favorite) "Remove favorite" else "Add favorite") }, onClick = { showActions = false; onToggleFavorite() })
-                            DropdownMenuItem(text = { Text(if (isQueued) "Remove from Listen Later" else "Add to Listen Later") }, onClick = { showActions = false; onToggleQueue() })
+                            DropdownMenuItem(text = { Text(if (isQueued) "Remove from Queue" else "Add to Queue") }, onClick = { showActions = false; onToggleQueue() })
                             DropdownMenuItem(text = { Text("Move to collection") }, onClick = { showActions = false; onSetCollection() })
+                            DropdownMenuItem(text = { Text("Save to lists") }, onClick = { showActions = false; onManageLists() })
                             DropdownMenuItem(text = { Text("Rename") }, onClick = { showActions = false; onRename() })
                             DropdownMenuItem(text = { Text("Details") }, onClick = { showActions = false; onShowDetails() })
                             DropdownMenuItem(text = { Text("Delete") }, onClick = { showActions = false; onDelete() })
                         }
                     }
                 }
+            }
+
+            Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = document.title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${progressPercent(document)}% read",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "${document.chunkCount} sent",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                LinearProgressIndicator(
+                    progress = { progressFraction(document) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
             }
         }
     }
@@ -2371,3 +3405,263 @@ private fun EmbeddedOnboardingBlock(
         }
     }
 }
+
+
+@Composable
+private fun RowScope.BottomNavItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: @Composable (Color) -> Unit,
+    label: String
+) {
+    val contentColor = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        icon(contentColor)
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            color = contentColor,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun ImportSheetMenu(
+    onSelectOption: (ImportOption) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Add something", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            IconButton(onClick = onDismiss) {
+                Text("✕", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            ImportSheetOptionCard(
+                icon = "🗂️",
+                title = "File browser",
+                subtitle = "Browse and batch import local files",
+                onClick = { onSelectOption(ImportOption.BROWSE) }
+            )
+            ImportSheetOptionCard(
+                icon = "✏️",
+                title = "Paste text",
+                subtitle = "Copy and paste any content",
+                onClick = { onSelectOption(ImportOption.PASTE) }
+            )
+            ImportSheetOptionCard(
+                icon = "🌐",
+                title = "From web",
+                subtitle = "Paste a link to an article",
+                onClick = { onSelectOption(ImportOption.WEB) }
+            )
+            ImportSheetOptionCard(
+                icon = "📷",
+                title = "Scan / OCR",
+                subtitle = "Take a photo of printed text",
+                onClick = { onSelectOption(ImportOption.SCAN) }
+            )
+            ImportSheetOptionCard(
+                icon = "📄",
+                title = "Browse phone folders",
+                subtitle = "Open system file chooser",
+                onClick = { onSelectOption(ImportOption.FILE) }
+            )
+            ImportSheetOptionCard(
+                icon = "📝",
+                title = "Write note",
+                subtitle = "Create a freeform reading note",
+                onClick = { onSelectOption(ImportOption.WRITE_NOTE) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImportSheetOptionCard(
+    icon: String,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(icon, fontSize = 24.sp)
+            Column {
+                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImportSheetWeb(
+    urlText: String,
+    onUrlChange: (String) -> Unit,
+    onImport: (String) -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            IconButton(onClick = onBack) {
+                Text("←", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Text("Import link", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        
+        Text("Paste a link to any web article, report, or blog post below:", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        
+        OutlinedTextField(
+            value = urlText,
+            onValueChange = onUrlChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Article Link") },
+            placeholder = { Text("https://example.com/article...") },
+            singleLine = true
+        )
+        
+        Button(
+            onClick = { onImport(urlText) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = urlText.isNotBlank() && WebArticleExtractor.looksLikeUrl(urlText)
+        ) {
+            Text("Import web article")
+        }
+    }
+}
+
+@Composable
+private fun ImportSheetPaste(
+    pastedText: String,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            IconButton(onClick = onBack) {
+                Text("←", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Text("Paste text", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        
+        Text("Paste loose text, a document snippet, or email contents below:", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        
+        OutlinedTextField(
+            value = pastedText,
+            onValueChange = onTextChange,
+            modifier = Modifier.fillMaxWidth().height(180.dp),
+            label = { Text("Content") },
+            placeholder = { Text("Paste text here...") }
+        )
+        
+        Button(
+            onClick = onSave,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = pastedText.isNotBlank()
+        ) {
+            Text("Save reading")
+        }
+    }
+}
+
+@Composable
+private fun StudyEmptyState(
+    emoji: String,
+    title: String,
+    description: String,
+    onGoToLibrary: () -> Unit,
+    onImportFile: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+    ) {
+        Column(
+            modifier = Modifier.padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(emoji, fontSize = 36.sp)
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(onClick = onImportFile) {
+                    Text("Import file")
+                }
+                OutlinedButton(onClick = onGoToLibrary) {
+                    Text("Go to Library")
+                }
+            }
+        }
+    }
+}
+

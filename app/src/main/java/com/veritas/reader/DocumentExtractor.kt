@@ -39,7 +39,10 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.sync.withPermit
 import org.xmlpull.v1.XmlPullParser
 
 data class PdfImportOptions(
@@ -236,6 +239,151 @@ internal object TextImportDecoder {
 object DocumentExtractor {
     const val DEFAULT_IMPORT_TIMEOUT_MS = 60_000L
 
+    fun getPdfPageCount(context: Context, uri: Uri): Int {
+        return runCatching {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                PDDocument.load(stream).use { document ->
+                    document.numberOfPages
+                }
+            } ?: 0
+        }.getOrDefault(0)
+    }
+
+    /**
+     * Opens a PDF document and returns the PDDocument and page count.
+     * Caller is responsible for closing the document via document.close().
+     */
+    fun openPdfDocument(context: Context, uri: Uri): Pair<PDDocument, Int> {
+        PDFBoxResourceLoader.init(context.applicationContext)
+        val tempFile = java.io.File(context.cacheDir, "temp_pdf_load_${System.currentTimeMillis()}.pdf")
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            tempFile.outputStream().use { out ->
+                stream.copyTo(out)
+            }
+        } ?: throw IllegalStateException("Cannot open PDF URI")
+
+        val document = try {
+            PDDocument.load(tempFile)
+        } finally {
+            runCatching { tempFile.delete() }
+        }
+        return document to document.numberOfPages
+    }
+
+    /**
+     * Applies a crop rect to all pages of an already-open PDDocument.
+     * Call once before chunked extraction begins.
+     */
+    fun applyCropRect(document: PDDocument, cropRect: RectF) {
+        for (page in document.pages) {
+            val mediaBox = page.mediaBox
+            val cropX = mediaBox.lowerLeftX + cropRect.left * mediaBox.width
+            val cropY = mediaBox.lowerLeftY + (1f - cropRect.bottom) * mediaBox.height
+            val cropW = (cropRect.right - cropRect.left) * mediaBox.width
+            val cropH = (cropRect.bottom - cropRect.top) * mediaBox.height
+            page.cropBox = com.tom_roush.pdfbox.pdmodel.common.PDRectangle(cropX, cropY, cropW, cropH)
+        }
+    }
+
+    /**
+     * Extracts text from a chunk of pages in an already-open PDDocument.
+     * Does NOT open or close the document.
+     */
+    suspend fun extractPdfChunk(
+        context: Context,
+        uri: Uri,
+        document: PDDocument,
+        totalPageCount: Int,
+        displayName: String,
+        options: PdfImportOptions
+    ): ExtractedImport {
+        coroutineContext.ensureActive()
+        val normalizedOptions = options.normalized(totalPageCount)
+        val startPage = normalizedOptions.startPage ?: 1
+        val endPage = normalizedOptions.endPage ?: totalPageCount
+        val selectedPageCount = (endPage - startPage + 1).coerceAtLeast(1)
+        val diagnostics = mutableListOf<String>()
+
+        if (normalizedOptions.forceOcr) {
+            diagnostics.add("Forced OCR mode was used for this PDF import.")
+            val ocr = extractPdfOcr(context, uri, normalizedOptions, null)
+            val text = ocr.text.normalizeExtractedText().smartFormatPdfContent()
+            return ExtractedImport(
+                title = displayName.ifBlank { "Imported document" },
+                text = text,
+                sourceLabel = "PDF",
+                note = (diagnostics + ocr.diagnostics).joinToString("\n").ifBlank { null },
+                pageCount = selectedPageCount,
+                partial = ocr.partial
+            )
+        }
+
+        val pageNumbers = mutableListOf<Int>()
+        val pageTexts = mutableListOf<String>()
+        val cacheKey = "pdf_" + uri.toString().hashCode().toString()
+        val cacheDir = java.io.File(context.cacheDir, cacheKey)
+        cacheDir.mkdirs()
+
+        for (pageNumber in startPage..endPage) {
+            coroutineContext.ensureActive()
+            pageNumbers.add(pageNumber)
+            val cacheFile = java.io.File(cacheDir, "page_${pageNumber}.txt")
+            val pageText = if (cacheFile.exists()) {
+                cacheFile.readText(Charsets.UTF_8)
+            } else {
+                val txt = PdfPageTextExtractor.extractPage(document, pageNumber)
+                runCatching { cacheFile.writeText(txt, Charsets.UTF_8) }
+                txt
+            }
+            pageTexts.add(pageText)
+            yield()
+        }
+
+        yield()
+        val cleaned = PdfTextCleaner.cleanPages(pageTexts, pageNumbers, normalizedOptions)
+
+        if (normalizedOptions.cleanupRepeatedLines && cleaned.removedRepeatedLineCount > 0) {
+            diagnostics.add("Removed ${cleaned.removedRepeatedLineCount} repeated header/footer line${if (cleaned.removedRepeatedLineCount == 1) "" else "s"}.")
+        }
+        if (normalizedOptions.removePageNumbers && cleaned.removedPageNumberCount > 0) {
+            diagnostics.add("Removed ${cleaned.removedPageNumberCount} standalone page number${if (cleaned.removedPageNumberCount == 1) "" else "s"}.")
+        }
+        if (normalizedOptions.repairHyphenation && cleaned.joinedHyphenationCount > 0) {
+            diagnostics.add("Joined ${cleaned.joinedHyphenationCount} hyphenated line break${if (cleaned.joinedHyphenationCount == 1) "" else "s"}.")
+        }
+
+        val extractedPageCount = pageTexts.size.coerceAtLeast(1)
+        val averageCharsPerPage = cleaned.text.length / extractedPageCount
+        if (normalizedOptions.preferOcrWhenLowText && (cleaned.text.isBlank() || averageCharsPerPage < 80)) {
+            diagnostics.add("Very little extractable PDF text was found, so OCR was attempted.")
+            val ocr = extractPdfOcr(context, uri, normalizedOptions, null)
+            if (ocr.text.isNotBlank()) {
+                val text = ocr.text.normalizeExtractedText().smartFormatPdfContent()
+                runCatching { cacheDir.deleteRecursively() }
+                return ExtractedImport(
+                    title = displayName.ifBlank { "Imported document" },
+                    text = text,
+                    sourceLabel = "PDF",
+                    note = (diagnostics + ocr.diagnostics).joinToString("\n").ifBlank { null },
+                    pageCount = selectedPageCount,
+                    partial = ocr.partial
+                )
+            }
+            diagnostics.add("OCR did not find readable text.")
+        }
+
+        runCatching { cacheDir.deleteRecursively() }
+
+        val text = cleaned.text.normalizeExtractedText().smartFormatPdfContent()
+        return ExtractedImport(
+            title = displayName.ifBlank { "Imported document" },
+            text = text,
+            sourceLabel = "PDF",
+            note = diagnostics.joinToString("\n").ifBlank { null },
+            pageCount = selectedPageCount
+        )
+    }
+
     suspend fun extract(
         context: Context,
         uri: Uri,
@@ -309,7 +457,7 @@ object DocumentExtractor {
         uri: Uri,
         options: PdfImportOptions = PdfImportOptions(),
         deadlineMillis: Long? = null
-    ): ExtractionBody {
+    ): ExtractionBody = kotlinx.coroutines.coroutineScope {
         val diagnostics = mutableListOf<String>()
         val output = StringBuilder()
         var partial = false
@@ -317,14 +465,14 @@ object DocumentExtractor {
         val descriptor = if (uri.scheme == "file") {
             try {
                 val filePath = uri.path
-                    ?: return ExtractionBody("", listOf("Could not open PDF pages for OCR rendering."))
+                    ?: return@coroutineScope ExtractionBody("", listOf("Could not open PDF pages for OCR rendering."))
                 android.os.ParcelFileDescriptor.open(java.io.File(filePath), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
             } catch (e: Exception) {
                 context.contentResolver.openFileDescriptor(uri, "r")
             }
         } else {
             context.contentResolver.openFileDescriptor(uri, "r")
-        } ?: return ExtractionBody("", listOf("Could not open PDF pages for OCR rendering."))
+        } ?: return@coroutineScope ExtractionBody("", listOf("Could not open PDF pages for OCR rendering."))
 
         descriptor.use { pfd ->
             val renderer = PdfRenderer(pfd)
@@ -344,51 +492,71 @@ object DocumentExtractor {
                 val cacheDir = java.io.File(context.cacheDir, cacheKey)
                 cacheDir.mkdirs()
 
-                ocrLoop@ for (offset in 0 until pagesToProcess) {
+                val ocrSemaphore = kotlinx.coroutines.sync.Semaphore(3)
+
+                val deferredResults = (0 until pagesToProcess).map { offset ->
                     coroutineContext.ensureActive()
-                    yield() // Check for cancellation before processing the next heavy OCR page
-                    if (!hasImportTimeRemaining(deadlineMillis)) {
-                        diagnostics.add("Opened OCR text from the completed pages after the foreground import window. More pages can be imported with a smaller range or plain text mode when available.")
-                        partial = true
-                        break@ocrLoop
-                    }
                     val pageIndex = startPage - 1 + offset
                     val cacheFile = java.io.File(cacheDir, "page_${pageIndex}.txt")
-                    val pageText = if (cacheFile.exists()) {
-                        cacheFile.readText(Charsets.UTF_8)
+                    
+                    if (cacheFile.exists()) {
+                        kotlinx.coroutines.CompletableDeferred(pageIndex to cacheFile.readText(Charsets.UTF_8))
                     } else {
                         val page = renderer.openPage(pageIndex)
-                        val txt = try {
-                            val bitmap = renderPdfPage(page)
-                            val croppedBitmap = if (options.cropRect != null) {
-                                val r = options.cropRect
-                                val left = (r.left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
-                                val top = (r.top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
-                                val right = (r.right * bitmap.width).toInt().coerceIn(left + 1, bitmap.width)
-                                val bottom = (r.bottom * bitmap.height).toInt().coerceIn(top + 1, bitmap.height)
-                                Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
-                            } else {
-                                bitmap
-                            }
-                            try {
-                                val recognized = recognizeText(InputImage.fromBitmap(croppedBitmap, 0))
-                                formatRecognizedText(recognized)
-                            } finally {
-                                if (croppedBitmap != bitmap) croppedBitmap.recycle()
-                                bitmap.recycle()
-                            }
+                        val bitmap = try {
+                            renderPdfPage(page)
                         } finally {
                             page.close()
                         }
-                        runCatching { cacheFile.writeText(txt, Charsets.UTF_8) }
-                        txt
-                    }
+                        
+                        val croppedBitmap = if (options.cropRect != null) {
+                            val r = options.cropRect
+                            val left = (r.left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+                            val top = (r.top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+                            val right = (r.right * bitmap.width).toInt().coerceIn(left + 1, bitmap.width)
+                            val bottom = (r.bottom * bitmap.height).toInt().coerceIn(top + 1, bitmap.height)
+                            Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top).also {
+                                bitmap.recycle()
+                            }
+                        } else {
+                            bitmap
+                        }
 
+                        this@coroutineScope.async(kotlinx.coroutines.Dispatchers.Default) {
+                            ocrSemaphore.withPermit {
+                                try {
+                                    coroutineContext.ensureActive()
+                                    if (!hasImportTimeRemaining(deadlineMillis)) {
+                                        return@withPermit pageIndex to ""
+                                    }
+                                    val recognized = recognizeText(InputImage.fromBitmap(croppedBitmap, 0))
+                                    val formatted = formatRecognizedText(recognized)
+                                    runCatching { cacheFile.writeText(formatted, Charsets.UTF_8) }
+                                    pageIndex to formatted
+                                } finally {
+                                    croppedBitmap.recycle()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val results = deferredResults.awaitAll()
+                results.forEach { (pageIndex, pageText) ->
                     if (pageText.isNotBlank()) {
                         if (output.isNotBlank()) output.append("\n\n")
                         output.append("Page ${pageIndex + 1}\n")
                         output.append(pageText)
+                    } else {
+                        val cacheFile = java.io.File(cacheDir, "page_${pageIndex}.txt")
+                        if (!cacheFile.exists()) {
+                            partial = true
+                        }
                     }
+                }
+
+                if (partial && !hasImportTimeRemaining(deadlineMillis)) {
+                    diagnostics.add("Opened OCR text from the completed pages after the foreground import window. More pages can be imported with a smaller range or plain text mode when available.")
                 }
 
                 if (!partial) {
@@ -402,7 +570,7 @@ object DocumentExtractor {
         if (output.isNotBlank()) {
             diagnostics.add("OCR extracted text from rendered PDF pages.")
         }
-        return ExtractionBody(output.toString(), diagnostics, pageCount = requestedPagesForResult, partial = partial)
+        ExtractionBody(output.toString(), diagnostics, pageCount = requestedPagesForResult, partial = partial)
     }
 
     private fun hasImportTimeRemaining(deadlineMillis: Long?): Boolean =

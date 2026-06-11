@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -26,12 +25,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,7 +64,7 @@ fun ReadingListsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { Button(onClick = onDismiss, shape = RoundedCornerShape(50)) { Text("Close") } },
         title = { Text("Reading lists") },
         text = {
             Column(
@@ -72,8 +73,12 @@ fun ReadingListsDialog(
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    )
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Create list", fontWeight = FontWeight.Black)
@@ -82,7 +87,8 @@ fun ReadingListsDialog(
                             onValueChange = { newListTitle = it },
                             label = { Text("List name") },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(50)
                         )
                         Button(
                             onClick = {
@@ -90,7 +96,8 @@ fun ReadingListsDialog(
                                 newListTitle = ""
                             },
                             enabled = newListTitle.trim().isNotBlank(),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(50)
                         ) {
                             Text("Create")
                         }
@@ -149,8 +156,12 @@ private fun ReadingListCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+        )
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -162,7 +173,7 @@ private fun ReadingListCard(
                     )
                 }
                 Box {
-                    OutlinedButton(onClick = { showSortMenu = true }) {
+                    OutlinedButton(onClick = { showSortMenu = true }, shape = RoundedCornerShape(50)) {
                         Text(sortModeLabel(list.sortMode))
                     }
                     DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
@@ -219,8 +230,8 @@ private fun ReadingListCard(
 
             HorizontalDivider()
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onArchiveList(list.id) }) { Text("Archive") }
-                TextButton(onClick = { confirmDelete = true }) { Text("Delete") }
+                OutlinedButton(onClick = { onArchiveList(list.id) }, shape = RoundedCornerShape(50)) { Text("Archive") }
+                Button(onClick = { confirmDelete = true }, shape = RoundedCornerShape(50)) { Text("Delete") }
             }
         }
     }
@@ -235,13 +246,14 @@ private fun ReadingListCard(
                     onClick = {
                         confirmDelete = false
                         onDeleteList(list.id)
-                    }
+                    },
+                    shape = RoundedCornerShape(50)
                 ) {
                     Text("Delete")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+                OutlinedButton(onClick = { confirmDelete = false }, shape = RoundedCornerShape(50)) { Text("Cancel") }
             }
         )
     }
@@ -281,3 +293,138 @@ private fun sortModeLabel(mode: VeritasReadingListSortMode): String =
         VeritasReadingListSortMode.NEWEST_ADDED -> "Newest"
         VeritasReadingListSortMode.OLDEST_ADDED -> "Oldest"
     }
+
+@Composable
+fun ManageDocumentListsDialog(
+    document: SavedDocument,
+    catalog: VeritasReadingListCatalog,
+    onDismiss: () -> Unit,
+    onCreateReadingList: (String) -> Unit,
+    onAddDocumentToReadingList: (String, String) -> Unit,
+    onRemoveDocumentFromReadingList: (String, String) -> Unit
+) {
+    var newListTitle by rememberSaveable { mutableStateOf("") }
+    val activeLists = catalog.activeLists
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(onClick = onDismiss, shape = RoundedCornerShape(50)) { Text("Close") }
+        },
+        title = {
+            Text(
+                text = "Save to lists",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Add \"${document.title}\" to reading lists:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (activeLists.isEmpty()) {
+                    Text(
+                        "No reading lists yet.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    activeLists.forEach { list ->
+                        val containsDoc = list.contains(document.id)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (containsDoc) {
+                                        onRemoveDocumentFromReadingList(list.id, document.id)
+                                    } else {
+                                        onAddDocumentToReadingList(list.id, document.id)
+                                    }
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (containsDoc) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                            ),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = containsDoc,
+                                    onCheckedChange = { checked ->
+                                        if (checked) {
+                                            onAddDocumentToReadingList(list.id, document.id)
+                                        } else {
+                                            onRemoveDocumentFromReadingList(list.id, document.id)
+                                        }
+                                    }
+                                )
+                                Text(
+                                    text = list.title,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("New reading list", fontWeight = FontWeight.Bold)
+                        OutlinedTextField(
+                            value = newListTitle,
+                            onValueChange = { newListTitle = it },
+                            label = { Text("List title") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(50)
+                        )
+                        Button(
+                            onClick = {
+                                onCreateReadingList(newListTitle)
+                                newListTitle = ""
+                            },
+                            enabled = newListTitle.trim().isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Text("Create list")
+                        }
+                    }
+                }
+            }
+        }
+    )
+}

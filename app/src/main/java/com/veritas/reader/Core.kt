@@ -10,6 +10,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import androidx.core.content.FileProvider
+import android.content.Intent
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.interactive.action.PDActionGoTo
@@ -46,6 +48,7 @@ object PlaybackActions {
     const val EXTRA_CHAR_OFFSET = "char_offset"
     const val EXTRA_SLEEP_TIMER_DURATION_MILLIS = "sleep_timer_duration_millis"
     const val EXTRA_SLEEP_TIMER_ACTION = "sleep_timer_action"
+    const val EXTRA_SLEEP_TIMER_STOP_AT_END_OF_SECTION = "sleep_timer_stop_at_end_of_section"
 }
 
 object PlaybackStateStore {
@@ -57,6 +60,8 @@ object PlaybackStateStore {
     var isPlaying by mutableStateOf(false)
     var isForegroundActive by mutableStateOf(false)
     var statusMessage by mutableStateOf("Ready.")
+    var readerMode by mutableStateOf(ReaderMode.TEXT)
+    var pendingPronunciationFixWord by mutableStateOf<String?>(null)
 
     var sentenceCount: Int
         get() = chunkCount
@@ -71,6 +76,7 @@ object PlaybackStateStore {
     var currentSentenceEnd by mutableIntStateOf(0)
     var sleepTimerDurationMillis by mutableLongStateOf(0L)
     var sleepTimerEndsAtMillis by mutableLongStateOf(0L)
+    var sleepTimerStopAtEndOfSection by mutableStateOf(false)
     var sleepTimerActionName by mutableStateOf(VeritasSleepTimerAction.PAUSE.name)
 
     val sleepTimerAction: VeritasSleepTimerAction
@@ -80,20 +86,23 @@ object PlaybackStateStore {
         val snapshot = VeritasSleepTimerSnapshot(
             durationMillis = sleepTimerDurationMillis,
             endsAtMillis = sleepTimerEndsAtMillis,
-            action = sleepTimerAction
+            action = sleepTimerAction,
+            stopAtEndOfSection = sleepTimerStopAtEndOfSection
         )
-        return snapshot.takeIf { sleepTimerDurationMillis > 0L && it.isActive(nowMillis) }
+        return snapshot.takeIf { sleepTimerStopAtEndOfSection || (sleepTimerDurationMillis > 0L && snapshot.isActive(nowMillis)) }
     }
 
     fun setSleepTimer(request: VeritasSleepTimerRequest, nowMillis: Long = System.currentTimeMillis()) {
         sleepTimerDurationMillis = request.durationMillis
-        sleepTimerEndsAtMillis = request.endsAt(nowMillis)
+        sleepTimerEndsAtMillis = if (request.stopAtEndOfSection) 0L else request.endsAt(nowMillis)
         sleepTimerActionName = request.action.name
+        sleepTimerStopAtEndOfSection = request.stopAtEndOfSection
     }
 
     fun clearSleepTimer() {
         sleepTimerDurationMillis = 0L
         sleepTimerEndsAtMillis = 0L
+        sleepTimerStopAtEndOfSection = false
         sleepTimerActionName = VeritasSleepTimerAction.PAUSE.name
     }
 
@@ -133,7 +142,8 @@ data class SavedDocument(
     val originalFileName: String = "",
     val originalMimeType: String = "",
     val pageCount: Int = 0,
-    val partial: Boolean = false
+    val partial: Boolean = false,
+    val language: String = ""
 ) {
     val sentenceCount: Int
         get() = chunkCount
@@ -155,6 +165,7 @@ data class SavedDocument(
         .put("originalMimeType", originalMimeType)
         .put("pageCount", pageCount)
         .put("partial", partial)
+        .put("language", language)
 
     companion object {
         fun fromJson(obj: JSONObject): SavedDocument = SavedDocument(
@@ -173,7 +184,8 @@ data class SavedDocument(
             originalFileName = obj.optString("originalFileName", ""),
             originalMimeType = obj.optString("originalMimeType", ""),
             pageCount = obj.optInt("pageCount", 0),
-            partial = obj.optBoolean("partial", false)
+            partial = obj.optBoolean("partial", false),
+            language = obj.optString("language", "")
         )
     }
 }
@@ -224,6 +236,54 @@ data class ReadingHistoryEntry(
             )
         }
     }
+}
+
+data class GeneralNote(
+    val id: String,
+    val title: String,
+    val content: String,
+    val updatedAt: Long
+) {
+    fun toJson(): org.json.JSONObject = org.json.JSONObject()
+        .put("id", id)
+        .put("title", title)
+        .put("content", content)
+        .put("updatedAt", updatedAt)
+
+    companion object {
+        fun fromJson(obj: org.json.JSONObject): GeneralNote = GeneralNote(
+            id = obj.optString("id", ""),
+            title = obj.optString("title", ""),
+            content = obj.optString("content", ""),
+            updatedAt = obj.optLong("updatedAt", 0L)
+        )
+    }
+}
+
+enum class VeritasScreen {
+    TEXT_EDITOR,
+    FILE_BROWSER,
+    PDF_IMPORT_TOOLS,
+    READER_SETTINGS,
+    PRONUNCIATION_RULES,
+    VOICE_STUDIO,
+    NARRATION_STUDIO,
+    AI_STUDY_TOOLS,
+    OFFLINE_STUDY_TOOLS,
+    AI_CENTER,
+    ASK_AI_SETTINGS,
+    TRANSLATION_TOOLS,
+    SLEEP_TIMER,
+    READING_LISTS,
+    READING_HISTORY,
+    DOCUMENT_NOTES,
+    SETTINGS_HUB,
+    BACKUP_TOOLS,
+    SYNC_CENTER,
+    APP_HEALTH,
+    TUTORIAL,
+    CANVAS_VIEW,
+    GENERAL_NOTES_EDITOR
 }
 
 enum class AnnotationType {
@@ -522,7 +582,7 @@ data class AskAiSettings(
 }
 
 object NarrationAnalyzer {
-    private val quotePattern = Regex("[\\\"“‘'][^\\\"”’']{4,}[\\\"”’']")
+    private val quotePattern = Regex("[\"“][^\"”]{4,}[\"”]|['‘](?:[^'’]|(?<=\\p{L})'(?=\\p{L})){4,}['’]")
     private val speakerPattern = Regex("\\b(said|asked|replied|answered|whispered|shouted|cried|murmured|continued|responded)\\b", RegexOption.IGNORE_CASE)
     private val dashDialoguePattern = Regex("^\\s*[—–-]\\s+\\S+")
 
@@ -531,7 +591,7 @@ object NarrationAnalyzer {
         if (trimmed.isBlank()) return false
         if (dashDialoguePattern.containsMatchIn(trimmed)) return true
         if (quotePattern.containsMatchIn(trimmed)) return true
-        return speakerPattern.containsMatchIn(trimmed) && trimmed.any { it == '\"' || it == '“' || it == '”' || it == '‘' || it == '’' }
+        return speakerPattern.containsMatchIn(trimmed) && trimmed.any { it == '\"' || it == '“' || it == '”' || it == '‘' || it == '’' || it == '\'' }
     }
 
     fun labelFor(text: String, settings: NarrationSettings): String {
@@ -801,7 +861,8 @@ class DocumentRepository(context: Context) {
         originalDisplayName: String = title,
         originalMimeType: String = "",
         pageCount: Int = 0,
-        partial: Boolean = false
+        partial: Boolean = false,
+        language: String = ""
     ): SavedDocument = createDocumentWithResult(
         title = title,
         text = text,
@@ -810,7 +871,8 @@ class DocumentRepository(context: Context) {
         originalDisplayName = originalDisplayName,
         originalMimeType = originalMimeType,
         pageCount = pageCount,
-        partial = partial
+        partial = partial,
+        language = language
     ).document
 
     fun createDocumentWithResult(
@@ -821,13 +883,14 @@ class DocumentRepository(context: Context) {
         originalDisplayName: String = title,
         originalMimeType: String = "",
         pageCount: Int = 0,
-        partial: Boolean = false
+        partial: Boolean = false,
+        language: String = ""
     ): DocumentCreateResult {
         val normalizedTitle = title.trim().ifBlank { "Untitled reading" }
         val id = UUID.randomUUID().toString()
         val fileName = "$id.txt"
         File(docsDir, fileName).writeText(text, Charsets.UTF_8)
-        val originalFileResult = originalUri?.let { copyOriginalFile(id, it, originalDisplayName) }
+        val originalFileResult = originalUri?.let { saveOriginalFileReference(id, it, originalDisplayName) }
         val originalFileName = originalFileResult?.getOrNull().orEmpty()
         val fileErrorNote = originalFileResult?.exceptionOrNull()?.let {
             "Note: Original file could not be saved (${it.message}). PDF/image viewer may not be available."
@@ -849,7 +912,8 @@ class DocumentRepository(context: Context) {
             originalFileName = originalFileName,
             originalMimeType = originalMimeType,
             pageCount = pageCount.coerceAtLeast(0),
-            partial = partial
+            partial = partial,
+            language = language
         )
 
         saveDocuments(listOf(doc) + loadDocuments().filterNot { it.id == id })
@@ -888,12 +952,55 @@ class DocumentRepository(context: Context) {
         return updatedTarget
     }
 
+    fun appendDocumentText(documentId: String, text: String, isComplete: Boolean = false): SavedDocument? {
+        val cleanText = text.trim()
+        if (cleanText.isBlank() && !isComplete) return null
+        
+        val documents = loadDocuments()
+        val target = documents.firstOrNull { it.id == documentId } ?: return null
+        ReaderTextModelCache.invalidate(documentId)
+        
+        val file = File(docsDir, target.fileName)
+        if (cleanText.isNotBlank()) {
+            file.appendText("\n\n" + cleanText, Charsets.UTF_8)
+        }
+        
+        val newChunks = TextChunker.chunk(cleanText)
+        val now = System.currentTimeMillis()
+        
+        val updatedTarget = target.copy(
+            updatedAt = now,
+            chunkCount = target.chunkCount + newChunks.size,
+            charCount = target.charCount + cleanText.length + 2, // +2 for the \n\n
+            partial = !isComplete
+        )
+        saveDocuments(listOf(updatedTarget) + documents.filterNot { it.id == documentId })
+        return updatedTarget
+    }
+
     fun originalFile(document: SavedDocument): File? {
-        if (document.originalFileName.isBlank()) return null
+        if (document.originalFileName.isBlank() || document.originalFileName.startsWith("content://")) return null
         return File(originalsDir, document.originalFileName).takeIf { it.exists() }
     }
 
-    private fun copyOriginalFile(documentId: String, uri: Uri, displayName: String): Result<String> {
+    fun originalUri(document: SavedDocument): Uri? {
+        val name = document.originalFileName
+        if (name.isBlank()) return null
+        if (name.startsWith("content://")) {
+            return Uri.parse(name)
+        }
+        val file = File(originalsDir, name)
+        if (!file.exists()) return null
+        return runCatching {
+            FileProvider.getUriForFile(appContext, "${appContext.packageName}.fileprovider", file)
+        }.getOrNull()
+    }
+
+    private fun saveOriginalFileReference(documentId: String, uri: Uri, displayName: String): Result<String> {
+        // Always copy the original file to the app sandbox to guarantee persistent access 
+        // across app sessions, background workers, and different UI components.
+
+        
         val extension = displayName.substringAfterLast('.', "").takeIf { it.length in 1..8 } ?: "bin"
         val safeExtension = extension.replace(Regex("[^A-Za-z0-9]"), "").ifBlank { "bin" }
         val fileName = "$documentId.$safeExtension"
@@ -976,7 +1083,11 @@ class DocumentRepository(context: Context) {
             ?: throw IllegalArgumentException("The backup does not contain a documents section.")
 
         if (replaceExisting) {
-            loadDocuments().forEach { document -> runCatching { File(docsDir, document.fileName).delete() } }
+            loadDocuments().forEach { document ->
+                runCatching { File(docsDir, document.fileName).delete() }
+                runCatching { originalFile(document)?.delete() }
+                runCatching { CoverExtractor.deleteCover(appContext, document.id) }
+            }
         }
 
         val existingDocuments = if (replaceExisting) emptyList() else loadDocuments()
@@ -1437,6 +1548,7 @@ class DocumentRepository(context: Context) {
         docs.firstOrNull { it.id == documentId }?.let { doc ->
             runCatching { File(docsDir, doc.fileName).delete() }
             originalFile(doc)?.let { runCatching { it.delete() } }
+            CoverExtractor.deleteCover(appContext, documentId)
         }
         val updated = docs.filterNot { it.id == documentId }
         saveDocuments(updated)
@@ -1773,7 +1885,21 @@ class DocumentRepository(context: Context) {
         loadPronunciationRules()
             .filter { it.enabled && it.find.isNotBlank() }
             .forEach { rule ->
-                output = output.replace(rule.find, rule.replaceWith, ignoreCase = true)
+                val escapedFind = Regex.escape(rule.find)
+                val isWord = rule.find.all { it.isLetterOrDigit() || it == '_' }
+                val pattern = if (isWord) "\\b$escapedFind\\b" else escapedFind
+                val regex = Regex(pattern, RegexOption.IGNORE_CASE)
+                output = regex.replace(output) { matchResult ->
+                    val matchedText = matchResult.value
+                    val replacement = rule.replaceWith
+                    when {
+                        matchedText.all { it.isUpperCase() } -> replacement.uppercase()
+                        matchedText.firstOrNull()?.isUpperCase() == true -> {
+                            replacement.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                        }
+                        else -> replacement
+                    }
+                }
             }
         return output
     }
@@ -1847,6 +1973,24 @@ class DocumentRepository(context: Context) {
         val array = JSONArray()
         rules.forEach { array.put(it.toJson()) }
         prefs.edit { putString(KEY_PRONUNCIATION_RULES, array.toString()) }
+    }
+
+    fun loadGeneralNotes(): List<GeneralNote> {
+        val raw = prefs.getString("general_notes", "[]") ?: "[]"
+        val array = runCatching { org.json.JSONArray(raw) }.getOrDefault(org.json.JSONArray())
+        val notes = mutableListOf<GeneralNote>()
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+            val note = runCatching { GeneralNote.fromJson(item) }.getOrNull() ?: continue
+            notes.add(note)
+        }
+        return notes.sortedByDescending { it.updatedAt }
+    }
+
+    fun saveGeneralNotes(notes: List<GeneralNote>) {
+        val array = org.json.JSONArray()
+        notes.forEach { array.put(it.toJson()) }
+        prefs.edit { putString("general_notes", array.toString()) }
     }
 
     fun loadAllAnnotations(): List<ReaderAnnotation> {

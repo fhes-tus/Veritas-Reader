@@ -4,14 +4,30 @@ import android.net.Uri
 import com.veritas.reader.*
 import java.io.File
 
+data class VeritasPendingImport(
+    val uri: android.net.Uri,
+    val name: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val isPdf: Boolean,
+    val pageCount: Int,
+    val pdfOptions: PdfImportOptions,
+    val textOptions: TextImportOptions,
+    val sourceNameHint: String? = null
+)
+
 data class ReaderUiState(
     val documents: List<SavedDocument> = emptyList(),
+    val generalNotes: List<GeneralNote> = emptyList(),
+    val showGeneralNotesEditor: Boolean = false,
+    val generalNoteEditorTarget: GeneralNote? = null,
     val queuedDocuments: List<SavedDocument> = emptyList(),
     val draftText: String = "",
     val activeDocument: ReaderDocument? = null,
     val deleteTarget: SavedDocument? = null,
     val importMessage: String? = null,
     val importInProgress: Boolean = false,
+    val isOpeningDocument: Boolean = false,
     val importSourceName: String = "",
     val handledInitialShare: Boolean = false,
     val userName: String = "",
@@ -94,5 +110,7 @@ data class ReaderUiState(
     val editorTarget: VeritasTextEditTarget? = null,
     val pendingTextDownload: Pair<String, String>? = null,
     val pendingCropUri: Uri? = null,
-    val readerTrackerSnapshot: ReaderTrackerSnapshot = ReaderTrackerSnapshot.empty()
+    val readerTrackerSnapshot: ReaderTrackerSnapshot = ReaderTrackerSnapshot.empty(),
+    val pendingImport: VeritasPendingImport? = null,
+    val navStack: List<VeritasScreen> = emptyList()
 )

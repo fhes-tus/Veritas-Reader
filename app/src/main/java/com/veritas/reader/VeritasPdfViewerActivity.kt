@@ -1,5 +1,7 @@
 package com.veritas.reader
 
+import android.animation.ValueAnimator
+import androidx.core.animation.doOnEnd
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -67,6 +69,13 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private var tapDownY = 0f
     private var tapDownTime = 0L
     private var tapMoved = false
+    // Expandable bottom panel state
+    private var panelExpanded = false
+    private var expandedPanelContent: LinearLayout? = null
+    private var panelExpandArrow: TextView? = null
+    private var panelStatusLabel: TextView? = null
+    private var panelSpeedLabel: TextView? = null
+    private var panelPitchLabel: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,28 +85,26 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
         val documentId = intent.getStringExtra(EXTRA_DOCUMENT_ID).orEmpty()
         val metadata = repository.findDocument(documentId)
-        val original = metadata?.let { repository.originalFile(it) }
-        if (metadata == null || original == null) {
+        val uri = metadata?.let { repository.originalUri(it) }
+        if (metadata == null || uri == null) {
             showFallback("The original PDF is no longer available.")
             return
         }
         document = metadata
         buildLayout(metadata.title.ifBlank { getString(R.string.app_name) })
         loadHighlightTextAsync(metadata)
-
-        val uri = runCatching {
-            FileProvider.getUriForFile(this, "${packageName}.fileprovider", original)
-        }.getOrNull() ?: run {
-            showFallback("Veritas could not prepare the PDF file for viewing.")
-            return
-        }
         runCatching {
-            val fragment = PdfViewerFragment()
+            var fragment = supportFragmentManager.findFragmentByTag(VIEWER_TAG) as? PdfViewerFragment
+            if (fragment == null) {
+                fragment = PdfViewerFragment()
+                supportFragmentManager.beginTransaction()
+                    .replace(requireNotNull(fragmentContainer).id, fragment, VIEWER_TAG)
+                    .commitNowAllowingStateLoss()
+                fragment.documentUri = uri
+            } else {
+                fragment.documentUri = uri
+            }
             viewerFragment = fragment
-            supportFragmentManager.beginTransaction()
-                .replace(requireNotNull(fragmentContainer).id, fragment, VIEWER_TAG)
-                .commitNowAllowingStateLoss()
-            fragment.documentUri = uri
             schedulePdfViewLookup(fragment)
         }.onFailure { error ->
             showFallback("Veritas could not open this PDF viewer: ${error.message ?: "unknown error"}")
@@ -115,6 +122,10 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(8.dp, statusBarHeight() + 16.dp, 6.dp, 8.dp)
             setBackgroundColor(Color.rgb(20, 25, 29))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
         applyToolbarInsets(toolbar)
         toolbar.addView(iconButton("‹") { finish() })
@@ -128,7 +139,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
         syncCheckBox = CheckBox(this).apply {
-            text = "Sync"
+            text = "🔗 Sync"
             setTextColor(Color.rgb(225, 240, 244))
             textSize = 11f
             gravity = Gravity.CENTER
@@ -144,13 +155,13 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             }
         }
         toolbar.addView(syncCheckBox)
-        toolbar.addView(iconButton("⌕") { toggleSearch() })
+        toolbar.addView(iconButton("🔎") { toggleSearch() })
         toolbar.addView(iconButton("⟳") { rotateViewer() })
         toolbar.addView(iconButton("⋮") { showTopMenu(toolbar) })
         toolbarChrome = toolbar
 
         fragmentContainer = FrameLayout(this).apply {
-            id = View.generateViewId()
+            id = R.id.pdf_fragment_container
             setBackgroundColor(Color.rgb(34, 38, 42))
             setOnTouchListener { _, event ->
                 handleDocumentChromeTouch(this, event)
@@ -167,25 +178,48 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(10.dp, 7.dp, 10.dp, 13.dp)
             setBackgroundColor(Color.rgb(17, 22, 26))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
         applyDeckInsets(controlsOuter)
         bottomChrome = controlsOuter
+
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(Color.rgb(31, 41, 46), 24.dp)
+            background = rounded(Color.rgb(28, 36, 44), 24.dp)
             elevation = 8f
         }
+
+        // Progress strip (thin coloured bar at top of panel)
         val progressStrip = View(this).apply {
-            setBackgroundColor(if (PlaybackStateStore.isPlaying) Color.rgb(120, 221, 232) else Color.rgb(24, 30, 34))
+            setBackgroundColor(if (PlaybackStateStore.isPlaying) Color.rgb(66, 133, 244) else Color.rgb(40, 50, 60))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 3.dp)
         }
+
+        // ── Header row (always visible) ─────────────────────────────────────
         val controlRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(10.dp, 8.dp, 8.dp, 8.dp)
         }
-        controlRow.addView(brandTile())
-        controlRow.addView(TextView(this).apply {
+
+        // Brand tile — tap to expand/collapse
+        val brand = FrameLayout(this).apply {
+            background = rounded(Color.rgb(12, 78, 86), 12.dp)
+            layoutParams = LinearLayout.LayoutParams(50.dp, 50.dp)
+            addView(ImageView(context).apply {
+                setImageResource(R.drawable.veritas_reader_icon)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setPadding(5.dp, 5.dp, 5.dp, 5.dp)
+            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            setOnClickListener { togglePanelExpand() }
+        }
+        controlRow.addView(brand)
+
+        // Status text
+        panelStatusLabel = TextView(this).apply {
             text = if (PlaybackStateStore.isPlaying) "Now reading" else "Ready to read"
             setTextColor(Color.WHITE)
             textSize = 12f
@@ -196,7 +230,10 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 marginStart = 8.dp
                 marginEnd = 2.dp
             }
-        })
+        }
+        controlRow.addView(panelStatusLabel)
+
+        // Playback controls
         controlRow.addView(iconButton("‹") { sendPlaybackIntent(this, PlaybackActions.ACTION_PREVIOUS) })
         playPauseControl = prominentButton(if (PlaybackStateStore.isPlaying) "Ⅱ" else "▶") {
             sendPlaybackIntent(this, if (PlaybackStateStore.isPlaying) PlaybackActions.ACTION_PAUSE else PlaybackActions.ACTION_PLAY)
@@ -204,10 +241,90 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         }
         controlRow.addView(requireNotNull(playPauseControl))
         controlRow.addView(iconButton("›") { sendPlaybackIntent(this, PlaybackActions.ACTION_NEXT) })
-        controlRow.addView(iconButton("⋮") { showPlaybackMenu(controlRow) })
+
+        // Expand arrow indicator
+        panelExpandArrow = TextView(this).apply {
+            text = "▲"
+            setTextColor(Color.rgb(140, 160, 180))
+            textSize = 13f
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(36.dp, 44.dp)
+            setOnClickListener { togglePanelExpand() }
+        }
+        controlRow.addView(panelExpandArrow)
+
+        // ── Expanded content (initially hidden) ─────────────────────────────
+        val expandedSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16.dp, 0.dp, 16.dp, 8.dp)
+            visibility = View.GONE
+            // height = 0 initially so animation starts from 0
+        }
+        expandedPanelContent = expandedSection
+
+        // Divider
+        expandedSection.addView(View(this).apply {
+            setBackgroundColor(Color.rgb(60, 75, 90))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1.dp).apply {
+            topMargin = 2.dp; bottomMargin = 10.dp
+        })
+
+        // Status message row
+        val expandedStatus = TextView(this).apply {
+            text = PlaybackStateStore.statusMessage.ifBlank { "Original View" }
+            setTextColor(Color.rgb(160, 180, 200))
+            textSize = 12f
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, 0, 0, 10.dp)
+        }
+        expandedSection.addView(expandedStatus)
+
+        // Speed slider
+        panelSpeedLabel = labeledSeekBar(
+            menu = expandedSection,
+            title = "Speed",
+            min = 0.5f,
+            max = 2.0f,
+            current = PlaybackStateStore.rate,
+            suffix = "x"
+        ) { value -> adjustPlayback(rate = value, pitch = PlaybackStateStore.pitch) }
+
+        // Pitch slider
+        panelPitchLabel = labeledSeekBar(
+            menu = expandedSection,
+            title = "Pitch",
+            min = 0.7f,
+            max = 1.4f,
+            current = PlaybackStateStore.pitch,
+            suffix = ""
+        ) { value -> adjustPlayback(rate = PlaybackStateStore.rate, pitch = value) }
+
+        // Bottom row: Voice Studio + Queue
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 8.dp, 0, 0)
+        }
+        bottomRow.addView(TextView(this).apply {
+            text = if (PlaybackStateStore.queueCount == 0) "Queue empty"
+                   else "Queue (${PlaybackStateStore.queueCount})"
+            setTextColor(Color.rgb(140, 155, 170))
+            textSize = 13f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        bottomRow.addView(TextView(this).apply {
+            text = "Voice Studio ›"
+            setTextColor(Color.rgb(100, 180, 255))
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setOnClickListener { openVoiceAndLanguage() }
+        })
+        expandedSection.addView(bottomRow)
 
         controls.addView(progressStrip)
         controls.addView(controlRow)
+        controls.addView(expandedSection)
         controlsOuter.addView(controls)
 
         root.addView(toolbar)
@@ -234,50 +351,142 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     override fun onActionModeStarted(mode: android.view.ActionMode?) {
         super.onActionModeStarted(mode)
         val menu = mode?.menu ?: return
+
         val readItem = menu.findItem(1001) ?: menu.add(0, 1001, 1, "Read from here")
         readItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS or android.view.MenuItem.SHOW_AS_ACTION_WITH_TEXT)
         readItem.setTitleCondensed("Read")
         readItem.isVisible = true
         readItem.isEnabled = true
         readItem.setOnMenuItemClickListener {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val oldClip = clipboard.primaryClip
-            val sentinel = "veritas-pdf-selection-${System.nanoTime()}"
-            clipboard.setPrimaryClip(ClipData.newPlainText("Veritas selection marker", sentinel))
-
-            val copyItem = findCopyMenuItem(menu)
-            if (copyItem != null) {
-                val copyStarted = performCopyMenuAction(menu, copyItem)
-                if (!copyStarted) {
-                    restoreClipboard(clipboard, oldClip)
-                    Toast.makeText(this@VeritasPdfViewerActivity, "Copy action did not start.", Toast.LENGTH_SHORT).show()
-                    mode.finish()
-                    return@setOnMenuItemClickListener true
-                }
-
-                readCopiedSelectionAfterCopy(
-                    clipboard = clipboard,
-                    previousClip = oldClip,
-                    sentinel = sentinel,
-                    mode = mode,
-                    attempt = 0
-                )
-            } else {
-                Toast.makeText(this@VeritasPdfViewerActivity, "Copy action is not available in this PDF selection menu.", Toast.LENGTH_SHORT).show()
-                restoreClipboard(clipboard, oldClip)
-                mode.finish()
+            performActionOnCopiedSelection(menu, mode) { text ->
+                jumpToText(text)
             }
             true
         }
+
+        val fixPronunciationItem = menu.findItem(1002) ?: menu.add(0, 1002, 2, "Fix pronunciation")
+        fixPronunciationItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS or android.view.MenuItem.SHOW_AS_ACTION_WITH_TEXT)
+        fixPronunciationItem.isVisible = true
+        fixPronunciationItem.isEnabled = true
+        fixPronunciationItem.setOnMenuItemClickListener {
+            performActionOnCopiedSelection(menu, mode) { text ->
+                PlaybackStateStore.pendingPronunciationFixWord = text.replace(Regex("\\s+"), " ").trim().take(120)
+                val intent = Intent(this@VeritasPdfViewerActivity, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+                startActivity(intent)
+                finish()
+            }
+            true
+        }
+
+        val bookmarkItem = menu.findItem(1003) ?: menu.add(0, 1003, 3, "Add bookmark")
+        bookmarkItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM or android.view.MenuItem.SHOW_AS_ACTION_WITH_TEXT)
+        bookmarkItem.isVisible = true
+        bookmarkItem.isEnabled = true
+        bookmarkItem.setOnMenuItemClickListener {
+            performActionOnCopiedSelection(menu, mode) { text ->
+                val index = findSentenceIndexForText(text)
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val docId = document?.id ?: return@launch
+                    repository.toggleAnnotation(docId, index, AnnotationType.BOOKMARK)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@VeritasPdfViewerActivity, "Bookmark toggled.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            true
+        }
+
+        val noteItem = menu.findItem(1004) ?: menu.add(0, 1004, 4, "Add note")
+        noteItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM or android.view.MenuItem.SHOW_AS_ACTION_WITH_TEXT)
+        noteItem.isVisible = true
+        noteItem.isEnabled = true
+        noteItem.setOnMenuItemClickListener {
+            performActionOnCopiedSelection(menu, mode) { text ->
+                val index = findSentenceIndexForText(text)
+                showAddNoteDialog(index)
+            }
+            true
+        }
+
+        val askAiItem = menu.findItem(1005) ?: menu.add(0, 1005, 5, "Ask AI")
+        askAiItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM or android.view.MenuItem.SHOW_AS_ACTION_WITH_TEXT)
+        askAiItem.isVisible = true
+        askAiItem.isEnabled = true
+        askAiItem.setOnMenuItemClickListener {
+            performActionOnCopiedSelection(menu, mode) { text ->
+                val cleanText = text.replace(Regex("\\s+"), " ").trim()
+                appendVocabularyWord(cleanText, "Asked AI for explanation.")
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val settings = repository.loadAskAiSettings()
+                    withContext(Dispatchers.Main) {
+                        askAiWithSelection(this@VeritasPdfViewerActivity, settings, cleanText)
+                    }
+                }
+            }
+            true
+        }
+
+        val copyItem = menu.findItem(1006) ?: menu.add(0, 1006, 6, "Copy")
+        copyItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER)
+        copyItem.isVisible = true
+        copyItem.isEnabled = true
+        copyItem.setOnMenuItemClickListener {
+            performActionOnCopiedSelection(menu, mode) { text ->
+                copyTextToClipboard(this@VeritasPdfViewerActivity, "Veritas selection", text)
+            }
+            true
+        }
+
+        val shareItem = menu.findItem(1007) ?: menu.add(0, 1007, 7, "Share")
+        shareItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER)
+        shareItem.isVisible = true
+        shareItem.isEnabled = true
+        shareItem.setOnMenuItemClickListener {
+            performActionOnCopiedSelection(menu, mode) { text ->
+                sharePlainText(this@VeritasPdfViewerActivity, "Veritas selection", text)
+            }
+            true
+        }
+
         mode.invalidate()
     }
 
-    private fun readCopiedSelectionAfterCopy(
+    private fun performActionOnCopiedSelection(
+        menu: android.view.Menu,
+        mode: android.view.ActionMode,
+        onTextRetrieved: (String) -> Unit
+    ) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val oldClip = clipboard.primaryClip
+        val sentinel = "veritas-pdf-selection-${System.nanoTime()}"
+        clipboard.setPrimaryClip(ClipData.newPlainText("Veritas selection marker", sentinel))
+
+        val copyItem = findCopyMenuItem(menu)
+        if (copyItem != null) {
+            val copyStarted = performCopyMenuAction(menu, copyItem)
+            if (!copyStarted) {
+                restoreClipboard(clipboard, oldClip)
+                Toast.makeText(this@VeritasPdfViewerActivity, "Copy action did not start.", Toast.LENGTH_SHORT).show()
+                mode.finish()
+                return
+            }
+            pollCopiedSelection(clipboard, oldClip, sentinel, mode, 0, onTextRetrieved)
+        } else {
+            Toast.makeText(this@VeritasPdfViewerActivity, "Copy action is not available.", Toast.LENGTH_SHORT).show()
+            restoreClipboard(clipboard, oldClip)
+            mode.finish()
+        }
+    }
+
+    private fun pollCopiedSelection(
         clipboard: ClipboardManager,
         previousClip: ClipData?,
         sentinel: String,
         mode: android.view.ActionMode,
-        attempt: Int
+        attempt: Int,
+        onTextRetrieved: (String) -> Unit
     ) {
         val delayMs = when (attempt) {
             0 -> 180L
@@ -288,17 +497,103 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             val newClip = clipboard.primaryClip
             val selectedText = newClip?.getItemAt(0)?.coerceToText(this@VeritasPdfViewerActivity)?.toString()
             if (!selectedText.isNullOrBlank() && selectedText != sentinel) {
-                jumpToText(selectedText)
                 restoreClipboard(clipboard, previousClip)
                 mode.finish()
+                onTextRetrieved(selectedText)
             } else if (attempt < 2) {
-                readCopiedSelectionAfterCopy(clipboard, previousClip, sentinel, mode, attempt + 1)
+                pollCopiedSelection(clipboard, previousClip, sentinel, mode, attempt + 1, onTextRetrieved)
             } else {
                 Toast.makeText(this@VeritasPdfViewerActivity, "Could not extract selected text.", Toast.LENGTH_SHORT).show()
                 restoreClipboard(clipboard, previousClip)
                 mode.finish()
             }
         }, delayMs)
+    }
+
+    private fun findSentenceIndexForText(selectedText: String): Int {
+        val clean = selectedText.trim()
+        if (clean.isBlank()) return PlaybackStateStore.currentIndex
+        val model = readerTextModel ?: return PlaybackStateStore.currentIndex
+        val index = model.sentences.indexOfFirst { it.text.contains(clean, ignoreCase = true) }
+        if (index != -1) return index
+        val bestMatch = model.sentences.maxByOrNull { sentence ->
+            val common = sentence.text.split(" ").filter { it.length > 3 && clean.contains(it, ignoreCase = true) }
+            common.size
+        }
+        return bestMatch?.index ?: PlaybackStateStore.currentIndex
+    }
+
+    private fun appendVocabularyWord(word: String, explanation: String) {
+        val docId = document?.id ?: return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val existing = repository.loadGeneralNotes().toMutableList()
+            val targetTitle = "__vocab__$docId"
+            val vocabIndex = existing.indexOfFirst { it.title == targetTitle }
+            val now = System.currentTimeMillis()
+            val formattedTime = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(now))
+
+            val currentIndex = findSentenceIndexForText(word)
+            val textModel = readerTextModel
+            val part = textModel?.partForSentence(currentIndex)
+            val sectionNum = (part?.index ?: 0) + 1
+
+            val entryText = buildString {
+                appendLine(word.trim())
+                appendLine("  $explanation")
+                appendLine("  (looked up: Section $sectionNum, sentence ${currentIndex + 1})")
+                append("  [$formattedTime]")
+            }
+
+            if (vocabIndex != -1) {
+                val oldNote = existing[vocabIndex]
+                val newContent = if (oldNote.content.isBlank()) entryText else oldNote.content + "\n\n" + entryText
+                existing[vocabIndex] = oldNote.copy(content = newContent, updatedAt = now)
+            } else {
+                val newNote = GeneralNote(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = targetTitle,
+                    content = entryText,
+                    updatedAt = now
+                )
+                existing.add(0, newNote)
+            }
+
+            repository.saveGeneralNotes(existing)
+        }
+    }
+
+    private fun showAddNoteDialog(sentenceIndex: Int) {
+        val docId = document?.id ?: return
+        val input = android.widget.EditText(this).apply {
+            hint = "Write sentence note..."
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        val container = FrameLayout(this).apply {
+            val padding = (16 * resources.displayMetrics.density).toInt()
+            setPadding(padding, padding, padding, padding)
+            addView(input)
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Add note to sentence ${sentenceIndex + 1}")
+            .setView(container)
+            .setPositiveButton("Save") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isNotBlank()) {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        repository.upsertAnnotation(
+                            documentId = docId,
+                            chunkIndex = sentenceIndex,
+                            type = AnnotationType.NOTE,
+                            note = text
+                        )
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@VeritasPdfViewerActivity, "Note saved.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun findCopyMenuItem(menu: android.view.Menu): android.view.MenuItem? {
@@ -385,10 +680,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
     private fun openOriginal() {
         val metadata = document ?: return
-        val original = repository.originalFile(metadata) ?: return
-        val uri = runCatching {
-            FileProvider.getUriForFile(this, "${packageName}.fileprovider", original)
-        }.getOrNull() ?: run {
+        val uri = repository.originalUri(metadata) ?: run {
             Toast.makeText(this, "Could not prepare the file for opening.", Toast.LENGTH_SHORT).show()
             return
         }
@@ -818,7 +1110,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                         val page = matches.keyAt(i)
                         if (lastHighlightPage == null) lastHighlightPage = page
                         matches.valueAt(i).firstOrNull()?.bounds?.forEach { rect ->
-                            add(Highlight(PdfRect(page, rect), Color.argb(68, 105, 190, 255)))
+                            add(Highlight(PdfRect(page, rect), Color.argb(170, 255, 200, 0)))
                         }
                     }
                 }
@@ -866,7 +1158,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             setBackgroundColor(Color.rgb(17, 22, 26))
         }
         root.addView(TextView(this).apply {
-            text = "Actual document"
+            text = "Original View"
             setTextColor(Color.WHITE)
             textSize = 22f
         })
@@ -882,7 +1174,51 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     }
 
     private fun updatePlaybackControls() {
-        playPauseControl?.text = if (PlaybackStateStore.isPlaying) "Ⅱ" else "▶"
+        val playing = PlaybackStateStore.isPlaying
+        playPauseControl?.text = if (playing) "Ⅱ" else "▶"
+        panelStatusLabel?.text = if (playing) "Now reading" else "Ready to read"
+        panelSpeedLabel?.text = "Speed ${"%.2f".format(PlaybackStateStore.rate)}x"
+        panelPitchLabel?.text = "Pitch ${"%.2f".format(PlaybackStateStore.pitch)}"
+    }
+
+    private fun togglePanelExpand() {
+        val section = expandedPanelContent ?: return
+        panelExpanded = !panelExpanded
+        panelExpandArrow?.text = if (panelExpanded) "▼" else "▲"
+        showChrome(keepVisible = true)
+        if (panelExpanded) {
+            section.visibility = View.VISIBLE
+            section.measure(
+                View.MeasureSpec.makeMeasureSpec(
+                    (resources.displayMetrics.widthPixels * 0.95f).toInt(),
+                    View.MeasureSpec.AT_MOST
+                ),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            val target = section.measuredHeight
+            section.layoutParams.height = 0
+            section.requestLayout()
+            ValueAnimator.ofInt(0, target).apply {
+                duration = 240
+                addUpdateListener {
+                    section.layoutParams.height = it.animatedValue as Int
+                    section.requestLayout()
+                }
+                start()
+            }
+        } else {
+            val start = section.measuredHeight
+            ValueAnimator.ofInt(start, 0).apply {
+                duration = 200
+                addUpdateListener {
+                    section.layoutParams.height = it.animatedValue as Int
+                    section.requestLayout()
+                }
+                doOnEnd { section.visibility = View.GONE }
+                start()
+            }
+        }
+        if (chromeVisible && !chromeMenuOpen) scheduleChromeAutoHide()
     }
 
     private fun iconButton(label: String, action: () -> Unit): TextView {

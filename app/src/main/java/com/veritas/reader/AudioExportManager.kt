@@ -2,7 +2,6 @@ package com.veritas.reader
 
 import android.content.Context
 import android.os.Bundle
-import android.os.Environment
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -74,8 +73,7 @@ class AudioExportManager(private val context: Context) {
 
             require(partFiles.isNotEmpty()) { "The TTS engine did not create audio. Try another installed voice/engine." }
 
-            val musicRoot = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir
-            val exportDir = File(musicRoot, "VeritasExports").apply { mkdirs() }
+            val exportDir = File(context.cacheDir, "VeritasExports").apply { mkdirs() }
             val displayName = "${safeFileName(title)}_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())}.wav"
             val finalFile = File(exportDir, displayName)
 
@@ -137,7 +135,7 @@ class AudioExportManager(private val context: Context) {
         } else {
             TextToSpeech(context.applicationContext, listener, requestedEngine)
         }
-        continuation.invokeOnCancellation { runCatching { engine?.shutdown() } }
+        continuation.invokeOnCancellation { runCatching { engine.shutdown() } }
     }
 
     private suspend fun synthesizePart(
@@ -240,7 +238,8 @@ class AudioExportManager(private val context: Context) {
 
         fun write(file: File, formatChunk: ByteArray, dataChunks: List<ByteArray>) {
             val dataSize = dataChunks.sumOf { it.size }
-            val riffSize = 4 + (8 + formatChunk.size) + (8 + dataSize)
+            val formatPadding = if (formatChunk.size % 2 == 1) 1 else 0
+            val riffSize = 4 + (8 + formatChunk.size + formatPadding) + (8 + dataSize)
             ByteArrayOutputStream().use { out ->
                 out.writeAscii("RIFF")
                 out.writeIntLE(riffSize)

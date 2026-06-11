@@ -56,8 +56,7 @@ fun SettingsHubDialog(
     onOpenPdfTools: () -> Unit,
     onOpenFileBrowser: () -> Unit,
     onOpenSleepTimer: () -> Unit,
-    onOpenReadingLists: () -> Unit,
-    onOpenAppHealth: () -> Unit
+    onOpenReadingLists: () -> Unit
 ) {
     val documentCount = uiState.documents.size
     val hasActiveDocument = uiState.activeDocument != null
@@ -97,45 +96,13 @@ fun SettingsHubDialog(
                     modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("App status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                        Text("$documentCount saved readings • $queueCount queued", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Voice: ${voiceName.ifBlank { "System default" }}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Narration: ${if (narrationEnabled) "On" else "Off"} • Queue autoplay: ${if (autoPlayQueue) "On" else "Off"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Pronunciation rules: $pronunciationRuleCount", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
 
-                SettingsHubSectionTitle("Reader")
-                SettingsHubRow("Reader appearance", "Theme packs, colour themes, text size, spacing, part labels", "Aa", onOpenReaderSettings)
-                FeatureSettingsHubRow(
-                    feature = settingsFeature(VeritasFeatureId.PDF_IMPORT_CONTROLS),
-                    title = "PDF and import tools",
-                    subtitle = "Defaults, OCR fallback, page cleanup, canvas view preparation",
-                    icon = "PDF",
-                    onClick = onOpenPdfTools
-                )
-                FeatureSettingsHubRow(
-                    feature = settingsFeature(VeritasFeatureId.FILE_BROWSER),
-                    title = "File browser",
-                    subtitle = "Scan approved folders and import supported local files",
-                    icon = "DIR",
-                    onClick = onOpenFileBrowser
-                )
 
-                SettingsHubSectionTitle("Voice and playback")
-                FeatureSettingsHubRow(
-                    feature = settingsFeature(VeritasFeatureId.SLEEP_TIMER),
-                    title = "Sleep timer",
-                    subtitle = "Pause or stop the current reading after a chosen time",
-                    icon = "⏱",
-                    onClick = onOpenSleepTimer
-                )
+                SettingsHubSectionTitle("Appearance")
+                SettingsHubRow("Reader appearance", "Theme packs, colour themes, text size, spacing, section labels", "Aa", onOpenReaderSettings)
+                SettingsHubRow("Tutorial", "Learn Veritas through guided actions", "i", onOpenTutorial)
+
+                SettingsHubSectionTitle("Voice & Audio")
                 FeatureSettingsHubRow(
                     feature = settingsFeature(VeritasFeatureId.VOICE_STUDIO),
                     title = "Voice Studio",
@@ -151,8 +118,22 @@ fun SettingsHubDialog(
                     icon = "Ab",
                     onClick = onOpenPronunciationRules
                 )
+                FeatureSettingsHubRow(
+                    feature = settingsFeature(VeritasFeatureId.SLEEP_TIMER),
+                    title = "Sleep timer",
+                    subtitle = "Pause or stop the current reading after a chosen time",
+                    icon = "⏱",
+                    onClick = onOpenSleepTimer
+                )
+                FeatureSettingsHubRow(
+                    feature = settingsFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT),
+                    title = "Record sound file",
+                    subtitle = "Render the current reading into audio, then save or discard",
+                    icon = "●",
+                    onClick = onStartRecord
+                )
 
-                SettingsHubSectionTitle("Study, notes, and sync")
+                SettingsHubSectionTitle("AI & Language")
                 FeatureSettingsHubRow(
                     feature = settingsFeature(VeritasFeatureId.OFFLINE_STUDY_TOOLS),
                     title = "AI & study mode",
@@ -167,6 +148,22 @@ fun SettingsHubDialog(
                     icon = "AI",
                     onClick = onOpenAskAiSettings
                 )
+
+                SettingsHubSectionTitle("Import Defaults")
+                FeatureSettingsHubRow(
+                    feature = settingsFeature(VeritasFeatureId.PDF_IMPORT_CONTROLS),
+                    title = "PDF and import tools",
+                    subtitle = "Defaults, OCR fallback, page cleanup, canvas view preparation",
+                    icon = "PDF",
+                    onClick = onOpenPdfTools
+                )
+                FeatureSettingsHubRow(
+                    feature = settingsFeature(VeritasFeatureId.FILE_BROWSER),
+                    title = "File browser",
+                    subtitle = "Scan approved folders and import supported local files",
+                    icon = "DIR",
+                    onClick = onOpenFileBrowser
+                )
                 FeatureSettingsHubRow(
                     feature = settingsFeature(VeritasFeatureId.EXTRACTED_TEXT_EDITOR),
                     title = "Edit extracted text",
@@ -174,13 +171,8 @@ fun SettingsHubDialog(
                     icon = "T+",
                     onClick = onOpenTextEditor
                 )
-                FeatureSettingsHubRow(
-                    feature = settingsFeature(VeritasFeatureId.READING_LISTS),
-                    title = "Reading lists",
-                    subtitle = "Create local lists and add saved readings without accounts",
-                    icon = "List",
-                    onClick = onOpenReadingLists
-                )
+
+                SettingsHubSectionTitle("Data & Backup")
                 FeatureSettingsHubRow(
                     feature = settingsFeature(VeritasFeatureId.LOCAL_SYNC_PACK),
                     title = "Backup / restore",
@@ -195,28 +187,13 @@ fun SettingsHubDialog(
                     icon = "⟳",
                     onClick = onOpenSyncCenter
                 )
-
-                SettingsHubSectionTitle("App")
                 FeatureSettingsHubRow(
-                    feature = settingsFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT),
-                    title = "Record sound file",
-                    subtitle = "Render the current reading into audio, then save or discard",
-                    icon = "●",
-                    onClick = onStartRecord
+                    feature = settingsFeature(VeritasFeatureId.READING_LISTS),
+                    title = "Reading lists",
+                    subtitle = "Create local lists and add saved readings without accounts",
+                    icon = "List",
+                    onClick = onOpenReadingLists
                 )
-                SettingsHubRow("Tutorial", "Learn Veritas through guided actions", "i", onOpenTutorial)
-                SettingsHubRow("App health & release readiness", "Version, permission review, test checklist, APK sharing notes", "✓", onOpenAppHealth)
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Release hardening notes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
-                        Text("For this beta, use Sync Center as a safe manual sync pack. It merges imported data and avoids automatic deletion while cloud login is still being designed.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
                 }
             }
         }
@@ -312,15 +289,14 @@ fun VeritasThemePackPicker(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 rowPacks.forEach { (packId, label) ->
                     val selected = VeritasThemePackCatalog.normalizePackId(selectedPackId) == packId
-                    val preview = packPreviewSymbols(packId)
                     val modifier = Modifier.weight(1f)
                     if (selected) {
                         Button(onClick = { onThemePackChange(packId) }, modifier = modifier) {
-                            PackChoiceContent(label = label, preview = preview, selected = true)
+                            PackChoiceContent(label = label, packId = packId, selected = true)
                         }
                     } else {
                         OutlinedButton(onClick = { onThemePackChange(packId) }, modifier = modifier) {
-                            PackChoiceContent(label = label, preview = preview, selected = false)
+                            PackChoiceContent(label = label, packId = packId, selected = false)
                         }
                     }
                 }
@@ -331,11 +307,51 @@ fun VeritasThemePackPicker(
 }
 
 @Composable
-fun PackChoiceContent(label: String, preview: String, selected: Boolean) {
+fun PackPalettePreview(packId: String) {
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val tertiary = MaterialTheme.colorScheme.tertiary
+    
+    val shape = when (VeritasThemePackCatalog.normalizePackId(packId)) {
+        "material_you" -> RoundedCornerShape(6.dp)
+        "liquid_glass" -> RoundedCornerShape(10.dp)
+        "one_ui" -> RoundedCornerShape(3.dp)
+        else -> RoundedCornerShape(1.dp)
+    }
+    
+    val alpha = when (VeritasThemePackCatalog.normalizePackId(packId)) {
+        "liquid_glass" -> 0.62f
+        else -> 1.0f
+    }
+    
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .background(primary.copy(alpha = alpha), shape)
+        )
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .background(secondary.copy(alpha = alpha), shape)
+        )
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .background(tertiary.copy(alpha = alpha), shape)
+        )
+    }
+}
+
+@Composable
+fun PackChoiceContent(label: String, packId: String, selected: Boolean) {
     Column(horizontalAlignment = Alignment.Start, modifier = Modifier.fillMaxWidth()) {
         Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (selected) FontWeight.Black else FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        Text(preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        PackPalettePreview(packId = packId)
     }
 }
 
@@ -455,7 +471,7 @@ fun ReaderSettingsDialog(
                     valueRange = 14f..28f,
                     steps = 13
                 )
-                Text("Part text spacing: ${settings.sectionSpacingDp}dp", fontWeight = FontWeight.SemiBold)
+                Text("Section text spacing: ${settings.sectionSpacingDp}dp", fontWeight = FontWeight.SemiBold)
                 Slider(
                     value = settings.sectionSpacingDp.toFloat(),
                     onValueChange = { onSpacingChange(it.toInt().coerceIn(6, 24)) },
@@ -464,7 +480,7 @@ fun ReaderSettingsDialog(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Show part labels", fontWeight = FontWeight.SemiBold)
+                        Text("Show section labels", fontWeight = FontWeight.SemiBold)
                         Text("Useful for study, notes, and search jumps.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = settings.showSectionNumbers, onCheckedChange = { onToggleSectionNumbers() })
@@ -472,7 +488,7 @@ fun ReaderSettingsDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Auto-play queue", fontWeight = FontWeight.SemiBold)
-                        Text("Continue into the next Listen Later item.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Continue into the next queued item.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = settings.autoPlayQueue, onCheckedChange = { onToggleAutoPlayQueue() })
                 }

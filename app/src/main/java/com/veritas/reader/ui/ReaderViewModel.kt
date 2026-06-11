@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -29,7 +30,30 @@ import java.util.Locale
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = DocumentRepository(application)
-    private val _uiState = MutableStateFlow(ReaderUiState())
+    private val delegateUiState = MutableStateFlow(ReaderUiState())
+    @kotlin.OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.InternalCoroutinesApi::class)
+    private val _uiState = object : MutableStateFlow<ReaderUiState> by delegateUiState {
+        override var value: ReaderUiState
+            get() = delegateUiState.value
+            set(newVal) {
+                delegateUiState.value = synchronizeNavStack(delegateUiState.value, newVal)
+            }
+
+        override fun tryEmit(value: ReaderUiState): Boolean {
+            val synced = synchronizeNavStack(delegateUiState.value, value)
+            return delegateUiState.tryEmit(synced)
+        }
+
+        override suspend fun emit(value: ReaderUiState) {
+            val synced = synchronizeNavStack(delegateUiState.value, value)
+            delegateUiState.emit(synced)
+        }
+
+        override fun compareAndSet(expect: ReaderUiState, update: ReaderUiState): Boolean {
+            val synced = synchronizeNavStack(expect, update)
+            return delegateUiState.compareAndSet(expect, synced)
+        }
+    }
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     fun updateState(block: (ReaderUiState) -> ReaderUiState) {
@@ -61,13 +85,37 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val documentNotes = repository.loadAllDocumentNotes()
             val annotationCount = repository.loadAnnotationCount()
             val fileBrowserRoots = VeritasFileBrowserScanner.persistedRoots(application)
+            val generalNotes = repository.loadGeneralNotes()
             val userName = repository.loadUserName()
             val hasCompletedOnboarding = repository.hasSeenOnboardingTutorial()
             val hasImportedOrOpenedDocument = repository.hasImportedOrOpenedDocument()
+            // Repair missing covers for existing files
+            documents.forEach { doc ->
+                if (doc.originalFileName.isNotBlank() && CoverExtractor.coverFile(application, doc.id) == null) {
+                    val originalFile = repository.originalFile(doc)
+                    if (originalFile != null && originalFile.exists()) {
+                        CoverExtractor.extractCoverFromFile(application, doc.id, originalFile)
+                    } else if (doc.originalFileName.startsWith("content://")) {
+                        runCatching {
+                            val uri = Uri.parse(doc.originalFileName)
+                            val mimeType = application.contentResolver.getType(uri).orEmpty().lowercase(java.util.Locale.getDefault())
+                            val isPdf = mimeType.contains("pdf") || doc.originalFileName.lowercase(java.util.Locale.getDefault()).contains(".pdf")
+                            val isEpub = mimeType.contains("epub") || doc.originalFileName.lowercase(java.util.Locale.getDefault()).contains(".epub")
+                            val isImage = mimeType.startsWith("image/")
+                            when {
+                                isPdf -> CoverExtractor.extractPdfCover(application, doc.id, uri)
+                                isEpub -> CoverExtractor.extractEpubCover(application, doc.id, uri)
+                                isImage -> CoverExtractor.extractImageCover(application, doc.id, uri)
+                            }
+                        }
+                    }
+                }
+            }
 
             _uiState.update {
                 it.copy(
                     documents = documents,
+                    generalNotes = generalNotes,
                     queuedDocuments = queuedDocuments,
                     pronunciationRules = pronunciationRules,
                     voiceSettings = voiceSettings,
@@ -90,6 +138,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     showTutorial = !hasCompletedOnboarding
                 )
             }
+        }
+        viewModelScope.launch {
+            androidx.compose.runtime.snapshotFlow { PlaybackStateStore.activeDocumentId }
+                .collect { newDocId ->
+                    val currentId = uiState.value.activeDocument?.id
+                    if (newDocId != null && currentId != newDocId) {
+                        val saved = repository.findDocument(newDocId)
+                        if (saved != null) {
+                            withContext(Dispatchers.Main) {
+                                openSavedDocument(saved, PlaybackStateStore.currentIndex)
+                            }
+                        }
+                    }
+                }
         }
     }
 
@@ -120,8 +182,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val docs = repository.loadDocuments()
             val queue = repository.loadQueueDocuments()
             val tracker = repository.loadReaderTrackerSnapshot()
+            val generalNotes = repository.loadGeneralNotes()
             withContext(Dispatchers.Main) {
-                _uiState.update { it.copy(documents = docs, queuedDocuments = queue, readerTrackerSnapshot = tracker) }
+                _uiState.update { it.copy(documents = docs, queuedDocuments = queue, readerTrackerSnapshot = tracker, generalNotes = generalNotes) }
                 refreshAnnotationCatalog()
                 PlaybackStateStore.queueCount = queue.size
             }
@@ -554,8 +617,25 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun openSavedDocument(metadata: SavedDocument, startIndex: Int? = null) {
+        _uiState.update { it.copy(isOpeningDocument = true) }
         viewModelScope.launch(Dispatchers.IO) {
             val readerDocument = loadReaderDocument(metadata)
+            
+            if (metadata.language.isNotBlank()) {
+                val currentVoiceSettings = repository.loadVoiceSettings()
+                if (currentVoiceSettings.localeTag != metadata.language) {
+                    val updated = currentVoiceSettings.copy(
+                        localeTag = metadata.language,
+                        voiceName = "",
+                        voiceLabel = "System default voice"
+                    )
+                    repository.saveVoiceSettings(updated)
+                    withContext(Dispatchers.Main) {
+                        _uiState.update { it.copy(voiceSettings = updated) }
+                    }
+                }
+            }
+
             val annotations = repository.loadAnnotations(metadata.id)
             val documentNote = repository.loadDocumentNote(metadata.id)
             val outline = repository.loadDocumentOutline(metadata, readerDocument.chunks)
@@ -574,7 +654,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         searchCursor = 0,
                         showCanvasView = false,
                         hasImportedOrOpenedDocument = true,
-                        readerTrackerSnapshot = tracker
+                        readerTrackerSnapshot = tracker,
+                        isOpeningDocument = false
                     )
                 }
                 syncPlaybackStateForDocument(readerDocument, targetIndex)
@@ -603,6 +684,24 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 pageCount = pageCount,
                 partial = partial
             )
+            // Extract cover image in background for compatible documents
+            if (originalUri != null) {
+                runCatching {
+                    val mime = getApplication<android.app.Application>().contentResolver.getType(originalUri).orEmpty().lowercase()
+                    val ext = saved.title.substringAfterLast('.', "").lowercase()
+                    when {
+                        mime.contains("pdf") || ext == "pdf" -> {
+                            CoverExtractor.extractPdfCover(getApplication(), saved.id, originalUri)
+                        }
+                        mime.contains("epub") || ext == "epub" -> {
+                            CoverExtractor.extractEpubCover(getApplication(), saved.id, originalUri)
+                        }
+                        mime.startsWith("image/") || ext in setOf("png", "jpg", "jpeg", "webp", "bmp", "gif") -> {
+                            CoverExtractor.extractImageCover(getApplication(), saved.id, originalUri)
+                        }
+                    }
+                }
+            }
             withContext(Dispatchers.Main) {
                 refreshAll()
                 openSavedDocument(saved)
@@ -658,63 +757,213 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun prepareImport(uri: Uri, sourceNameHint: String? = null) {
+        val app = getApplication<Application>()
+        val name = getDisplayName(app, uri).ifBlank { "Imported document" }
+        val mimeType = app.contentResolver.getType(uri).orEmpty().lowercase()
+        val extension = name.substringAfterLast('.', "").lowercase()
+        val isPdf = mimeType.contains("pdf") || extension == "pdf" || uri.path?.lowercase()?.endsWith(".pdf") == true
+        
+        val sizeBytes = if (uri.scheme == "file") {
+            uri.path?.let { File(it).length() } ?: 0L
+        } else {
+            try {
+                app.contentResolver.openFileDescriptor(uri, "r")?.use { fd ->
+                    fd.statSize
+                } ?: 0L
+            } catch (e: Exception) {
+                0L
+            }
+        }
+
+        _uiState.update { it.copy(isOpeningDocument = true) }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val pageCount = if (isPdf) {
+                DocumentExtractor.getPdfPageCount(app, uri)
+            } else 0
+
+            withContext(Dispatchers.Main) {
+                val pending = VeritasPendingImport(
+                    uri = uri,
+                    name = name,
+                    mimeType = mimeType,
+                    sizeBytes = sizeBytes,
+                    isPdf = isPdf,
+                    pageCount = pageCount,
+                    pdfOptions = PdfImportOptions(
+                        startPage = 1,
+                        endPage = if (pageCount > 0) pageCount else null
+                    ),
+                    textOptions = TextImportOptions(),
+                    sourceNameHint = sourceNameHint
+                )
+                _uiState.update {
+                    it.copy(
+                        pendingImport = pending,
+                        isOpeningDocument = false
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelPendingImport() {
+        _uiState.update { it.copy(pendingImport = null) }
+    }
+
+    fun executePendingImport(title: String, pdfOptions: PdfImportOptions, textOptions: TextImportOptions) {
+        val pending = uiState.value.pendingImport ?: return
+        _uiState.update { it.copy(pendingImport = null) }
+        importDocumentFromUri(
+            uri = pending.uri,
+            pdfOptions = pdfOptions,
+            textOptions = textOptions,
+            sourceNameHint = pending.sourceNameHint,
+            customTitle = title
+        )
+    }
+
     fun importDocumentFromUri(
         uri: Uri,
         pdfOptions: PdfImportOptions = PdfImportOptions(),
         textOptions: TextImportOptions = TextImportOptions(),
-        sourceNameHint: String? = null
+        sourceNameHint: String? = null,
+        customTitle: String? = null,
+        queueAfterImport: Boolean = false,
+        openAfterImport: Boolean = true
     ) {
-        importJob?.cancel()
-        importJob = viewModelScope.launch(Dispatchers.IO) {
-            val title = getDisplayName(getApplication(), uri).ifBlank { "Imported document" }
-            withContext(Dispatchers.Main) {
-                _uiState.update { it.copy(importInProgress = true, importSourceName = sourceNameHint?.ifBlank { null } ?: title) }
+        val app = getApplication<Application>()
+        val title = customTitle?.ifBlank { null } ?: getDisplayName(app, uri).ifBlank { "Imported document" }
+        _uiState.update {
+            if (openAfterImport) {
+                it.copy(showFileBrowser = false, importMessage = "Importing $title in background...", isOpeningDocument = true)
+            } else {
+                it.copy(importMessage = "Importing $title in background...")
             }
-            val extracted = runCatching {
-                DocumentExtractor.extract(getApplication(), uri, title, pdfOptions, textOptions)
-            }.getOrElse { error ->
-                withContext(Dispatchers.Main) {
-                    when (error) {
-                        is CancellationException -> {
-                            _uiState.update { it.copy(importMessage = "Import cancelled.") }
-                        }
-                        else -> {
-                            _uiState.update { it.copy(importMessage = "Could not import this file: ${error.message ?: "unknown extraction error"}") }
-                        }
-                    }
-                }
-                null
+        }
+        
+        // Ensure we have permission
+        if (uri.scheme == "content") {
+            try {
+                app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                android.util.Log.w("ReaderViewModel", "Could not take persistable permission for $uri", e)
             }
-            withContext(Dispatchers.Main) {
-                _uiState.update { it.copy(importInProgress = false, importSourceName = "") }
-                importJob = null
-                if (extracted != null) {
-                    if (extracted.text.isBlank()) {
-                        _uiState.update { it.copy(importMessage = extracted.note ?: "No readable text was found in $title. It may be scanned, image-based, DRM-protected, or otherwise unavailable for text extraction.") }
-                    } else {
-                        _uiState.update { it.copy(showFileBrowser = false) }
-                        createAndOpenDocument(
-                            title = extracted.title,
-                            text = extracted.text,
-                            sourceLabel = extracted.sourceLabel,
-                            originalUri = uri,
-                            originalMimeType = getApplication<Application>().contentResolver.getType(uri).orEmpty(),
-                            pageCount = extracted.pageCount,
-                            partial = extracted.partial
-                        )
-                        extracted.note?.let { note -> _uiState.update { it.copy(importMessage = note) } }
-                        
-                        if (extracted.partial && extracted.sourceLabel == "PDF") {
-                            viewModelScope.launch(Dispatchers.IO) {
-                                val latest = repository.loadDocuments().firstOrNull { it.title == extracted.title }
-                                if (latest != null) {
-                                    continuePdfExtractionInBackground(latest, uri, title, pdfOptions)
+        }
+        
+        val inputData = androidx.work.workDataOf(
+            "uri" to uri.toString(),
+            "title" to title,
+            "pdf_startPage" to (pdfOptions.startPage ?: -1),
+            "pdf_endPage" to (pdfOptions.endPage ?: -1),
+            "pdf_cleanupRepeatedLines" to pdfOptions.cleanupRepeatedLines,
+            "pdf_removePageNumbers" to pdfOptions.removePageNumbers,
+            "pdf_repairHyphenation" to pdfOptions.repairHyphenation,
+            "pdf_includePageMarkers" to pdfOptions.includePageMarkers,
+            "pdf_forceOcr" to pdfOptions.forceOcr,
+            "pdf_preferOcrWhenLowText" to pdfOptions.preferOcrWhenLowText,
+            "pdf_extractionMode" to pdfOptions.extractionMode,
+            "pdf_removeTopPageNoise" to pdfOptions.removeTopPageNoise,
+            "pdf_removeBottomPageNoise" to pdfOptions.removeBottomPageNoise,
+            "pdf_manualCropBeforeExtract" to pdfOptions.manualCropBeforeExtract,
+            "pdf_minWordGap" to pdfOptions.minWordGap,
+            "pdf_separateWordsOnFontChange" to pdfOptions.separateWordsOnFontChange,
+            "pdf_markPdfLinesForCanvas" to pdfOptions.markPdfLinesForCanvas,
+            "pdf_forceFreshExtraction" to pdfOptions.forceFreshExtraction,
+            "pdf_cropLeft" to (pdfOptions.cropRect?.left ?: -1f),
+            "pdf_cropTop" to (pdfOptions.cropRect?.top ?: -1f),
+            "pdf_cropRight" to (pdfOptions.cropRect?.right ?: -1f),
+            "pdf_cropBottom" to (pdfOptions.cropRect?.bottom ?: -1f),
+            "text_encodingId" to textOptions.encodingId
+        )
+        
+        val request = androidx.work.OneTimeWorkRequestBuilder<DocumentImportWorker>()
+            .setInputData(inputData)
+            .build()
+            
+        val workManager = androidx.work.WorkManager.getInstance(app)
+        workManager.enqueue(request)
+
+        var firstChunkOpened = false
+        viewModelScope.launch(Dispatchers.Main) {
+            try {
+                workManager.getWorkInfoByIdFlow(request.id).collect { workInfo ->
+                    if (workInfo != null) {
+                        // Auto-open the document as soon as the first chunk is ready
+                        if (!firstChunkOpened && workInfo.state == androidx.work.WorkInfo.State.RUNNING) {
+                            val firstChunkId = workInfo.progress.getString("firstChunkDocumentId")
+                            if (firstChunkId != null) {
+                                firstChunkOpened = true
+                                refreshAll()
+                                if (openAfterImport) {
+                                    val saved = repository.findDocument(firstChunkId)
+                                    if (saved != null) {
+                                        openSavedDocument(saved)
+                                    }
                                 }
+                                _uiState.update { it.copy(importMessage = "Importing remaining pages of $title...") }
+                            }
+                        }
+                        when (workInfo.state) {
+                            androidx.work.WorkInfo.State.SUCCEEDED -> {
+                                val docId = workInfo.outputData.getString("documentId")
+                                if (docId != null) {
+                                    refreshAll()
+                                    if (queueAfterImport) {
+                                        viewModelScope.launch(Dispatchers.IO) {
+                                            val queuedDocs = repository.addToQueue(docId)
+                                            withContext(Dispatchers.Main) {
+                                                _uiState.update { it.copy(queuedDocuments = queuedDocs) }
+                                                PlaybackStateStore.queueCount = queuedDocs.size
+                                            }
+                                        }
+                                    }
+                                    if (openAfterImport) {
+                                        if (!firstChunkOpened) {
+                                            // Non-PDF path or small PDF that completed in one chunk
+                                            val saved = repository.findDocument(docId)
+                                            if (saved != null) {
+                                                openSavedDocument(saved)
+                                            } else {
+                                                _uiState.update { it.copy(isOpeningDocument = false) }
+                                            }
+                                        }
+                                    } else {
+                                        _uiState.update { it.copy(isOpeningDocument = false) }
+                                    }
+                                }
+                                _uiState.update { it.copy(importMessage = "Successfully imported $title.") }
+                            }
+                            androidx.work.WorkInfo.State.FAILED -> {
+                                val error = workInfo.outputData.getString("error") ?: "Unknown error"
+                                _uiState.update { it.copy(importMessage = "Import failed: $error", isOpeningDocument = false) }
+                            }
+                            androidx.work.WorkInfo.State.CANCELLED -> {
+                                _uiState.update { it.copy(importMessage = "Import cancelled", isOpeningDocument = false) }
+                            }
+                            else -> {
+                                // Still enqueued or running
                             }
                         }
                     }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("ReaderViewModel", "Error observing work info", e)
             }
+        }
+    }
+
+    fun importMultipleDocuments(uris: List<Uri>, queue: Boolean) {
+        if (uris.isEmpty()) return
+        val count = uris.size
+        _uiState.update { it.copy(importMessage = "Importing $count files in background...") }
+        uris.forEach { uri ->
+            importDocumentFromUri(
+                uri = uri,
+                queueAfterImport = queue,
+                openAfterImport = false
+            )
         }
     }
 
@@ -757,6 +1006,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val safeIndex = index.coerceIn(0, doc.chunks.lastIndex)
         PlaybackStateStore.currentIndex = safeIndex
         persistProgress(safeIndex)
+        val matches = uiState.value.searchMatches
+        val matchIndex = matches.indexOf(safeIndex)
+        if (matchIndex >= 0) {
+            _uiState.update { it.copy(searchCursor = matchIndex) }
+        }
         if (autoPlay && doc.id != null) {
             if (forcePlaybackStart) requestNotificationPermissionForPlayback()
             sendPlaybackIntent(
@@ -801,7 +1055,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveSentenceNote() {
         val docId = uiState.value.activeDocument?.id ?: return
-        val indexes = uiState.value.noteTargetIndexes
+        val indexes = uiState.value.noteTargetIndexes.ifEmpty {
+            uiState.value.noteTargetIndex?.let(::listOf).orEmpty()
+        }
         val text = uiState.value.noteDraft
         viewModelScope.launch(Dispatchers.IO) {
             var lastUpdated: List<ReaderAnnotation> = emptyList()
@@ -817,6 +1073,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         allAnnotations = allAnnotations,
                         documentNotes = documentNotes,
                         annotationCount = allAnnotations.size + documentNotes.size,
+                        noteTargetIndex = null,
                         noteTargetIndexes = emptyList(),
                         noteDraft = ""
                     )
@@ -827,7 +1084,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun deleteSentenceNote() {
         val docId = uiState.value.activeDocument?.id ?: return
-        val indexes = uiState.value.noteTargetIndexes
+        val indexes = uiState.value.noteTargetIndexes.ifEmpty {
+            uiState.value.noteTargetIndex?.let(::listOf).orEmpty()
+        }
         viewModelScope.launch(Dispatchers.IO) {
             var lastUpdated: List<ReaderAnnotation> = emptyList()
             indexes.forEach { idx ->
@@ -842,6 +1101,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         allAnnotations = allAnnotations,
                         documentNotes = documentNotes,
                         annotationCount = allAnnotations.size + documentNotes.size,
+                        noteTargetIndex = null,
                         noteTargetIndexes = emptyList(),
                         noteDraft = ""
                     )
@@ -875,7 +1135,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun dismissSentenceNote() {
-        _uiState.update { it.copy(noteTargetIndexes = emptyList(), noteDraft = "") }
+        _uiState.update {
+            it.copy(
+                noteTargetIndex = null,
+                noteTargetIndexes = emptyList(),
+                noteDraft = ""
+            )
+        }
     }
 
     fun openDocumentNotes() {
@@ -1085,11 +1351,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun setSleepTimer(request: VeritasSleepTimerRequest) {
         val durationMillis = request.durationMillis
         val action = request.action
+        val stopAtEndOfSection = request.stopAtEndOfSection
         PlaybackStateStore.setSleepTimer(request, System.currentTimeMillis())
         val intent = Intent(getApplication(), PlaybackService::class.java)
             .setAction(PlaybackActions.ACTION_SET_SLEEP_TIMER)
             .putExtra(PlaybackActions.EXTRA_SLEEP_TIMER_DURATION_MILLIS, durationMillis)
             .putExtra(PlaybackActions.EXTRA_SLEEP_TIMER_ACTION, action.name)
+            .putExtra(PlaybackActions.EXTRA_SLEEP_TIMER_STOP_AT_END_OF_SECTION, stopAtEndOfSection)
         getApplication<Application>().startService(intent)
     }
 
@@ -1100,9 +1368,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         getApplication<Application>().startService(intent)
     }
 
-    fun createReadingList(title: String) {
+    fun createReadingList(title: String, documentId: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
-            val catalog = repository.createReadingList(title)
+            var catalog = repository.createReadingList(title)
+            if (documentId != null) {
+                val newList = catalog.activeLists.firstOrNull { it.title == title }
+                    ?: catalog.lists.maxByOrNull { it.createdAt }
+                if (newList != null) {
+                    catalog = repository.addDocumentToReadingList(newList.id, documentId)
+                }
+            }
             withContext(Dispatchers.Main) {
                 _uiState.update { it.copy(readingListCatalog = catalog) }
             }
@@ -1551,6 +1826,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun returnToLibrary() {
         persistProgress(PlaybackStateStore.currentIndex)
+        PlaybackStateStore.readerMode = ReaderMode.TEXT
         _uiState.update {
             it.copy(
                 activeDocument = null,
@@ -1669,6 +1945,213 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         if (scanResult.files.isEmpty()) "No files found" else null
                     }
                 )}
+            }
+        }
+    }
+
+    fun saveGeneralNote(title: String, content: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadGeneralNotes().toMutableList()
+            val target = uiState.value.generalNoteEditorTarget
+            if (target == null) {
+                val newNote = GeneralNote(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = title,
+                    content = content,
+                    updatedAt = System.currentTimeMillis()
+                )
+                existing.add(0, newNote)
+            } else {
+                val index = existing.indexOfFirst { it.id == target.id }
+                if (index != -1) {
+                    existing[index] = target.copy(
+                        title = title,
+                        content = content,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
+            }
+            repository.saveGeneralNotes(existing)
+            val updated = repository.loadGeneralNotes()
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        generalNotes = updated,
+                        showGeneralNotesEditor = false,
+                        generalNoteEditorTarget = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun deleteGeneralNote(noteId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadGeneralNotes().filterNot { it.id == noteId }
+            repository.saveGeneralNotes(existing)
+            val updated = repository.loadGeneralNotes()
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                         generalNotes = updated,
+                         showGeneralNotesEditor = false,
+                         generalNoteEditorTarget = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun appendVocabularyWord(word: String, explanation: String) {
+        val activeDoc = uiState.value.activeDocument ?: return
+        val docId = activeDoc.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadGeneralNotes().toMutableList()
+            val targetTitle = "__vocab__$docId"
+            val vocabIndex = existing.indexOfFirst { it.title == targetTitle }
+
+            val now = System.currentTimeMillis()
+            val formattedTime = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(now))
+            val currentIndex = PlaybackStateStore.currentIndex
+            val textModel = ReaderTextIndex.build(activeDoc.rawText, activeDoc.pageCount)
+            val part = textModel.partForSentence(currentIndex)
+            val sectionNum = (part?.index ?: 0) + 1
+
+            val entryText = buildString {
+                appendLine(word.trim())
+                appendLine("  $explanation")
+                appendLine("  (looked up: Section $sectionNum, sentence ${currentIndex + 1})")
+                append("  [$formattedTime]")
+            }
+
+            if (vocabIndex != -1) {
+                val oldNote = existing[vocabIndex]
+                val newContent = if (oldNote.content.isBlank()) entryText else oldNote.content + "\n\n" + entryText
+                existing[vocabIndex] = oldNote.copy(content = newContent, updatedAt = now)
+            } else {
+                val newNote = GeneralNote(
+                    id = java.util.UUID.randomUUID().toString(),
+                    title = targetTitle,
+                    content = entryText,
+                    updatedAt = now
+                )
+                existing.add(0, newNote)
+            }
+
+            repository.saveGeneralNotes(existing)
+            val updated = repository.loadGeneralNotes()
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(generalNotes = updated) }
+            }
+        }
+    }
+
+    fun removeVocabularyWord(documentId: String, wordToRemove: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadGeneralNotes().toMutableList()
+            val targetTitle = "__vocab__$documentId"
+            val index = existing.indexOfFirst { it.title == targetTitle }
+            if (index != -1) {
+                val note = existing[index]
+                val parsed = parseVocabularyNoteContent(note.content)
+                val filtered = parsed.filterNot { it.word.equals(wordToRemove, ignoreCase = true) }
+                val newContent = filtered.joinToString("\n\n") { entry ->
+                    buildString {
+                        appendLine(entry.word)
+                        appendLine("  ${entry.explanation}")
+                        appendLine("  ${entry.source}")
+                    }
+                }.trim()
+                if (newContent.isBlank()) {
+                    existing.removeAt(index)
+                } else {
+                    existing[index] = note.copy(content = newContent, updatedAt = System.currentTimeMillis())
+                }
+                repository.saveGeneralNotes(existing)
+                val updated = repository.loadGeneralNotes()
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(generalNotes = updated) }
+                }
+            }
+        }
+    }
+
+    private fun synchronizeNavStack(old: ReaderUiState, next: ReaderUiState): ReaderUiState {
+        var newStack = next.navStack
+        val mappings = listOf(
+            VeritasScreen.TEXT_EDITOR to { state: ReaderUiState -> state.showTextEditor },
+            VeritasScreen.FILE_BROWSER to { state: ReaderUiState -> state.showFileBrowser },
+            VeritasScreen.PDF_IMPORT_TOOLS to { state: ReaderUiState -> state.showPdfImportTools },
+            VeritasScreen.READER_SETTINGS to { state: ReaderUiState -> state.showReaderSettings },
+            VeritasScreen.PRONUNCIATION_RULES to { state: ReaderUiState -> state.showPronunciationRules },
+            VeritasScreen.VOICE_STUDIO to { state: ReaderUiState -> state.showVoiceStudio },
+            VeritasScreen.NARRATION_STUDIO to { state: ReaderUiState -> state.showNarrationStudio },
+            VeritasScreen.AI_STUDY_TOOLS to { state: ReaderUiState -> state.showAiStudyTools },
+            VeritasScreen.OFFLINE_STUDY_TOOLS to { state: ReaderUiState -> state.showOfflineStudyTools },
+            VeritasScreen.AI_CENTER to { state: ReaderUiState -> state.showAiCenter },
+            VeritasScreen.ASK_AI_SETTINGS to { state: ReaderUiState -> state.showAskAiSettings },
+            VeritasScreen.TRANSLATION_TOOLS to { state: ReaderUiState -> state.showTranslationTools },
+            VeritasScreen.SLEEP_TIMER to { state: ReaderUiState -> state.showSleepTimerDialog },
+            VeritasScreen.READING_LISTS to { state: ReaderUiState -> state.showReadingLists },
+            VeritasScreen.READING_HISTORY to { state: ReaderUiState -> state.showReadingHistory },
+            VeritasScreen.DOCUMENT_NOTES to { state: ReaderUiState -> state.showDocumentNotes },
+            VeritasScreen.SETTINGS_HUB to { state: ReaderUiState -> state.showSettingsHub },
+            VeritasScreen.BACKUP_TOOLS to { state: ReaderUiState -> state.showBackupTools },
+            VeritasScreen.SYNC_CENTER to { state: ReaderUiState -> state.showSyncCenter },
+            VeritasScreen.APP_HEALTH to { state: ReaderUiState -> state.showAppHealth },
+            VeritasScreen.TUTORIAL to { state: ReaderUiState -> state.showTutorial },
+            VeritasScreen.CANVAS_VIEW to { state: ReaderUiState -> state.showCanvasView },
+            VeritasScreen.GENERAL_NOTES_EDITOR to { state: ReaderUiState -> state.showGeneralNotesEditor }
+        )
+        for ((screen, getter) in mappings) {
+            val wasVisible = getter(old)
+            val isVisible = getter(next)
+            if (wasVisible != isVisible) {
+                if (isVisible) {
+                    if (!newStack.contains(screen)) {
+                        newStack = newStack + screen
+                    }
+                } else {
+                    newStack = newStack.filter { it != screen }
+                }
+            }
+        }
+        return next.copy(navStack = newStack)
+    }
+
+    fun navigateBack() {
+        val stack = uiState.value.navStack
+        if (stack.isEmpty()) return
+        val top = stack.last()
+        when (top) {
+            VeritasScreen.TEXT_EDITOR -> dismissTextEditor()
+            VeritasScreen.TUTORIAL -> finishTutorial()
+            else -> {
+                updateState {
+                    when (top) {
+                        VeritasScreen.FILE_BROWSER -> it.copy(showFileBrowser = false)
+                        VeritasScreen.PDF_IMPORT_TOOLS -> it.copy(showPdfImportTools = false)
+                        VeritasScreen.READER_SETTINGS -> it.copy(showReaderSettings = false)
+                        VeritasScreen.PRONUNCIATION_RULES -> it.copy(showPronunciationRules = false)
+                        VeritasScreen.VOICE_STUDIO -> it.copy(showVoiceStudio = false)
+                        VeritasScreen.NARRATION_STUDIO -> it.copy(showNarrationStudio = false)
+                        VeritasScreen.AI_STUDY_TOOLS -> it.copy(showAiStudyTools = false)
+                        VeritasScreen.OFFLINE_STUDY_TOOLS -> it.copy(showOfflineStudyTools = false)
+                        VeritasScreen.AI_CENTER -> it.copy(showAiCenter = false)
+                        VeritasScreen.ASK_AI_SETTINGS -> it.copy(showAskAiSettings = false)
+                        VeritasScreen.TRANSLATION_TOOLS -> it.copy(showTranslationTools = false)
+                        VeritasScreen.SLEEP_TIMER -> it.copy(showSleepTimerDialog = false)
+                        VeritasScreen.READING_LISTS -> it.copy(showReadingLists = false)
+                        VeritasScreen.READING_HISTORY -> it.copy(showReadingHistory = false)
+                        VeritasScreen.DOCUMENT_NOTES -> it.copy(showDocumentNotes = false)
+                        VeritasScreen.SETTINGS_HUB -> it.copy(showSettingsHub = false)
+                        VeritasScreen.BACKUP_TOOLS -> it.copy(showBackupTools = false)
+                        VeritasScreen.SYNC_CENTER -> it.copy(showSyncCenter = false)
+                        VeritasScreen.APP_HEALTH -> it.copy(showAppHealth = false)
+                        VeritasScreen.CANVAS_VIEW -> it.copy(showCanvasView = false)
+                        VeritasScreen.GENERAL_NOTES_EDITOR -> it.copy(showGeneralNotesEditor = false)
+                    }
+                }
             }
         }
     }

@@ -26,7 +26,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -44,6 +49,10 @@ android {
         targetSdk = 36
         versionCode = 24
         versionName = "0.3.7-beta"
+
+        ndk {
+            abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a"))
+        }
     }
 
     buildFeatures {
@@ -70,12 +79,17 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.media3:media3-session:1.10.1")
     implementation("androidx.pdf:pdf-viewer-fragment:1.0.0-alpha18")
+    implementation("androidx.room:room-ktx:2.8.4")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+    implementation("com.google.android.gms:play-services-mlkit-language-id:17.0.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
     constraints {
         implementation("org.bouncycastle:bcpkix-jdk15to18:1.84") {
             because("Keep PDFBox Android's certificate/parser dependency line current for lint and security review.")
@@ -89,4 +103,9 @@ dependencies {
     }
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.6.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:1.6.0")
 }

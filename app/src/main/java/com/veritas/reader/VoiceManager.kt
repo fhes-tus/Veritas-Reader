@@ -71,6 +71,7 @@ object VoiceManager {
             .sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     suspend fun loadVoices(context: Context, enginePackage: String): List<TtsVoiceOption> = suspendCancellableCoroutine { continuation ->
         val engineDeferred = CompletableDeferred<TextToSpeech>()
         val listener = TextToSpeech.OnInitListener { status ->

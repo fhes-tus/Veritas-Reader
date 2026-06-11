@@ -40,7 +40,8 @@ internal class VeritasMediaSessionPlayer(
         val durationMs: Long,
         val positionMs: Long,
         val rate: Float,
-        val pitch: Float
+        val pitch: Float,
+        val artworkData: ByteArray? = null
     )
 
     private val availableCommands = Player.Commands.Builder()
@@ -76,11 +77,14 @@ internal class VeritasMediaSessionPlayer(
         }
 
         val durationMs = current.durationMs.takeIf { it > 0L } ?: C.TIME_UNSET
-        val metadata = MediaMetadata.Builder()
+        val metadataBuilder = MediaMetadata.Builder()
             .setTitle(current.title.ifBlank { "Veritas Reader" })
             .setArtist(current.sourceLabel.ifBlank { "Text-to-speech reader" })
             .setAlbumTitle(current.sectionLabel)
-            .build()
+        current.artworkData?.let { bytes ->
+            metadataBuilder.setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+        }
+        val metadata = metadataBuilder.build()
         val mediaItem = MediaItem.Builder()
             .setMediaId(current.documentId.ifBlank { "veritas-reader" })
             .setMediaMetadata(metadata)

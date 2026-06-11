@@ -1,46 +1,20 @@
 package com.veritas.reader.ui.screens
 
-import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.database.Cursor
-import android.net.Uri
-import android.os.Build
-import android.os.Bundle
-import android.provider.DocumentsContract
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.view.ActionMode
 import android.view.GestureDetector
-import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.widget.TextView
-import android.util.Log
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,29 +27,31 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.AnchoredDraggableState
+import androidx.compose.foundation.gestures.DraggableAnchors
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.anchoredDraggable
+import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -85,72 +61,85 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Shapes
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.Canvas
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
-import android.graphics.pdf.PdfRenderer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import com.veritas.reader.AiAssistantOption
+import com.veritas.reader.AnnotationPill
+import com.veritas.reader.AnnotationType
+import com.veritas.reader.AskAiSettings
+import com.veritas.reader.BouncyFilledButton
+import com.veritas.reader.BouncyTextButton
+import com.veritas.reader.BrandMark
+import com.veritas.reader.NarrationSettings
+import com.veritas.reader.PlaybackActions
+import com.veritas.reader.PlaybackService
+import com.veritas.reader.ReaderAnnotation
+import com.veritas.reader.ReaderDocument
+import com.veritas.reader.ReaderPart
+import com.veritas.reader.ReaderSettings
+import com.veritas.reader.CoverExtractor
+import com.veritas.reader.ReaderTextModelCache
+import com.veritas.reader.ResolvedVeritasFeature
+import com.veritas.reader.VeritasDocumentOutlineEntry
+import com.veritas.reader.VeritasFeatureContext
+import com.veritas.reader.VeritasFeatureId
+import com.veritas.reader.VeritasFeatureRegistry
+import com.veritas.reader.VeritasFeatureSurface
+import com.veritas.reader.VeritasSleepTimerAction
+import com.veritas.reader.VeritasSleepTimerFormatter
+import com.veritas.reader.VeritasSleepTimerPresets
+import com.veritas.reader.VeritasSleepTimerRequest
+import com.veritas.reader.VeritasSleepTimerSnapshot
+import com.veritas.reader.VoiceSettings
+import com.veritas.reader.TtsVoiceOption
+import com.veritas.reader.VeritasPackStyle
+import com.veritas.reader.ReaderMode
+import com.veritas.reader.ReaderModeToggle
+import com.veritas.reader.aiAssistantOptions
+import com.veritas.reader.capWords
+import com.veritas.reader.installedPackageForOption
+import com.veritas.reader.openPlayStoreForPackage
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
-import com.veritas.reader.*
 
 
 data class ReaderScreenState(
@@ -178,7 +167,9 @@ data class ReaderScreenState(
     val sleepTimerEndsAtMillis: Long,
     val sleepTimerAction: VeritasSleepTimerAction,
     val readingListCount: Int,
-    val activeDocumentReadingListCount: Int
+    val activeDocumentReadingListCount: Int,
+    val voices: List<TtsVoiceOption>,
+    val readerMode: ReaderMode
 )
 
 @Composable
@@ -228,7 +219,9 @@ fun ReaderScreen(
     onEditSpeechSelection: (String) -> Unit,
     onReadSelection: (String) -> Unit,
     onEditExtractedSelection: (ReaderTextSelection) -> Unit,
-    onPlayQueue: () -> Unit
+    onPlayQueue: () -> Unit,
+    onVoiceSelected: (TtsVoiceOption) -> Unit,
+    onReaderModeChange: (ReaderMode) -> Unit
 ) {
     val document = state.document
     val currentIndex = state.currentIndex
@@ -261,6 +254,7 @@ fun ReaderScreen(
     var showSearch by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
     var showOutline by remember { mutableStateOf(false) }
+    val showAudioMode = state.readerMode == ReaderMode.LISTEN
     var selectedTextSelection by remember(document.id) { mutableStateOf<ReaderTextSelection?>(null) }
     var selectedTextView by remember(document.id) { mutableStateOf<TextView?>(null) }
     var feedbackSentenceIndex by remember(document.id) { mutableStateOf<Int?>(null) }
@@ -270,18 +264,24 @@ fun ReaderScreen(
     }
     val currentPart = readerModel.partForSentence(currentIndex)
     val currentPartIndex = currentPart?.index ?: 0
-    val progress = if (document.chunks.isEmpty()) 0f else ((currentIndex + 1).toFloat() / document.chunks.size.toFloat()).coerceIn(0f, 1f)
+    val progress =
+        if (document.chunks.isEmpty()) 0f else ((currentIndex + 1).toFloat() / document.chunks.size.toFloat()).coerceIn(
+            0f,
+            1f
+        )
     val progressLabel = if (document.chunks.isEmpty()) {
         "0 / 0"
     } else {
-        "Part ${currentPartIndex + 1}/${readerModel.parts.size.coerceAtLeast(1)} • Sentence ${currentIndex + 1}/${document.chunks.size}"
+        "Section ${currentPartIndex + 1}/${readerModel.parts.size.coerceAtLeast(1)} • Sentence ${currentIndex + 1}/${document.chunks.size}"
     }
     val bookmarkCount = annotations.count { it.type == AnnotationType.BOOKMARK }
     val noteCount = annotations.count { it.type == AnnotationType.NOTE }
     val canGoPreviousPart = currentPartIndex > 0
     val canGoNextPart = currentPartIndex < readerModel.parts.lastIndex
-    val previousPartStart = readerModel.parts.getOrNull(currentPartIndex - 1)?.sentenceStartIndex ?: 0
-    val nextPartStart = readerModel.parts.getOrNull(currentPartIndex + 1)?.sentenceStartIndex ?: document.chunks.lastIndex
+    val previousPartStart =
+        readerModel.parts.getOrNull(currentPartIndex - 1)?.sentenceStartIndex ?: 0
+    val nextPartStart = readerModel.parts.getOrNull(currentPartIndex + 1)?.sentenceStartIndex
+        ?: document.chunks.lastIndex
     val partListItemIndex = 1
 
     LaunchedEffect(feedbackSentenceIndex) {
@@ -291,10 +291,23 @@ fun ReaderScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Column(modifier = Modifier.statusBarsPadding().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme))) {
+        Column(
+            modifier = Modifier
+                .statusBarsPadding()
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBackToLibrary) { Text("←", style = MaterialTheme.typography.titleLarge) }
+                IconButton(onClick = onBackToLibrary) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
                 Spacer(modifier = Modifier.width(4.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -313,20 +326,27 @@ fun ReaderScreen(
                     )
                 }
                 val toolbarIconPadding = PaddingValues(horizontal = 3.dp, vertical = 2.dp)
-                TextButton(onClick = { showSearch = !showSearch }, contentPadding = toolbarIconPadding) { Text("⌕", style = MaterialTheme.typography.titleMedium) }
-                if (hasCanvas) TextButton(onClick = onOpenCanvas, contentPadding = toolbarIconPadding) { Text("▣", style = MaterialTheme.typography.titleMedium) }
-                TextButton(onClick = { showOutline = true }, contentPadding = toolbarIconPadding) { Text("☷", style = MaterialTheme.typography.titleMedium) }
-                TextButton(onClick = onOpenDocumentNotes, contentPadding = toolbarIconPadding) { Text("★", style = MaterialTheme.typography.titleMedium) }
+                IconButton(
+                    onClick = { showSearch = !showSearch }
+                ) { Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface) }
+                IconButton(
+                    onClick = onOpenDocumentNotes
+                ) { Icon(Icons.Default.Edit, contentDescription = "Notes", tint = MaterialTheme.colorScheme.onSurface) }
+                IconButton(
+                    onClick = { showOutline = true }
+                ) { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Outline", tint = MaterialTheme.colorScheme.onSurface) }
                 Box {
-                    TextButton(onClick = { showTools = true }, contentPadding = toolbarIconPadding) { Text("⋮", style = MaterialTheme.typography.titleMedium) }
+                    IconButton(
+                        onClick = { showTools = true }
+                    ) { Icon(Icons.Default.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onSurface) }
                     ReaderToolsMenu(
                         expanded = showTools,
                         onDismiss = { showTools = false },
-                        summary = "${document.sourceLabel} • $progressLabel • $bookmarkCount bookmarks • $noteCount notes",
+                        summary = "${document.sourceLabel} • $progressLabel",
                         showSearch = showSearch,
                         showBookmarks = showBookmarks,
                         hasCanvas = hasCanvas,
-                        noteCount = noteCount,
+                        noteCount = annotations.count { it.type == AnnotationType.NOTE },
                         narrationEnabled = narrationSettings.enabled,
                         isQueued = isQueued,
                         queueCount = queueCount,
@@ -337,7 +357,7 @@ fun ReaderScreen(
                         onOpenCanvas = onOpenCanvas,
                         onOpenStudyTools = onOpenStudyTools,
                         onOpenTranslationTools = onOpenTranslationTools,
-                        sleepTimerLabel = sleepTimerSnapshot?.menuLabel().orEmpty(),
+                        sleepTimerLabel = sleepTimerSnapshot?.menuLabel() ?: "",
                         onOpenSleepTimer = onOpenSleepTimer,
                         readingListCount = state.readingListCount,
                         activeDocumentReadingListCount = state.activeDocumentReadingListCount,
@@ -357,13 +377,26 @@ fun ReaderScreen(
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(6.dp))
+            ReaderModeToggle(
+                currentMode = state.readerMode,
+                onModeSelected = onReaderModeChange,
+                hasCanvas = hasCanvas,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         }
 
         HorizontalDivider()
 
         if (document.chunks.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
                 Text("No readable text found.")
             }
         } else {
@@ -394,16 +427,28 @@ fun ReaderScreen(
                         if (part == null) {
                             Text("No readable text found.", modifier = Modifier.padding(18.dp))
                         } else {
-                            var showPartMenu by remember(document.id, part.index) { mutableStateOf(false) }
-                            val sentenceBackground = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                            val sentenceBackground =
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
                             val highlightBackground = MaterialTheme.colorScheme.tertiaryContainer
-                            val feedbackBackground = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+                            val feedbackBackground =
+                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
                             val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
                             val activeSentenceColor = sentenceBackground.toArgb()
                             val highlightColor = highlightBackground.toArgb()
                             val feedbackColor = feedbackBackground.toArgb()
-                            val activeRange = part.sentenceRanges.firstOrNull { it.sentenceIndex == currentIndex }
-                            LaunchedEffect(part.index, currentIndex, activeRange?.start, activeRange?.endExclusive, selectedTextView, partListItemIndex, readerSettings.fontSizeSp) {
+                            val searchMatchColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f).toArgb()
+                            val activeSearchMatchColor = MaterialTheme.colorScheme.primaryContainer.toArgb()
+                            val activeRange =
+                                part.sentenceRanges.firstOrNull { it.sentenceIndex == currentIndex }
+                            LaunchedEffect(
+                                part.index,
+                                currentIndex,
+                                activeRange?.start,
+                                activeRange?.endExclusive,
+                                selectedTextView,
+                                partListItemIndex,
+                                readerSettings.fontSizeSp
+                            ) {
                                 val textView = selectedTextView
                                 val range = activeRange
                                 if (textView != null && range != null) {
@@ -412,10 +457,20 @@ fun ReaderScreen(
                                         if (settleDelay > 0L) delay(settleDelay)
                                         val layout = textView.layout ?: return@forEach
                                         val textLength = textView.text?.length ?: part.text.length
-                                        val targetLine = layout.getLineForOffset(range.start.coerceIn(0, textLength.coerceAtLeast(0)))
-                                        val targetTop = layout.getLineTop(targetLine).coerceAtLeast(0)
-                                        val targetBottom = layout.getLineBottom(targetLine).coerceAtLeast(targetTop + 1)
-                                        listState.scrollToItem(partListItemIndex, (targetTop - topPaddingPx).coerceAtLeast(0))
+                                        val targetLine = layout.getLineForOffset(
+                                            range.start.coerceIn(
+                                                0,
+                                                textLength.coerceAtLeast(0)
+                                            )
+                                        )
+                                        val targetTop =
+                                            layout.getLineTop(targetLine).coerceAtLeast(0)
+                                        val targetBottom = layout.getLineBottom(targetLine)
+                                            .coerceAtLeast(targetTop + 1)
+                                        listState.animateScrollToItem(
+                                            partListItemIndex,
+                                            (targetTop - topPaddingPx).coerceAtLeast(0)
+                                        )
                                     }
                                 }
                             }
@@ -423,26 +478,36 @@ fun ReaderScreen(
                                 .filter { it.type == AnnotationType.BOOKMARK }
                                 .map { it.chunkIndex }
                                 .toSet()
-                            val bookmarked = annotations.any { it.type == AnnotationType.BOOKMARK && it.chunkIndex in part.sentenceStartIndex until part.sentenceEndIndexExclusive }
-                            val note = annotations.firstOrNull { it.type == AnnotationType.NOTE && it.chunkIndex == currentIndex }
+                            val bookmarked =
+                                annotations.any { it.type == AnnotationType.BOOKMARK && it.chunkIndex in part.sentenceStartIndex until part.sentenceEndIndexExclusive }
+                            val note =
+                                annotations.firstOrNull { it.type == AnnotationType.NOTE && it.chunkIndex == currentIndex }
                             val renderedPart = remember(
                                 part.text,
                                 currentIndex,
                                 isPlaying,
                                 feedbackSentenceIndex,
                                 bookmarkedSentenceIndexes,
+                                searchMatches,
+                                searchCursor,
                                 activeSentenceColor,
                                 highlightColor,
-                                feedbackColor
+                                feedbackColor,
+                                searchMatchColor,
+                                activeSearchMatchColor
                             ) {
                                 buildReaderPartSpannable(
                                     part = part,
-                                    activeSentenceIndex = if (isPlaying) currentIndex else null,
+                                    activeSentenceIndex = currentIndex,
                                     feedbackSentenceIndex = feedbackSentenceIndex,
                                     highlightedSentenceIndexes = bookmarkedSentenceIndexes,
+                                    searchMatches = searchMatches,
+                                    searchCursor = searchCursor,
                                     activeSentenceColor = activeSentenceColor,
                                     highlightColor = highlightColor,
-                                    feedbackColor = feedbackColor
+                                    feedbackColor = feedbackColor,
+                                    searchMatchColor = searchMatchColor,
+                                    activeSearchMatchColor = activeSearchMatchColor
                                 )
                             }
 
@@ -453,13 +518,16 @@ fun ReaderScreen(
                                 tonalElevation = 1.dp
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = (12 + readerSettings.sectionSpacingDp / 4).dp),
+                                    modifier = Modifier.padding(
+                                        horizontal = 16.dp,
+                                        vertical = (12 + readerSettings.sectionSpacingDp / 4).dp
+                                    ),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         if (readerSettings.showSectionNumbers) {
                                             Text(
-                                                "Part ${part.index + 1} of ${readerModel.parts.size} • pages ${part.pageRange.startPage}-${part.pageRange.endPage}",
+                                                "Section ${part.index + 1} of ${readerModel.parts.size} • pages ${part.pageRange.startPage}-${part.pageRange.endPage}",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.weight(1f)
@@ -467,43 +535,10 @@ fun ReaderScreen(
                                         } else {
                                             Spacer(modifier = Modifier.weight(1f))
                                         }
-                                        if (bookmarked) AnnotationPill("★")
+                                        if (bookmarked) AnnotationPill("🔖")
                                         if (note != null) {
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            AnnotationPill("✎")
-                                        }
-                                        Box {
-                                            TextButton(onClick = { showPartMenu = true }) { Text("⋮") }
-                                            DropdownMenu(expanded = showPartMenu, onDismissRequest = { showPartMenu = false }) {
-                                                Text(
-                                                    "Part ${part.index + 1}",
-                                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                                    style = MaterialTheme.typography.labelLarge,
-                                                    fontWeight = FontWeight.Black
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("▶ Play from part start") },
-                                                    onClick = {
-                                                        showPartMenu = false
-                                                        onSentenceClick(part.sentenceStartIndex)
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("★ Bookmark current sentence") },
-                                                    onClick = {
-                                                        showPartMenu = false
-                                                        onToggleBookmark(currentIndex)
-                                                        showBookmarks = true
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("✎ Note current sentence") },
-                                                    onClick = {
-                                                        showPartMenu = false
-                                                        onEditNote(currentIndex)
-                                                    }
-                                                )
-                                            }
+                                            AnnotationPill("✏️")
                                         }
                                     }
 
@@ -516,49 +551,64 @@ fun ReaderScreen(
                                             }
                                         },
                                         update = { textView ->
-                                            selectedTextView = textView
+                                            if (currentIndex in part.sentenceStartIndex until part.sentenceEndIndexExclusive) {
+                                                selectedTextView = textView
+                                            }
                                             textView.text = renderedPart
                                             textView.setTextColor(textColor)
                                             textView.textSize = readerSettings.fontSizeSp.toFloat()
-                                            textView.setLineSpacing(with(density) { 4.dp.toPx() }, 1.0f)
-                                            textView.customSelectionActionModeCallback = readerSelectionActionModeCallback(
-                                                textView = textView,
-                                                part = part,
-                                                documentId = document.id,
-                                                context = context,
-                                                haptics = haptics,
-                                                bookmarkedSentenceIndexes = bookmarkedSentenceIndexes,
-                                                onSelectionChanged = { },
-                                                onSearchQueryChange = {
-                                                    onSearchQueryChange(it)
-                                                    showSearch = true
-                                                },
-                                                onToggleBookmark = { idx ->
-                                                    onToggleBookmark(idx)
-                                                    showBookmarks = true
-                                                },
-                                                onEditNotes = onEditNotes,
-                                                onTranslateSelection = onTranslateSelection,
-                                                onCopySelection = onCopySelection,
-                                                onGoogleSelection = onGoogleSelection,
-                                                onShareSelection = onShareSelection,
-                                                onEditSpeechSelection = onEditSpeechSelection,
-                                                onEditExtractedSelection = onEditExtractedSelection,
-                                                onAskAiSelection = onAskAiSelection,
-                                                onReadSelection = onReadSelection
+                                            textView.setLineSpacing(
+                                                with(density) { 4.dp.toPx() },
+                                                1.0f
                                             )
+                                            textView.customSelectionActionModeCallback =
+                                                readerSelectionActionModeCallback(
+                                                    textView = textView,
+                                                    part = part,
+                                                    documentId = document.id,
+                                                    context = context,
+                                                    haptics = haptics,
+                                                    bookmarkedSentenceIndexes = bookmarkedSentenceIndexes,
+                                                    onSelectionChanged = { selectedTextSelection = it },
+                                                    onSearchQueryChange = {
+                                                        onSearchQueryChange(it)
+                                                        showSearch = true
+                                                    },
+                                                    onToggleBookmark = { idx ->
+                                                        onToggleBookmark(idx)
+                                                        showBookmarks = true
+                                                    },
+                                                    onEditNotes = onEditNotes,
+                                                    onTranslateSelection = onTranslateSelection,
+                                                    onCopySelection = onCopySelection,
+                                                    onGoogleSelection = onGoogleSelection,
+                                                    onShareSelection = onShareSelection,
+                                                    onEditSpeechSelection = onEditSpeechSelection,
+                                                    onEditExtractedSelection = onEditExtractedSelection,
+                                                    onAskAiSelection = onAskAiSelection,
+                                                    onReadSelection = onReadSelection
+                                                )
                                             val detector = GestureDetector(
                                                 textView.context,
                                                 object : GestureDetector.SimpleOnGestureListener() {
                                                     override fun onDoubleTap(event: MotionEvent): Boolean {
-                                                        val offset = textView.getOffsetForPosition(event.x, event.y).coerceIn(0, part.text.length)
-                                                        readerModel.sentenceForPartOffset(part, offset)?.let { range ->
-                                                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                             feedbackSentenceIndex = range.sentenceIndex
-                                                             onSentenceDoubleTap(range.sentenceIndex)
-                                                         }
-                                                          return true
-                                                     }
+                                                        val offset = textView.getOffsetForPosition(
+                                                            event.x,
+                                                            event.y
+                                                        ).coerceIn(0, part.text.length)
+                                                        readerModel.sentenceForPartOffset(
+                                                            part,
+                                                            offset
+                                                        )?.let { range ->
+                                                            haptics.performHapticFeedback(
+                                                                HapticFeedbackType.LongPress
+                                                            )
+                                                            feedbackSentenceIndex =
+                                                                range.sentenceIndex
+                                                            onSentenceDoubleTap(range.sentenceIndex)
+                                                        }
+                                                        return true
+                                                    }
                                                 }
                                             )
                                             textView.setOnTouchListener { _, event ->
@@ -573,16 +623,28 @@ fun ReaderScreen(
                                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                                             shape = MaterialTheme.shapes.small
                                         ) {
-                                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                Text("Note", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                                                Text(note.note, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                            Column(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    "Note",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    note.note,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    maxLines = 3,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
                                             }
                                         }
                                     }
 
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                     Text(
-                                        "(Part ${part.index + 1} of ${readerModel.parts.size})",
+                                        "(Section ${part.index + 1} of ${readerModel.parts.size})",
                                         modifier = Modifier.fillMaxWidth(),
                                         textAlign = TextAlign.Center,
                                         style = MaterialTheme.typography.labelLarge,
@@ -593,22 +655,32 @@ fun ReaderScreen(
                                         horizontalArrangement = Arrangement.Center,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        TextButton(
+                                        IconButton(
                                             onClick = { onSentenceClick(previousPartStart) },
                                             enabled = canGoPreviousPart
-                                        ) { Text("⏪", style = MaterialTheme.typography.titleLarge) }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.SkipPrevious,
+                                                contentDescription = "Previous Section"
+                                            )
+                                        }
                                         Spacer(modifier = Modifier.width(18.dp))
-                                        TextButton(
+                                        IconButton(
                                             onClick = { onSentenceClick(nextPartStart) },
                                             enabled = canGoNextPart
-                                        ) { Text("⏩", style = MaterialTheme.typography.titleLarge) }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.SkipNext,
+                                                contentDescription = "Next Section"
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                item { Spacer(modifier = Modifier.height(8.dp)) }
-            }
+                    item { Spacer(modifier = Modifier.height(8.dp)) }
+                }
                 if (showSearch) {
                     SearchPanel(
                         query = searchQuery,
@@ -622,7 +694,7 @@ fun ReaderScreen(
                             .padding(12.dp)
                     )
                 }
-        }
+            }
         }
 
         PlayerPanel(
@@ -643,7 +715,43 @@ fun ReaderScreen(
             onPitchChange = onPitchChange,
             onFontSizeChange = onFontSizeChange,
             onOpenVoiceStudio = onOpenVoiceStudio,
-            onPlayQueue = onPlayQueue
+            onPlayQueue = onPlayQueue,
+            onOpenAudioMode = { onReaderModeChange(ReaderMode.LISTEN) },
+            voices = state.voices,
+            voiceSettings = state.voiceSettings,
+            onVoiceSelected = onVoiceSelected
+        )
+    }
+
+    if (showAudioMode) {
+        val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id.orEmpty()) }
+        val isBookmarked = remember(state.annotations, currentIndex) {
+            state.annotations.any { it.chunkIndex == currentIndex && it.type == AnnotationType.BOOKMARK }
+        }
+        AudioModeScreen(
+            title = document.title,
+            currentIndex = currentIndex,
+            totalChunks = document.chunks.size,
+            currentSentence = document.chunks.getOrNull(currentIndex).orEmpty(),
+            isPlaying = isPlaying,
+            coverFile = coverFile,
+            onPlayPause = onPlayPause,
+            onNext = onNext,
+            onPrevious = onPrevious,
+            onDismiss = { onReaderModeChange(ReaderMode.TEXT) },
+            isBookmarked = isBookmarked,
+            onToggleBookmark = { onToggleBookmark(currentIndex) },
+            rate = state.rate,
+            onRateChange = onRateChange,
+            readerMode = state.readerMode,
+            onReaderModeChange = onReaderModeChange,
+            hasCanvas = hasCanvas,
+            documentChunks = document.chunks,
+            onSentenceClick = onSentenceClick,
+            onOpenSleepTimer = onOpenSleepTimer,
+            onOpenVoiceStudio = onOpenVoiceStudio,
+            onOpenNarrationStudio = onOpenNarrationStudio,
+            onExportAudio = onExportAudio
         )
     }
 
@@ -749,38 +857,65 @@ private fun ReaderToolsMenu(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-        Text("Read", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        DropdownMenuItem(text = { Text(if (showSearch) "⌕ Hide search" else "⌕ Search document") }, onClick = { choose(onToggleSearch) })
-        DropdownMenuItem(text = { Text("▣ Actual document") }, enabled = hasCanvas, onClick = { choose(onOpenCanvas) })
+        Text(
+            "Read",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        DropdownMenuItem(
+            text = { Text(if (showSearch) "🔎 Hide search" else "🔎 Search document") },
+            onClick = { choose(onToggleSearch) })
+        DropdownMenuItem(
+            text = { Text("💾 Original View") },
+            enabled = hasCanvas,
+            onClick = { choose(onOpenCanvas) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.SLEEP_TIMER),
-            label = if (sleepTimerLabel.isBlank()) "⏱ Sleep timer" else "⏱ $sleepTimerLabel",
+            label = if (sleepTimerLabel.isBlank()) "⏱️ Sleep timer" else "⏱️ $sleepTimerLabel",
             onClick = { choose(onOpenSleepTimer) }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.READING_LISTS),
-            label = "Reading lists ($activeDocumentReadingListCount/$readingListCount)",
+            label = "📰 Reading lists ($activeDocumentReadingListCount/$readingListCount)",
             onClick = { choose(onOpenReadingLists) }
         )
-        DropdownMenuItem(text = { Text(if (isQueued) "✓ Remove from Listen Later" else "+ Add to Listen Later") }, onClick = { choose(onToggleQueue) })
-        DropdownMenuItem(text = { Text("▶ Play Listen Later ($queueCount)") }, enabled = queueCount > 0, onClick = { choose(onPlayQueue) })
+        DropdownMenuItem(
+            text = { Text(if (isQueued) "✓ Remove from Queue" else "+ Add to Queue") },
+            onClick = { choose(onToggleQueue) })
+        DropdownMenuItem(
+            text = { Text("▶ Play Queue ($queueCount)") },
+            enabled = queueCount > 0,
+            onClick = { choose(onPlayQueue) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.READING_HISTORY),
             label = "↺ Reading history",
             onClick = { choose(onOpenReadingHistory) }
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-        Text("Notes and bookmarks", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        DropdownMenuItem(text = { Text(if (showBookmarks) "★ Hide bookmarks" else "★ Bookmarks") }, onClick = { choose(onToggleBookmarks) })
+        Text(
+            "Notes and bookmarks",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        DropdownMenuItem(
+            text = { Text(if (showBookmarks) "🔖 Hide bookmarks" else "🔖 Bookmarks") },
+            onClick = { choose(onToggleBookmarks) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.BOOKMARKS_AND_NOTES),
-            label = "✎ Document notes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",
+            label = "✒️ Document notes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",
             onClick = { choose(onOpenDocumentNotes) }
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-        Text("Study", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "Study",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
         DropdownMenuItem(
-            text = { Text("AI Assistant: ${askAiSettings.assistantLabel}") },
+            text = { Text("🆘 AI Assistant: ${askAiSettings.assistantLabel}") },
             onClick = { showAiChooser = !showAiChooser }
         )
         if (showAiChooser) {
@@ -807,38 +942,47 @@ private fun ReaderToolsMenu(
         }
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.AI_APP_HANDOFF),
-            label = "AI Ask current part",
+            label = "🆘 AI Ask current part",
             onClick = { choose(onAskCurrentSection) }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.OFFLINE_STUDY_TOOLS),
-            label = "AI Study tools",
+            label = "🤖 AI Study tools",
             onClick = { choose(onOpenStudyTools) }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.TRANSLATION_HANDOFF),
-            label = "⇄ Translation handoff",
+            label = "📨 Translation handoff",
             onClick = { choose(onOpenTranslationTools) }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.EXTRACTED_TEXT_EDITOR),
-            label = "T+ Edit extracted text",
+            label = "🗒️ Edit extracted text",
             onClick = { choose(onOpenTextEditor) }
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-        Text("Voice and settings", modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "Voice and settings",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.VOICE_STUDIO),
-            label = "🎙 Voice and language",
+            label = "🎙️ Voice and language",
             onClick = { choose(onOpenVoiceStudio) }
         )
-        DropdownMenuItem(text = { Text(if (narrationEnabled) "🎭 Narration mode on" else "🎭 Narration mode") }, onClick = { choose(onOpenNarrationStudio) })
+        DropdownMenuItem(
+            text = { Text(if (narrationEnabled) "🎭 Narration mode on" else "🎭 Narration mode") },
+            onClick = { choose(onOpenNarrationStudio) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.PRONUNCIATION_RULES),
-            label = "Aa Pronunciation rules",
+            label = "🗣️ Pronunciation rules",
             onClick = { choose(onOpenPronunciationRules) }
         )
-        DropdownMenuItem(text = { Text("⚙ Reader appearance") }, onClick = { choose(onOpenReaderSettings) })
+        DropdownMenuItem(
+            text = { Text("🎨 Reader appearance") },
+            onClick = { choose(onOpenReaderSettings) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT),
             label = "● Record sound file",
@@ -846,7 +990,7 @@ private fun ReaderToolsMenu(
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT),
-            label = "⇩ Export audio",
+            label = "📤 Export audio",
             onClick = { choose(onExportAudio) }
         )
     }
@@ -892,6 +1036,9 @@ fun SleepTimerDialog(
     var selectedAction by remember {
         mutableStateOf(activeTimer?.action ?: VeritasSleepTimerAction.PAUSE)
     }
+    var modeBySection by remember {
+        mutableStateOf(activeTimer?.stopAtEndOfSection ?: false)
+    }
     val activeLabel = activeTimer?.takeIf { it.isActive() }?.menuLabel()
 
     AlertDialog(
@@ -902,33 +1049,73 @@ fun SleepTimerDialog(
                 if (activeLabel != null) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        shape = VeritasPackStyle.cardShape(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
                     ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             Text(activeLabel, fontWeight = FontWeight.Black)
-                            Text(activeTimer.action.label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                activeTimer.action.label,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
 
-                VeritasSleepTimerPresets.durationsMillis.chunked(3).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        row.forEach { duration ->
-                            val selected = selectedDurationMillis == duration
-                            val content: @Composable () -> Unit = {
-                                Text(VeritasSleepTimerFormatter.formatDuration(duration))
-                            }
-                            if (selected) {
-                                Button(
-                                    onClick = { selectedDurationMillis = duration },
-                                    modifier = Modifier.weight(1f)
-                                ) { content() }
-                            } else {
-                                OutlinedButton(
-                                    onClick = { selectedDurationMillis = duration },
-                                    modifier = Modifier.weight(1f)
-                                ) { content() }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.clickable { modeBySection = false },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = !modeBySection, onClick = { modeBySection = false })
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Countdown")
+                    }
+                    Row(
+                        modifier = Modifier.clickable { modeBySection = true },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = modeBySection, onClick = { modeBySection = true })
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("End of section")
+                    }
+                }
+
+                if (!modeBySection) {
+                    VeritasSleepTimerPresets.durationsMillis.chunked(3).forEach { row ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            row.forEach { duration ->
+                                val selected = selectedDurationMillis == duration
+                                val content: @Composable () -> Unit = {
+                                    Text(VeritasSleepTimerFormatter.formatDuration(duration))
+                                }
+                                if (selected) {
+                                    Button(
+                                        onClick = { selectedDurationMillis = duration },
+                                        modifier = Modifier.weight(1f),
+                                        shape = VeritasPackStyle.chipShape()
+                                    ) { content() }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { selectedDurationMillis = duration },
+                                        modifier = Modifier.weight(1f),
+                                        shape = VeritasPackStyle.chipShape()
+                                    ) { content() }
+                                }
                             }
                         }
                     }
@@ -936,10 +1123,14 @@ fun SleepTimerDialog(
 
                 VeritasSleepTimerAction.entries.forEach { action ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { selectedAction = action },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedAction = action },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RadioButton(selected = selectedAction == action, onClick = { selectedAction = action })
+                        RadioButton(
+                            selected = selectedAction == action,
+                            onClick = { selectedAction = action })
                         Text(action.label)
                     }
                 }
@@ -950,12 +1141,14 @@ fun SleepTimerDialog(
                 onClick = {
                     onSetTimer(
                         VeritasSleepTimerRequest(
-                            durationMillis = selectedDurationMillis,
-                            action = selectedAction
+                            durationMillis = if (modeBySection) 0L else selectedDurationMillis,
+                            action = selectedAction,
+                            stopAtEndOfSection = modeBySection
                         )
                     )
                     onDismiss()
-                }
+                },
+                shape = VeritasPackStyle.chipShape()
             ) {
                 Text("Start")
             }
@@ -963,16 +1156,17 @@ fun SleepTimerDialog(
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (activeTimer != null) {
-                    TextButton(
+                    OutlinedButton(
                         onClick = {
                             onCancelTimer()
                             onDismiss()
-                        }
+                        },
+                        shape = VeritasPackStyle.chipShape()
                     ) {
                         Text("Cancel timer")
                     }
                 }
-                TextButton(onClick = onDismiss) { Text("Close") }
+                TextButton(onClick = onDismiss, shape = VeritasPackStyle.chipShape()) { Text("Close") }
             }
         }
     )
@@ -1027,17 +1221,34 @@ private fun buildReaderPartSpannable(
     activeSentenceIndex: Int?,
     feedbackSentenceIndex: Int?,
     highlightedSentenceIndexes: Set<Int>,
+    searchMatches: List<Int>,
+    searchCursor: Int,
     activeSentenceColor: Int,
     highlightColor: Int,
-    feedbackColor: Int
+    feedbackColor: Int,
+    searchMatchColor: Int,
+    activeSearchMatchColor: Int
 ): SpannableString {
     val spannable = SpannableString(part.text)
     fun addBackground(start: Int, endExclusive: Int, color: Int) {
         if (start < endExclusive && start in 0..part.text.length && endExclusive in 0..part.text.length) {
-            spannable.setSpan(BackgroundColorSpan(color), start, endExclusive, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            spannable.setSpan(
+                BackgroundColorSpan(color),
+                start,
+                endExclusive,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
         }
     }
+    val activeSearchMatchSentenceIndex = searchMatches.getOrNull(searchCursor)
     part.sentenceRanges.forEach { range ->
+        if (range.sentenceIndex in searchMatches) {
+            if (range.sentenceIndex == activeSearchMatchSentenceIndex) {
+                addBackground(range.start, range.endExclusive, activeSearchMatchColor)
+            } else {
+                addBackground(range.start, range.endExclusive, searchMatchColor)
+            }
+        }
         if (range.sentenceIndex in highlightedSentenceIndexes) {
             addBackground(range.start, range.endExclusive, highlightColor)
         }
@@ -1089,7 +1300,9 @@ private fun readerSelectionActionModeCallback(
 
     return object : ActionMode.Callback {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+            menu.clear()
             onSelectionChanged(currentSelection())
+            menu.add(0, android.R.id.selectAll, 3, "Select all")
             val selectionFeatures = VeritasFeatureRegistry.resolve(
                 VeritasFeatureSurface.SELECTION_OVERFLOW,
                 VeritasFeatureContext(
@@ -1098,7 +1311,8 @@ private fun readerSelectionActionModeCallback(
                     hasSavedDocument = !documentId.isNullOrBlank()
                 )
             ).associateBy { it.definition.id }
-            menu.add(0, READER_SELECTION_READ_FROM_HERE, 0, "Read from here").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+            menu.add(0, READER_SELECTION_READ_FROM_HERE, 0, "Read from here")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
             menu.addReaderSelectionFeature(
                 itemId = READER_SELECTION_BOOKMARK,
                 order = 1,
@@ -1131,7 +1345,7 @@ private fun readerSelectionActionModeCallback(
             menu.addReaderSelectionFeature(
                 itemId = READER_SELECTION_EDIT_SPEECH,
                 order = 10,
-                title = "Edit speech",
+                title = "Fix pronunciation",
                 feature = selectionFeatures.requireResolvedFeature(VeritasFeatureId.PRONUNCIATION_RULES)
             )
             menu.add(0, READER_SELECTION_READ_ALOUD, 11, "Read aloud")
@@ -1159,21 +1373,28 @@ private fun readerSelectionActionModeCallback(
                         val intent = Intent(context, PlaybackService::class.java).apply {
                             action = PlaybackActions.ACTION_JUMP_TO
                             putExtra(PlaybackActions.EXTRA_DOCUMENT_ID, documentId)
-                            putExtra(PlaybackActions.EXTRA_START_INDEX, selection.firstSentenceIndex)
+                            putExtra(
+                                PlaybackActions.EXTRA_START_INDEX,
+                                selection.firstSentenceIndex
+                            )
                             putExtra(PlaybackActions.EXTRA_CHAR_OFFSET, 0)
                         }
                         context.startService(intent)
                     }
                 }
+
                 READER_SELECTION_NOTE -> onEditNotes(selection.sentenceIndexes)
                 READER_SELECTION_BOOKMARK -> {
-                    val anyUnbookmarked = selection.sentenceIndexes.any { it !in bookmarkedSentenceIndexes }
+                    val anyUnbookmarked =
+                        selection.sentenceIndexes.any { it !in bookmarkedSentenceIndexes }
                     if (anyUnbookmarked) {
-                        selection.sentenceIndexes.filter { it !in bookmarkedSentenceIndexes }.forEach(onToggleBookmark)
+                        selection.sentenceIndexes.filter { it !in bookmarkedSentenceIndexes }
+                            .forEach(onToggleBookmark)
                     } else {
                         selection.sentenceIndexes.forEach(onToggleBookmark)
                     }
                 }
+
                 READER_SELECTION_COPY -> onCopySelection(selection.text)
                 READER_SELECTION_SEARCH -> onSearchQueryChange(selection.text.take(80))
                 READER_SELECTION_TRANSLATE -> onTranslateSelection(selection.text)
@@ -1261,20 +1482,66 @@ private fun SelectedTextToolbar(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.inverseSurface)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp).horizontalScroll(rememberScrollState()),
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            TextButton(onClick = { onReadFromHere() }) { Text("▶", color = MaterialTheme.colorScheme.inverseOnSurface) }
-            TextButton(onClick = { onTranslate(); onDismiss() }) { Text("文", color = MaterialTheme.colorScheme.inverseOnSurface) }
-            TextButton(onClick = { onCopy(); onDismiss() }) { Text("⧉", color = MaterialTheme.colorScheme.inverseOnSurface) }
-            TextButton(onClick = { onSelectAll() }) { Text("▦", color = MaterialTheme.colorScheme.inverseOnSurface) }
-            TextButton(onClick = { onSearch(); onDismiss() }) { Text("⌕", color = MaterialTheme.colorScheme.inverseOnSurface) }
-            TextButton(onClick = { onBookmark(); onDismiss() }) { Text("☆", color = MaterialTheme.colorScheme.inverseOnSurface) }
-            TextButton(onClick = { onNote(); onDismiss() }) { Text("✎", color = MaterialTheme.colorScheme.inverseOnSurface) }
+            TextButton(onClick = { onReadFromHere() }) {
+                Text(
+                    "▶",
+                    color = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
+            TextButton(onClick = { onTranslate(); onDismiss() }) {
+                Text(
+                    "文",
+                    color = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
+            TextButton(onClick = { onCopy(); onDismiss() }) {
+                Text(
+                    "⧉",
+                    color = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
+            TextButton(onClick = { onSelectAll() }) {
+                Text(
+                    "▦",
+                    color = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
+            TextButton(onClick = { onSearch(); onDismiss() }) {
+                Text(
+                    "⌕",
+                    color = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
+            TextButton(onClick = { onBookmark(); onDismiss() }) {
+                Text(
+                    "🔖",
+                    color = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
+            TextButton(onClick = { onNote(); onDismiss() }) {
+                Text(
+                    "✏️",
+                    color = MaterialTheme.colorScheme.inverseOnSurface
+                )
+            }
             Box {
-                TextButton(onClick = { showMore = true }) { Text("⋮", color = MaterialTheme.colorScheme.inverseOnSurface) }
-                DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }, modifier = Modifier.width(280.dp)) {
+                TextButton(onClick = { showMore = true }) {
+                    Text(
+                        "⋮",
+                        color = MaterialTheme.colorScheme.inverseOnSurface
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMore,
+                    onDismissRequest = { showMore = false },
+                    modifier = Modifier.width(280.dp)
+                ) {
                     Text(
                         text.take(90),
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1283,13 +1550,27 @@ private fun SelectedTextToolbar(
                         style = MaterialTheme.typography.bodySmall
                     )
                     HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Read from here") }, onClick = { showMore = false; onReadFromHere() })
-                    DropdownMenuItem(text = { Text("Web lookup") }, onClick = { showMore = false; onGoogle(); onDismiss() })
-                    DropdownMenuItem(text = { Text("Share") }, onClick = { showMore = false; onShare(); onDismiss() })
-                    DropdownMenuItem(text = { Text("Edit selected text") }, onClick = { showMore = false; onEditExtracted(); onDismiss() })
-                    DropdownMenuItem(text = { Text("Edit speech / pronunciation") }, onClick = { showMore = false; onEditSpeech(); onDismiss() })
-                    DropdownMenuItem(text = { Text("Read aloud selection") }, onClick = { showMore = false; onReadAloud() })
-                    DropdownMenuItem(text = { Text("Ask AI") }, onClick = { showMore = false; onAskAi(); onDismiss() })
+                    DropdownMenuItem(
+                        text = { Text("Read from here") },
+                        onClick = { showMore = false; onReadFromHere() })
+                    DropdownMenuItem(
+                        text = { Text("Web lookup") },
+                        onClick = { showMore = false; onGoogle(); onDismiss() })
+                    DropdownMenuItem(
+                        text = { Text("Share") },
+                        onClick = { showMore = false; onShare(); onDismiss() })
+                    DropdownMenuItem(
+                        text = { Text("Edit selected text") },
+                        onClick = { showMore = false; onEditExtracted(); onDismiss() })
+                    DropdownMenuItem(
+                        text = { Text("Edit speech / pronunciation") },
+                        onClick = { showMore = false; onEditSpeech(); onDismiss() })
+                    DropdownMenuItem(
+                        text = { Text("Read aloud selection") },
+                        onClick = { showMore = false; onReadAloud() })
+                    DropdownMenuItem(
+                        text = { Text("Ask AI") },
+                        onClick = { showMore = false; onAskAi(); onDismiss() })
                 }
             }
         }
@@ -1311,7 +1592,12 @@ private fun SearchPanel(
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.padding(14.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(14.dp)
+                .imePadding(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
@@ -1362,7 +1648,8 @@ private fun SmartOutlineDialog(
     val entries = remember(document.id, document.chunks, documentOutline) {
         if (documentOutline.isNotEmpty()) {
             documentOutline.map { outline ->
-                val preview = document.chunks.getOrNull(outline.targetIndex).orEmpty().replace(Regex("\\s+"), " ").trim()
+                val preview = document.chunks.getOrNull(outline.targetIndex).orEmpty()
+                    .replace(Regex("\\s+"), " ").trim()
                 SmartOutlineEntry(
                     index = outline.targetIndex,
                     title = outline.title,
@@ -1384,17 +1671,17 @@ private fun SmartOutlineDialog(
         } else {
             entries.filter { entry ->
                 entry.title.contains(needle, ignoreCase = true) ||
-                    entry.preview.contains(needle, ignoreCase = true) ||
-                    entry.source.contains(needle, ignoreCase = true) ||
-                    entry.pageNumber?.toString() == needle ||
-                    (entry.index + 1).toString() == needle
+                        entry.preview.contains(needle, ignoreCase = true) ||
+                        entry.source.contains(needle, ignoreCase = true) ||
+                        entry.pageNumber?.toString() == needle ||
+                        (entry.index + 1).toString() == needle
             }
         }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (documentOutline.isNotEmpty()) "☷ Table of contents" else "☷ Smart outline") },
+        title = { Text(if (documentOutline.isNotEmpty()) "📇 Table of contents" else "📇 Smart outline") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -1410,7 +1697,8 @@ private fun SmartOutlineDialog(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Filter outline") },
                     placeholder = { Text("Chapter, topic, sentence number…") },
-                    singleLine = true
+                    singleLine = true,
+                    shape = VeritasPackStyle.chipShape()
                 )
                 LazyColumn(
                     modifier = Modifier
@@ -1427,19 +1715,25 @@ private fun SmartOutlineDialog(
                             )
                         }
                     }
-                    itemsIndexed(filteredEntries, key = { index, entry -> "$index:${entry.index}:${entry.title}" }) { _, entry ->
+                    itemsIndexed(
+                        filteredEntries,
+                        key = { index, entry -> "$index:${entry.index}:${entry.title}" }) { _, entry ->
                         val active = entry.index == currentIndex
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(start = (entry.level.coerceIn(0, 5) * 14).dp)
                                 .clickable { onJumpToSection(entry.index) },
-                            shape = MaterialTheme.shapes.small,
+                            shape = VeritasPackStyle.compactShape(),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            ),
                             colors = CardDefaults.cardColors(
                                 containerColor = when {
-                                    active -> MaterialTheme.colorScheme.primaryContainer
-                                    entry.isHeading -> MaterialTheme.colorScheme.surfaceVariant
-                                    else -> MaterialTheme.colorScheme.surface
+                                    active -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                                    entry.isHeading -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                                    else -> MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
                                 }
                             )
                         ) {
@@ -1453,13 +1747,17 @@ private fun SmartOutlineDialog(
                                     style = MaterialTheme.typography.titleMedium,
                                     color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
                                 )
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
                                     Text(
                                         entry.title,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                         style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = if (active || entry.isHeading) FontWeight.Black else FontWeight.SemiBold
+                                        fontWeight = if (active || entry.isHeading) FontWeight.Black else FontWeight.SemiBold,
+                                        color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         listOfNotNull(
@@ -1487,7 +1785,7 @@ private fun SmartOutlineDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            Button(onClick = onDismiss, shape = VeritasPackStyle.chipShape()) { Text("Close") }
         }
     )
 }
@@ -1495,8 +1793,8 @@ private fun SmartOutlineDialog(
 private fun buildSmartOutline(chunks: List<String>): List<SmartOutlineEntry> {
     val scanChunks = chunks.take(MAX_SMART_OUTLINE_SCAN_SENTENCES)
     val structuralEntries = (
-        extractTableOfContentsOutline(scanChunks) + extractHeadingOutline(scanChunks)
-    )
+            extractTableOfContentsOutline(scanChunks) + extractHeadingOutline(scanChunks)
+            )
         .distinctBy { it.index }
         .sortedBy { it.index }
         .take(MAX_SMART_OUTLINE_ENTRIES)
@@ -1506,7 +1804,8 @@ private fun buildSmartOutline(chunks: List<String>): List<SmartOutlineEntry> {
     val step = (chunks.size / MAX_SMART_OUTLINE_ENTRIES).coerceAtLeast(1)
     val fallbackIndexes = buildSet {
         scanChunks.forEachIndexed { index, chunk ->
-            val firstLine = chunk.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
+            val firstLine =
+                chunk.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
             if (looksLikeOutlineHeading(firstLine)) add(index)
         }
         var index = 0
@@ -1545,7 +1844,7 @@ private fun extractTableOfContentsOutline(chunks: List<String>): List<SmartOutli
     val entries = mutableListOf<SmartOutlineEntry>()
     chunks.take(30).forEachIndexed { chunkIndex, chunk ->
         val looksLikeContents = chunk.contains("table of contents", ignoreCase = true) ||
-            chunk.lineSequence().any { it.trim().equals("contents", ignoreCase = true) }
+                chunk.lineSequence().any { it.trim().equals("contents", ignoreCase = true) }
         if (!looksLikeContents && entries.isEmpty()) return@forEachIndexed
 
         chunk.lineSequence()
@@ -1556,7 +1855,8 @@ private fun extractTableOfContentsOutline(chunks: List<String>): List<SmartOutli
                 val rawTitle = match.groupValues[1].trim().trim('.', '-', '•')
                 if (rawTitle.length < 3) return@forEach
                 val targetIndex = locateOutlineTarget(chunks, rawTitle) ?: return@forEach
-                val clean = chunks.getOrNull(targetIndex).orEmpty().replace(Regex("\\s+"), " ").trim()
+                val clean =
+                    chunks.getOrNull(targetIndex).orEmpty().replace(Regex("\\s+"), " ").trim()
                 entries.add(
                     SmartOutlineEntry(
                         index = targetIndex,
@@ -1584,7 +1884,8 @@ private fun extractHeadingOutline(chunks: List<String>): List<SmartOutlineEntry>
         SmartOutlineEntry(
             index = index,
             title = outlineTitle(heading, index),
-            preview = if (clean.startsWith(heading)) clean.removePrefix(heading).trim().take(180) else clean.take(180),
+            preview = if (clean.startsWith(heading)) clean.removePrefix(heading).trim()
+                .take(180) else clean.take(180),
             isHeading = true
         )
     }
@@ -1644,9 +1945,12 @@ private fun looksLikeOutlineHeading(firstLine: String): Boolean {
     ).containsMatchIn(clean)
 
     val words = clean.split(Regex("\\s+")).filter { word -> word.any { it.isLetter() } }
-    val titleCaseWords = words.count { word -> word.firstOrNull { it.isLetter() }?.isUpperCase() == true }
-    val mostlyTitleCase = words.isNotEmpty() && titleCaseWords >= maxOf(1, (words.size * 0.70f).roundToInt())
-    val allCaps = words.isNotEmpty() && words.all { word -> word.all { !it.isLetter() || it.isUpperCase() } }
+    val titleCaseWords =
+        words.count { word -> word.firstOrNull { it.isLetter() }?.isUpperCase() == true }
+    val mostlyTitleCase =
+        words.isNotEmpty() && titleCaseWords >= maxOf(1, (words.size * 0.70f).roundToInt())
+    val allCaps =
+        words.isNotEmpty() && words.all { word -> word.all { !it.isLetter() || it.isUpperCase() } }
     val compactHeading = !clean.endsWith(".") && clean.count { it == ',' } <= 1 && clean.length < 90
 
     return headingKeyword || numberedHeading || landmarkKeyword || ((mostlyTitleCase || allCaps) && compactHeading)
@@ -1672,54 +1976,84 @@ fun DocumentNotesDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            Row {
-                TextButton(onClick = onSaveDocumentNote) { Text("Save") }
-                TextButton(onClick = onExportNotes, enabled = documentNote.isNotBlank() || notes.any { it.note.isNotBlank() }) { Text("Export") }
-                TextButton(onClick = onDismiss) { Text("Close") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onSaveDocumentNote,
+                    shape = VeritasPackStyle.chipShape()
+                ) {
+                    Text("Save")
+                }
+                OutlinedButton(
+                    onClick = onExportNotes,
+                    enabled = documentNote.isNotBlank() || notes.any { it.note.isNotBlank() },
+                    shape = VeritasPackStyle.chipShape()
+                ) {
+                    Text("Export")
+                }
+                TextButton(onClick = onDismiss, shape = VeritasPackStyle.chipShape()) { Text("Close") }
             }
         },
-        title = { Text("✎ Document notes") },
+        title = { Text("✏️ Document notes") },
         text = {
-            Column(modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     document.title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Black,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 OutlinedTextField(
                     value = documentNote,
                     onValueChange = { onDocumentNoteChange(capWords(it, 500)) },
-                    modifier = Modifier.fillMaxWidth().height(250.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(250.dp),
                     label = { Text("General note") },
                     placeholder = { Text("Write notes about this document") },
                     minLines = 8,
-                    maxLines = 14
+                    maxLines = 14,
+                    shape = VeritasPackStyle.cardShape()
                 )
                 Text(
-                    "${documentNote.trim().split(Regex("\\s+")).count { it.isNotBlank() }} / 500 words",
+                    "${
+                        documentNote.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+                    } / 500 words",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 HorizontalDivider()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Sentence notes", fontWeight = FontWeight.Black)
+                        Text("Sentence notes", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
                         Text(
                             "Pencil notes stay attached to individual sentences.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    TextButton(onClick = onAddCurrentNote) { Text("✎ Add current") }
+                    OutlinedButton(
+                        onClick = onAddCurrentNote,
+                        shape = VeritasPackStyle.chipShape()
+                    ) {
+                        Text("✏️ Add current")
+                    }
                 }
                 Text(
                     "Current sentence: ${currentIndex + 1}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (notes.isEmpty()) {
-                    Text("No sentence notes yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "No sentence notes yet.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 } else {
                     notes.forEach { note ->
                         val excerpt = document.chunks.getOrNull(note.chunkIndex)
@@ -1727,18 +2061,45 @@ fun DocumentNotesDialog(
                             .replace(Regex("\\s+"), " ")
                             .trim()
                         Card(
-                            modifier = Modifier.fillMaxWidth().clickable { onJumpToSection(note.chunkIndex) },
-                            shape = MaterialTheme.shapes.medium,
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onJumpToSection(note.chunkIndex) },
+                            shape = VeritasPackStyle.compactShape(),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            ),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha()))
                         ) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Sentence ${note.chunkIndex + 1}", fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
-                                    Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        "Sentence ${note.chunkIndex + 1}",
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.weight(1f),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "›",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
-                                Text(note.note.ifBlank { "Empty note" }, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    note.note.ifBlank { "Empty note" },
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                                 if (excerpt.isNotBlank()) {
-                                    Text(excerpt, maxLines = 3, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        excerpt,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
@@ -1763,9 +2124,9 @@ private fun BookmarksOverviewDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            Button(onClick = onDismiss, shape = VeritasPackStyle.chipShape()) { Text("Close") }
         },
-        title = { Text("★ Bookmarks") },
+        title = { Text("🔖 Bookmarks") },
         text = {
             Column(
                 modifier = Modifier
@@ -1778,13 +2139,19 @@ private fun BookmarksOverviewDialog(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Black,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                
+
                 HorizontalDivider()
 
                 if (bookmarks.isNotEmpty()) {
-                    Text("Bookmarks", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Bookmarks",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                     bookmarks.forEach { bookmark ->
                         val excerpt = document.chunks.getOrNull(bookmark.chunkIndex)
                             .orEmpty()
@@ -1794,16 +2161,39 @@ private fun BookmarksOverviewDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { onJumpToSection(bookmark.chunkIndex) },
-                            shape = MaterialTheme.shapes.medium,
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            shape = VeritasPackStyle.compactShape(),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            ),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha()))
                         ) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("★ Bookmark (Sentence ${bookmark.chunkIndex + 1})", fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                    Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        "🔖 Bookmark • Sentence ${bookmark.chunkIndex + 1}",
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.weight(1f),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "›",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                                 if (excerpt.isNotBlank()) {
-                                    Text(excerpt, maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        excerpt,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
@@ -1811,13 +2201,20 @@ private fun BookmarksOverviewDialog(
                 }
 
                 if (bookmarks.isEmpty()) {
-                    Text("No bookmarks yet in this document. Bookmark a sentence to highlight it and keep it here.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "No bookmarks yet in this document. Bookmark a sentence to highlight it and keep it here.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             }
         }
     )
 }
 
+private enum class DragValue { Collapsed, Expanded }
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlayerPanel(
     isPlaying: Boolean,
@@ -1837,112 +2234,263 @@ private fun PlayerPanel(
     onPitchChange: (Float) -> Unit,
     onFontSizeChange: (Int) -> Unit,
     onOpenVoiceStudio: () -> Unit,
-    onPlayQueue: () -> Unit
+    onPlayQueue: () -> Unit,
+    onOpenAudioMode: () -> Unit,
+    voices: List<TtsVoiceOption>,
+    voiceSettings: VoiceSettings,
+    onVoiceSelected: (TtsVoiceOption) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val maxOffsetPx = with(density) { 150.dp.toPx() } // height diff
+
+    @Suppress("DEPRECATION")
+    val draggableState = remember {
+        AnchoredDraggableState(
+            initialValue = DragValue.Collapsed,
+            positionalThreshold = { distance: Float -> distance * 0.5f },
+            velocityThreshold = { with(density) { 100.dp.toPx() } },
+            snapAnimationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            decayAnimationSpec = androidx.compose.animation.core.exponentialDecay()
+        )
+    }
+
+    val anchors = remember(maxOffsetPx) {
+        DraggableAnchors {
+            DragValue.Collapsed at maxOffsetPx
+            DragValue.Expanded at 0f
+        }
+    }
+
+    SideEffect {
+        draggableState.updateAnchors(anchors)
+    }
+
+    val currentOffset = if (draggableState.offset.isNaN()) maxOffsetPx else draggableState.requireOffset()
+    val progress = (1f - (currentOffset / maxOffsetPx)).coerceIn(0f, 1f)
+    val heightDp = 72.dp + (150.dp * progress) // Varies from 72dp to 222dp
+
+    val currentLocaleTag = voiceSettings.localeTag
+    val availableVoices = remember(voices, currentLocaleTag) {
+        if (currentLocaleTag.isBlank()) {
+            voices.take(8)
+        } else {
+            voices.filter { it.localeTag.equals(currentLocaleTag, ignoreCase = true) }
+        }
+    }
+
+    val coroutineScope = rememberCoroutineScope()
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(50),
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .height(heightDp)
+            .anchoredDraggable(
+                state = draggableState,
+                orientation = Orientation.Vertical
+            ),
+        shape = VeritasPackStyle.cardShape(),
         tonalElevation = 2.dp,
         shadowElevation = 2.dp,
-        color = MaterialTheme.colorScheme.surface
+        color = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
     ) {
-        Row(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            TextButton(onClick = onOpenVoiceStudio, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
-                BrandMark(compact = true)
-            }
+            // Header Row (visible in both states)
             Row(
+                modifier = Modifier.fillMaxWidth().height(56.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                BouncyTextButton(label = "‹", enabled = canGoPrevious, onClick = onPrevious)
-                BouncyFilledButton(label = if (isPlaying) "Ⅱ" else "▶", onClick = onPlayPause)
-                BouncyTextButton(label = "›", enabled = canGoNext, onClick = onNext)
+                // BrandMark Logo (clicking transitions state)
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            draggableState.animateTo(
+                                if (draggableState.currentValue == DragValue.Collapsed) DragValue.Expanded else DragValue.Collapsed
+                            )
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    BrandMark(compact = true)
+                }
+
+                // Playback Controls Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    BouncyTextButton(icon = Icons.AutoMirrored.Filled.NavigateBefore, label = "Previous", enabled = canGoPrevious, onClick = onPrevious)
+                    BouncyFilledButton(icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, label = if (isPlaying) "Pause" else "Play", onClick = onPlayPause)
+                    BouncyTextButton(icon = Icons.AutoMirrored.Filled.NavigateNext, label = "Next", enabled = canGoNext, onClick = onNext)
+                }
+
+                // Audio Mode Button
+                BouncyTextButton(
+                    icon = Icons.Filled.Headphones,
+                    label = "Audio Mode",
+                    onClick = onOpenAudioMode
+                )
             }
-            Box {
-                    TextButton(onClick = { expanded = true }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-                        Text("${"%.1f".format(rate)}x", style = MaterialTheme.typography.labelMedium)
-                    }
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false },
-                        modifier = Modifier.width(320.dp)
+
+            // Expanded Area (Speed, Pitch, Font size, Quick Voice Picker)
+            if (progress > 0.05f) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .graphicsLayer { alpha = progress }
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // Status/Playback message
+                    Text(
+                        statusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                    // Speed Slider Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            "Playback",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            statusMessage,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                        Text(
                             "Speed ${"%.2f".format(rate)}x",
-                            modifier = Modifier.padding(horizontal = 16.dp),
+                            style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Slider(
-                            value = rate,
-                            onValueChange = onRateChange,
-                            valueRange = 0.5f..2.0f,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        Text(
-                            "Pitch ${"%.2f".format(pitch)}",
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Slider(
-                            value = pitch,
-                            onValueChange = onPitchChange,
-                            valueRange = 0.7f..1.4f,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        Text(
-                            "Text size ${fontSizeSp}sp",
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Slider(
-                            value = fontSizeSp.toFloat(),
-                            onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
-                            valueRange = 14f..28f,
-                            steps = 13,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Voice and language") },
-                            onClick = {
-                                expanded = false
-                                onOpenVoiceStudio()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { onRateChange((rate - 0.05f).coerceIn(0.5f, 2.0f)) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("-", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                             }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TextButton(
+                                onClick = { onRateChange((rate + 0.05f).coerceIn(0.5f, 2.0f)) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("+", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                    }
+                    Slider(
+                        value = rate,
+                        onValueChange = onRateChange,
+                        valueRange = 0.5f..2.0f,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+
+                    // Pitch & Font Size
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Pitch ${"%.2f".format(pitch)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Slider(
+                                value = pitch,
+                                onValueChange = onPitchChange,
+                                valueRange = 0.7f..1.4f
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Text size ${fontSizeSp}sp",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Slider(
+                                value = fontSizeSp.toFloat(),
+                                onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
+                                valueRange = 14f..28f,
+                                steps = 13
+                            )
+                        }
+                    }
+
+                    // Quick Voice Picker
+                    if (availableVoices.isNotEmpty()) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+                        Text(
+                            "Voice",
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.bodySmall
                         )
-                        DropdownMenuItem(
-                            text = { Text(if (queueCount == 0) "Queue empty" else "Continue queue ($queueCount)") },
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            availableVoices.forEach { voice ->
+                                val isSelected = voice.name == voiceSettings.voiceName
+                                if (isSelected) {
+                                    Button(
+                                        onClick = { onVoiceSelected(voice) },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        shape = VeritasPackStyle.chipShape(),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text(voice.name, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { onVoiceSelected(voice) },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        shape = VeritasPackStyle.chipShape(),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text(voice.name, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Shortcut to open full Voice Studio
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
                             enabled = queueCount > 0,
-                            onClick = {
-                                expanded = false
-                                onPlayQueue()
-                            }
-                        )
+                            onClick = onPlayQueue,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(if (queueCount == 0) "Queue empty" else "Play Queue ($queueCount)", style = MaterialTheme.typography.labelMedium)
+                        }
+                        TextButton(
+                            onClick = onOpenVoiceStudio,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Voice Studio ›", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
+            }
         }
     }
 }

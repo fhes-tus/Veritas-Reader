@@ -105,18 +105,28 @@ class VeritasCoverWidgetProvider : AppWidgetProvider() {
         }
 
         private fun loadCoverBitmap(context: Context, repository: DocumentRepository, document: SavedDocument): Bitmap? {
-            val original = repository.originalFile(document) ?: return null
+            // 1. Try to load pre-extracted cover if it exists
+            CoverExtractor.coverFile(context, document.id)?.let { file ->
+                runCatching {
+                    BitmapFactory.decodeFile(file.absolutePath)
+                }.getOrNull()?.let { return it }
+            }
+
+            // 2. Fallback to on-the-fly loading/rendering
+            val original = repository.originalUri(document) ?: return null
             val mime = document.originalMimeType.lowercase()
             return when {
-                mime.startsWith("image/") -> BitmapFactory.decodeFile(original.absolutePath)
-                mime == "application/pdf" || original.extension.equals("pdf", ignoreCase = true) -> renderPdfFirstPage(original)
+                mime.startsWith("image/") -> {
+                    context.contentResolver.openInputStream(original)?.use { BitmapFactory.decodeStream(it) }
+                }
+                mime == "application/pdf" || document.originalFileName.endsWith(".pdf", ignoreCase = true) -> renderPdfFirstPage(context, original)
                 else -> null
             }
         }
 
-        private fun renderPdfFirstPage(file: File): Bitmap? {
+        private fun renderPdfFirstPage(context: Context, uri: android.net.Uri): Bitmap? {
             return runCatching {
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
                     PdfRenderer(descriptor).use { renderer ->
                         if (renderer.pageCount <= 0) return@use null
                         renderer.openPage(0).use { page ->
