@@ -244,14 +244,14 @@ data class GeneralNote(
     val content: String,
     val updatedAt: Long
 ) {
-    fun toJson(): org.json.JSONObject = org.json.JSONObject()
+    fun toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("title", title)
         .put("content", content)
         .put("updatedAt", updatedAt)
 
     companion object {
-        fun fromJson(obj: org.json.JSONObject): GeneralNote = GeneralNote(
+        fun fromJson(obj: JSONObject): GeneralNote = GeneralNote(
             id = obj.optString("id", ""),
             title = obj.optString("title", ""),
             content = obj.optString("content", ""),
@@ -1021,7 +1021,7 @@ class DocumentRepository(context: Context) {
         val root = JSONObject()
             .put("schema", "veritas.reader.backup.v1")
             .put("createdAt", System.currentTimeMillis())
-            .put("appVersion", "0.3.7-beta-release-hardening")
+            .put("appVersion", "1.0.0")
             .put("syncPeer", "android")
 
         val documentArray = JSONArray()
@@ -1977,7 +1977,7 @@ class DocumentRepository(context: Context) {
 
     fun loadGeneralNotes(): List<GeneralNote> {
         val raw = prefs.getString("general_notes", "[]") ?: "[]"
-        val array = runCatching { org.json.JSONArray(raw) }.getOrDefault(org.json.JSONArray())
+        val array = runCatching { org.json.JSONArray(raw) }.getOrDefault(JSONArray())
         val notes = mutableListOf<GeneralNote>()
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
@@ -1988,7 +1988,7 @@ class DocumentRepository(context: Context) {
     }
 
     fun saveGeneralNotes(notes: List<GeneralNote>) {
-        val array = org.json.JSONArray()
+        val array = JSONArray()
         notes.forEach { array.put(it.toJson()) }
         prefs.edit { putString("general_notes", array.toString()) }
     }

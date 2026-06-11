@@ -62,7 +62,7 @@ data class PdfImportOptions(
     val separateWordsOnFontChange: Boolean = true,
     val markPdfLinesForCanvas: Boolean = true,
     val forceFreshExtraction: Boolean = false,
-    val cropRect: android.graphics.RectF? = null
+    val cropRect: RectF? = null
 ) {
     fun normalized(pageCount: Int): PdfImportOptions {
         val safePageCount = pageCount.coerceAtLeast(1)
@@ -988,7 +988,7 @@ private class PdfLayoutProbeStripper : PDFTextStripper() {
     private val positionedGlyphs = mutableListOf<PositionedPdfGlyph>()
 
     init {
-        setSortByPosition(true)
+        sortByPosition = true
         setShouldSeparateByBeads(false)
     }
 
@@ -1024,8 +1024,8 @@ private class PdfLayoutProbeStripper : PDFTextStripper() {
     companion object {
         fun extract(document: PDDocument, pageNumber: Int): PdfPageProbe {
             val stripper = PdfLayoutProbeStripper().apply {
-                setStartPage(pageNumber)
-                setEndPage(pageNumber)
+                startPage = pageNumber
+                endPage = pageNumber
             }
             val plainText = stripper.getText(document)
             return PdfPageProbe(
@@ -1216,7 +1216,7 @@ private object PdfPageTextExtractor {
         val right = RectF(layout.splitX, layout.columnTopY, layout.pageWidth, layout.columnBottomY)
         val bottom = RectF(0f, layout.columnBottomY, layout.pageWidth, layout.pageHeight)
         val stripper = PDFTextStripperByArea().apply {
-            setSortByPosition(true)
+            sortByPosition = true
             if (top.height() > 4f) addRegion("top", top)
             addRegion("left", left)
             addRegion("right", right)

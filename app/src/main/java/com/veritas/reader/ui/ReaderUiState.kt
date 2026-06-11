@@ -5,7 +5,7 @@ import com.veritas.reader.*
 import java.io.File
 
 data class VeritasPendingImport(
-    val uri: android.net.Uri,
+    val uri: Uri,
     val name: String,
     val mimeType: String,
     val sizeBytes: Long,

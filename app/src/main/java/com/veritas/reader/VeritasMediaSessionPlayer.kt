@@ -45,20 +45,20 @@ internal class VeritasMediaSessionPlayer(
     )
 
     private val availableCommands = Player.Commands.Builder()
-        .add(Player.COMMAND_PREPARE)
-        .add(Player.COMMAND_PLAY_PAUSE)
-        .add(Player.COMMAND_STOP)
-        .add(Player.COMMAND_SEEK_BACK)
-        .add(Player.COMMAND_SEEK_FORWARD)
-        .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-        .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-        .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-        .add(Player.COMMAND_SEEK_TO_NEXT)
-        .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-        .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
-        .add(Player.COMMAND_GET_METADATA)
-        .add(Player.COMMAND_GET_TIMELINE)
-        .add(Player.COMMAND_SET_SPEED_AND_PITCH)
+        .add(COMMAND_PREPARE)
+        .add(COMMAND_PLAY_PAUSE)
+        .add(COMMAND_STOP)
+        .add(COMMAND_SEEK_BACK)
+        .add(COMMAND_SEEK_FORWARD)
+        .add(COMMAND_SEEK_TO_PREVIOUS)
+        .add(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+        .add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+        .add(COMMAND_SEEK_TO_NEXT)
+        .add(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+        .add(COMMAND_GET_CURRENT_MEDIA_ITEM)
+        .add(COMMAND_GET_METADATA)
+        .add(COMMAND_GET_TIMELINE)
+        .add(COMMAND_SET_SPEED_AND_PITCH)
         .build()
 
     override fun handlePrepare(): ListenableFuture<Any> {
@@ -70,9 +70,9 @@ internal class VeritasMediaSessionPlayer(
         if (current.documentId.isBlank() && current.chunkCount <= 0) {
             return State.Builder()
                 .setAvailableCommands(availableCommands)
-                .setPlaybackState(Player.STATE_IDLE)
-                .setPlayWhenReady(false, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
-                .setPlaybackSuppressionReason(Player.PLAYBACK_SUPPRESSION_REASON_NONE)
+                .setPlaybackState(STATE_IDLE)
+                .setPlayWhenReady(false, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+                .setPlaybackSuppressionReason(PLAYBACK_SUPPRESSION_REASON_NONE)
                 .build()
         }
 
@@ -100,9 +100,9 @@ internal class VeritasMediaSessionPlayer(
             .setAvailableCommands(availableCommands)
             .setPlaylist(listOf(itemData))
             .setCurrentMediaItemIndex(0)
-            .setPlaybackState(if (current.isForegroundActive || current.isPlaying) Player.STATE_READY else Player.STATE_IDLE)
-            .setPlayWhenReady(current.isPlaying, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
-            .setPlaybackSuppressionReason(Player.PLAYBACK_SUPPRESSION_REASON_NONE)
+            .setPlaybackState(if (current.isForegroundActive || current.isPlaying) STATE_READY else STATE_IDLE)
+            .setPlayWhenReady(current.isPlaying, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+            .setPlaybackSuppressionReason(PLAYBACK_SUPPRESSION_REASON_NONE)
             .setContentPositionMs(current.positionMs.coerceAtLeast(0L))
             .setPlaybackParameters(PlaybackParameters(current.rate, current.pitch))
             .setPlaylistMetadata(metadata)
@@ -116,12 +116,12 @@ internal class VeritasMediaSessionPlayer(
 
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<Any> {
         when (seekCommand) {
-            Player.COMMAND_SEEK_BACK,
-            Player.COMMAND_SEEK_TO_PREVIOUS,
-            Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> controller.previous()
-            Player.COMMAND_SEEK_FORWARD,
-            Player.COMMAND_SEEK_TO_NEXT,
-            Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> controller.next()
+            COMMAND_SEEK_BACK,
+            COMMAND_SEEK_TO_PREVIOUS,
+            COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> controller.previous()
+            COMMAND_SEEK_FORWARD,
+            COMMAND_SEEK_TO_NEXT,
+            COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> controller.next()
             else -> controller.seekTo(positionMs)
         }
         return Futures.immediateFuture(Any())

@@ -33,7 +33,7 @@ fun GeneralNotesEditor(
 ) {
     var title by remember { mutableStateOf(note?.title ?: "") }
     var contentValue by remember { mutableStateOf(TextFieldValue(note?.content ?: "")) }
-    val scrollState = rememberScrollState()
+    rememberScrollState()
 
     // Helper to insert markdown styling around selection or cursor
     fun insertMarkdown(syntax: String) {

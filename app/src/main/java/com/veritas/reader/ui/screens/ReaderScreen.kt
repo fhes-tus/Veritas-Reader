@@ -233,9 +233,9 @@ fun ReaderScreen(
     val queueCount = state.queueCount
     val isQueued = state.isQueued
     val annotations = state.annotations
-    val pronunciationRuleCount = state.pronunciationRuleCount
+    state.pronunciationRuleCount
     val readerSettings = state.readerSettings
-    val voiceSettings = state.voiceSettings
+    state.voiceSettings
     val narrationSettings = state.narrationSettings
     val askAiSettings = state.askAiSettings
     val sleepTimerSnapshot = VeritasSleepTimerSnapshot(
@@ -274,8 +274,8 @@ fun ReaderScreen(
     } else {
         "Section ${currentPartIndex + 1}/${readerModel.parts.size.coerceAtLeast(1)} • Sentence ${currentIndex + 1}/${document.chunks.size}"
     }
-    val bookmarkCount = annotations.count { it.type == AnnotationType.BOOKMARK }
-    val noteCount = annotations.count { it.type == AnnotationType.NOTE }
+    annotations.count { it.type == AnnotationType.BOOKMARK }
+    annotations.count { it.type == AnnotationType.NOTE }
     val canGoPreviousPart = currentPartIndex > 0
     val canGoNextPart = currentPartIndex < readerModel.parts.lastIndex
     val previousPartStart =
@@ -325,7 +325,7 @@ fun ReaderScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                val toolbarIconPadding = PaddingValues(horizontal = 3.dp, vertical = 2.dp)
+                PaddingValues(horizontal = 3.dp, vertical = 2.dp)
                 IconButton(
                     onClick = { showSearch = !showSearch }
                 ) { Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface) }
@@ -465,7 +465,7 @@ fun ReaderScreen(
                                         )
                                         val targetTop =
                                             layout.getLineTop(targetLine).coerceAtLeast(0)
-                                        val targetBottom = layout.getLineBottom(targetLine)
+                                        layout.getLineBottom(targetLine)
                                             .coerceAtLeast(targetTop + 1)
                                         listState.animateScrollToItem(
                                             partListItemIndex,

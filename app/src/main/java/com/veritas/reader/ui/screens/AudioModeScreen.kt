@@ -261,12 +261,12 @@ fun AudioModeScreen(
                         if (viewportHeight > 0) {
                             val layoutInfo = readListState.layoutInfo
                             val itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == currentIndex }
-                            val itemHeight = itemInfo?.size ?: 120
-                            val offset = -(viewportHeight / 2 - itemHeight / 2)
+                            val itemHeight = itemInfo?.size ?: 100
+                            val offset = -(viewportHeight / 3 - itemHeight / 2)
                             readListState.animateScrollToItem(currentIndex, offset)
                         } else {
                             // Fallback to average offset if measurement still pending
-                            readListState.animateScrollToItem(currentIndex, -350)
+                            readListState.animateScrollToItem(currentIndex, -220)
                         }
                     }
                 }
@@ -289,7 +289,7 @@ fun AudioModeScreen(
                             val isActive = index == currentIndex
                             val alpha = if (isActive) 1.0f else 0.35f
                             val fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-                            val fontSize = if (isActive) 23.sp else 19.sp
+                            val fontSize = if (isActive) 19.sp else 15.sp
                             val textColor = contentColor.copy(alpha = alpha)
 
                             Text(
@@ -599,12 +599,12 @@ private fun formatTime(seconds: Long): String {
 
 @Composable
 fun AudioModeButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     contentDescription: String,
     size: androidx.compose.ui.unit.Dp,
     iconSize: androidx.compose.ui.unit.Dp,
-    color: androidx.compose.ui.graphics.Color,
-    contentColor: androidx.compose.ui.graphics.Color,
+    color: Color,
+    contentColor: Color,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }

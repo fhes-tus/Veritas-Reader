@@ -12,7 +12,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
@@ -29,7 +28,6 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -354,7 +352,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
         val readItem = menu.findItem(1001) ?: menu.add(0, 1001, 1, "Read from here")
         readItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS or android.view.MenuItem.SHOW_AS_ACTION_WITH_TEXT)
-        readItem.setTitleCondensed("Read")
+        readItem.titleCondensed = "Read"
         readItem.isVisible = true
         readItem.isEnabled = true
         readItem.setOnMenuItemClickListener {
@@ -458,7 +456,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         mode: android.view.ActionMode,
         onTextRetrieved: (String) -> Unit
     ) {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         val oldClip = clipboard.primaryClip
         val sentinel = "veritas-pdf-selection-${System.nanoTime()}"
         clipboard.setPrimaryClip(ClipData.newPlainText("Veritas selection marker", sentinel))

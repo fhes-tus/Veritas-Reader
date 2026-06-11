@@ -1,6 +1,6 @@
 # Known Limitations
 
-These limitations describe the current `0.3.7-beta-release-hardening` state.
+These limitations describe the current `1.0.0` state.
 
 ## Build And Distribution
 

@@ -207,10 +207,8 @@ fun LibraryScreen(
     val completedCount by remember(documents) { derivedStateOf { documents.count { it.chunkCount > 0 && it.currentIndex >= it.chunkCount - 1 } } }
     val readingCount by remember(documents) { derivedStateOf { documents.count { it.chunkCount > 1 && it.currentIndex in 1 until it.chunkCount - 1 } } }
     val favoriteCount by remember(documents) { derivedStateOf { documents.count { it.favorite } } }
-    val sourceOptions by remember(documents) { derivedStateOf { listOf("All") + documents.map { it.sourceLabel.ifBlank { "Text" } }.distinct().sorted() } }
-    val collectionOptions by remember(documents) { derivedStateOf { listOf("All", "Unfiled") + documents.map { it.collection.trim() }.filter { it.isNotBlank() }.distinct().sorted() } }
     val continueDocument by remember(documents) {
-        androidx.compose.runtime.derivedStateOf {
+        derivedStateOf {
             documents
                 .filter { it.chunkCount > 1 && it.currentIndex in 1 until it.chunkCount }
                 .maxByOrNull { it.updatedAt }
@@ -1284,7 +1282,7 @@ fun LibraryScreen(
                             )
                         }
                     } else {
-                        vocabDocs.forEach { (doc, note, entries) ->
+                        vocabDocs.forEach { (doc, _, entries) ->
                             val isExpanded = doc.id in expandedVocabDocIds
                             item(key = "vocab-doc-${doc.id}") {
                                     Card(
@@ -2021,7 +2019,7 @@ private fun HomeQuickActions(
                     MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
                 }
             ),
-            border = androidx.compose.foundation.BorderStroke(
+            border = BorderStroke(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
             )
@@ -2140,7 +2138,7 @@ private fun HomeQuickActions(
             modifier = Modifier.fillMaxWidth(),
             shape = VeritasPackStyle.cardShape(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-            border = androidx.compose.foundation.BorderStroke(
+            border = BorderStroke(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
             )
@@ -2247,7 +2245,7 @@ private fun FileTabDocumentRow(
         modifier = Modifier.fillMaxWidth().clickable(enabled = !importing) { onImport() },
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         )
@@ -2325,7 +2323,7 @@ private fun FileTabDocumentTileCard(
         shape = VeritasPackStyle.compactShape(),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
         )
@@ -2501,7 +2499,7 @@ private fun AnnotationDocumentCard(
         shape = VeritasPackStyle.cardShape(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         )
@@ -3373,13 +3371,13 @@ private fun EmbeddedOnboardingBlock(
                 "Listen to anything, eyes-free.",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Black,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 "Import PDFs, EPUBs, documents, or paste web articles to get started.",
                 style = MaterialTheme.typography.bodyMedium,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(8.dp))

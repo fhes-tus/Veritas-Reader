@@ -3103,7 +3103,7 @@ private fun FileBrowserFileRow(
             ),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         )
@@ -3222,7 +3222,7 @@ private fun FileBrowserFileTileCard(
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
         )
@@ -3444,7 +3444,7 @@ private fun ReadingHistoryRow(
             .fillMaxWidth()
             .clickable { onOpen() },
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         ),
@@ -3828,7 +3828,7 @@ private fun SyncCenterDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
@@ -3880,7 +3880,7 @@ private fun SyncCenterDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
@@ -3910,7 +3910,7 @@ private fun SyncCenterDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
@@ -3960,7 +3960,7 @@ private fun SyncCenterDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
@@ -4021,7 +4021,7 @@ private fun BackupRestoreDialog(
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
@@ -4069,7 +4069,7 @@ private fun BackupStatusBlock(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         )
@@ -5222,53 +5222,53 @@ private fun TutorialDialog(
                 "1",
                 "Welcome to Veritas Reader",
                 "Transform your research, documents, and reading materials into focused audio experiences.",
-                "V",
+                "📖",
                 null
             ),
             TutorialFrame(
                 "2",
                 "What should we call you?",
                 "Your name personalizes the Home tab and reading experience.",
-                "Aa",
+                "👤",
                 null
             ),
             TutorialFrame(
                 "3",
                 "Add a reading",
-                "Import a document, paste text, or share a web page into Veritas.",
-                "＋",
+                "Import PDFs, EPUBs, Word documents, text files, images, or paste texts and links.",
+                "➕",
                 { onImport(nameDraft) }),
             TutorialFrame(
                 "4",
                 "Read your way",
-                "Switch between extracted text and Original View when you need the original layout.",
-                "▣",
+                "Switch between Extracted Text, Listen Mode, and the Original PDF/Image layouts.",
+                "📄",
                 null
             ),
             TutorialFrame(
                 "5",
-                "Listen",
-                "Pick voices, tune playback, and control reading from the bottom player or notification.",
-                "▶",
+                "Listen & synthesis",
+                "Pick voices, adjust speed/pitch, and control playback from the expandable panel or system notification.",
+                "🎧",
                 { onVoice(nameDraft) }),
             TutorialFrame(
                 "6",
-                "Mark and remember",
-                "Bookmark a sentence to highlight it, add notes, translate, search, or ask AI.",
-                "★",
+                "Mark & remember",
+                "Bookmark sentences to highlight them, add study notes, translate text, search, and fix pronunciation.",
+                "🔖",
                 null
             ),
             TutorialFrame(
                 "7",
                 "Make it yours",
-                "Choose theme packs, text size, spacing, widgets, and sync options.",
-                "Aa",
+                "Choose from 10+ premium color themes, set up widget shortcuts, and export standard WAV audio files.",
+                "🎨",
                 { onThemes(nameDraft) }),
             TutorialFrame(
                 "8",
                 "Ready to read?",
-                "Your calm reading environment is configured. Open the Home tab and import your first file.",
-                "✓",
+                "Your calm reading environment is configured. Open the library and import your first document.",
+                "🚀",
                 null
             )
         )
@@ -5465,7 +5465,7 @@ private fun TutorialStage(frame: TutorialFrame, progress: Float, pulse: Float) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         )
@@ -5553,7 +5553,7 @@ private fun TutorialStep(
             .graphicsLayer(scaleX = scale, scaleY = scale)
             .clickable { onSelect() },
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         ),
@@ -5740,7 +5740,7 @@ private fun AppHealthDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
@@ -5750,12 +5750,12 @@ private fun AppHealthDialog(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            "Veritas Reader beta",
+                            "Veritas Reader",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Black
                         )
                         Text(
-                            "Version: 0.3.7-beta-release-hardening",
+                            "Version: 1.0.0",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
@@ -5809,7 +5809,7 @@ private fun ReadinessBlock(title: String, items: List<String>) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(
+        border = BorderStroke(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         )
@@ -6374,9 +6374,9 @@ fun VeritasImportPreviewDialog(
     val sizeKB = pendingImport.sizeBytes / 1024.0
     val sizeMB = sizeKB / 1024.0
     val sizeText = if (sizeMB >= 1.0) {
-        String.format(java.util.Locale.US, "%.2f MB", sizeMB)
+        String.format(Locale.US, "%.2f MB", sizeMB)
     } else {
-        String.format(java.util.Locale.US, "%.1f KB", sizeKB)
+        String.format(Locale.US, "%.1f KB", sizeKB)
     }
 
     val pageCount = pendingImport.pageCount

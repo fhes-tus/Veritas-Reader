@@ -3,6 +3,7 @@
 .kotlin/
 build/
 **/build/
+app/release/
 captures/
 .externalNativeBuild/
 .cxx/

@@ -31,7 +31,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private val repository = DocumentRepository(application)
     private val delegateUiState = MutableStateFlow(ReaderUiState())
-    @kotlin.OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.InternalCoroutinesApi::class)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.InternalCoroutinesApi::class)
     private val _uiState = object : MutableStateFlow<ReaderUiState> by delegateUiState {
         override var value: ReaderUiState
             get() = delegateUiState.value
@@ -98,9 +98,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     } else if (doc.originalFileName.startsWith("content://")) {
                         runCatching {
                             val uri = Uri.parse(doc.originalFileName)
-                            val mimeType = application.contentResolver.getType(uri).orEmpty().lowercase(java.util.Locale.getDefault())
-                            val isPdf = mimeType.contains("pdf") || doc.originalFileName.lowercase(java.util.Locale.getDefault()).contains(".pdf")
-                            val isEpub = mimeType.contains("epub") || doc.originalFileName.lowercase(java.util.Locale.getDefault()).contains(".epub")
+                            val mimeType = application.contentResolver.getType(uri).orEmpty().lowercase(
+                                Locale.getDefault())
+                            val isPdf = mimeType.contains("pdf") || doc.originalFileName.lowercase(
+                                Locale.getDefault()).contains(".pdf")
+                            val isEpub = mimeType.contains("epub") || doc.originalFileName.lowercase(
+                                Locale.getDefault()).contains(".epub")
                             val isImage = mimeType.startsWith("image/")
                             when {
                                 isPdf -> CoverExtractor.extractPdfCover(application, doc.id, uri)
@@ -687,7 +690,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             // Extract cover image in background for compatible documents
             if (originalUri != null) {
                 runCatching {
-                    val mime = getApplication<android.app.Application>().contentResolver.getType(originalUri).orEmpty().lowercase()
+                    val mime = getApplication<Application>().contentResolver.getType(originalUri).orEmpty().lowercase()
                     val ext = saved.title.substringAfterLast('.', "").lowercase()
                     when {
                         mime.contains("pdf") || ext == "pdf" -> {
@@ -1042,7 +1045,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun beginSentenceNote(indexes: List<Int>) {
-        val docId = uiState.value.activeDocument?.id ?: return
+        uiState.value.activeDocument?.id ?: return
         if (indexes.isEmpty()) return
         val existing = uiState.value.annotations.firstOrNull { it.chunkIndex == indexes.first() && it.type == AnnotationType.NOTE }
         _uiState.update { 
@@ -2122,8 +2125,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun navigateBack() {
         val stack = uiState.value.navStack
         if (stack.isEmpty()) return
-        val top = stack.last()
-        when (top) {
+        when (val top = stack.last()) {
             VeritasScreen.TEXT_EDITOR -> dismissTextEditor()
             VeritasScreen.TUTORIAL -> finishTutorial()
             else -> {

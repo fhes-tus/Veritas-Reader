@@ -74,7 +74,7 @@ class PlaybackService : MediaSessionService() {
 
     private var audioFocusRequest: android.media.AudioFocusRequest? = null
     private var pausedDueToTransientFocusLoss = false
-    private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
+    private val audioManager by lazy { getSystemService(AUDIO_SERVICE) as android.media.AudioManager }
 
     override fun onCreate() {
         super.onCreate()
@@ -107,7 +107,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun handleMediaButton(extras: Bundle?) {
-        val keyEvent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             extras?.getParcelable(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
         } else {
             @Suppress("DEPRECATION")
@@ -1131,7 +1131,7 @@ class PlaybackService : MediaSessionService() {
             description = "Background text-to-speech playback controls"
             setShowBadge(false)
         }
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(channel)
     }
 

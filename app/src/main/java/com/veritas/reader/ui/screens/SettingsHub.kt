@@ -61,10 +61,10 @@ fun SettingsHubDialog(
     val documentCount = uiState.documents.size
     val hasActiveDocument = uiState.activeDocument != null
     val queueCount = uiState.queuedDocuments.size
-    val pronunciationRuleCount = uiState.pronunciationRules.size
-    val voiceName = uiState.voiceSettings.displayName
-    val narrationEnabled = uiState.narrationSettings.enabled
-    val autoPlayQueue = uiState.readerSettings.autoPlayQueue
+    uiState.pronunciationRules.size
+    uiState.voiceSettings.displayName
+    uiState.narrationSettings.enabled
+    uiState.readerSettings.autoPlayQueue
     val settingsFeatures = remember(hasActiveDocument, documentCount, queueCount) {
         VeritasFeatureRegistry.resolve(
             VeritasFeatureSurface.SETTINGS_HUB,
