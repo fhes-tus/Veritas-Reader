@@ -829,6 +829,13 @@ object ReaderTrackerMath {
     }
 }
 
+data class QuestProgress(
+    val tourDone: Boolean,
+    val importDone: Boolean,
+    val speedDone: Boolean,
+    val bookmarkDone: Boolean
+)
+
 class DocumentRepository(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("veritas_reader_library", Context.MODE_PRIVATE)
@@ -1356,6 +1363,24 @@ class DocumentRepository(context: Context) {
         prefs.edit {
             putBoolean(KEY_ONBOARDING_TUTORIAL_SEEN, true)
             putString(KEY_USER_NAME, name.trim().take(48))
+        }
+    }
+
+    fun loadQuestProgress(): QuestProgress {
+        return QuestProgress(
+            tourDone = prefs.getBoolean(KEY_QUEST_TOUR_DONE, false),
+            importDone = prefs.getBoolean(KEY_QUEST_IMPORT_DONE, false),
+            speedDone = prefs.getBoolean(KEY_QUEST_SPEED_DONE, false),
+            bookmarkDone = prefs.getBoolean(KEY_QUEST_BOOKMARK_DONE, false)
+        )
+    }
+
+    fun saveQuestProgress(tour: Boolean, import: Boolean, speed: Boolean, bookmark: Boolean) {
+        prefs.edit {
+            putBoolean(KEY_QUEST_TOUR_DONE, tour)
+            putBoolean(KEY_QUEST_IMPORT_DONE, import)
+            putBoolean(KEY_QUEST_SPEED_DONE, speed)
+            putBoolean(KEY_QUEST_BOOKMARK_DONE, bookmark)
         }
     }
 
@@ -2213,6 +2238,10 @@ class DocumentRepository(context: Context) {
         private const val KEY_ONBOARDING_TUTORIAL_SEEN = "onboarding_tutorial_seen"
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_HAS_IMPORTED_OR_OPENED_DOCUMENT = "has_imported_or_opened_document"
+        private const val KEY_QUEST_TOUR_DONE = "quest_tour_done"
+        private const val KEY_QUEST_IMPORT_DONE = "quest_import_done"
+        private const val KEY_QUEST_SPEED_DONE = "quest_speed_done"
+        private const val KEY_QUEST_BOOKMARK_DONE = "quest_bookmark_done"
         private const val KEY_TRACKER_DAYS = "reader_tracker_days"
         private const val KEY_TRACKER_COMPLETIONS = "reader_tracker_completions"
         private const val MAX_TRACKER_DAYS = 370

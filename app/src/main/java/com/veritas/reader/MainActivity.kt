@@ -151,6 +151,16 @@ import com.veritas.reader.ui.screens.SleepTimerDialog
 import com.veritas.reader.ui.screens.VoiceStudioDialog
 import com.veritas.reader.ReaderMode
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import com.veritas.reader.ui.screens.OnboardingQuestChecklist
+import com.veritas.reader.ui.screens.OnboardingSpotlightOverlay
+import com.veritas.reader.ui.screens.ConfettiOverlay
+import com.veritas.reader.ui.OnboardingStep
+import com.veritas.reader.ui.OnboardingController
+import androidx.compose.ui.layout.onGloballyPositioned
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -874,6 +884,7 @@ private fun VeritasReaderApp(
     val context = LocalContext.current
     val viewModel: ReaderViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val coroutineScope = rememberCoroutineScope()
     val documentRepository = remember(context) { DocumentRepository(context.applicationContext) }
     val folderPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -1095,6 +1106,22 @@ private fun VeritasReaderApp(
                     onRemoveVocabularyWord = { docId, word -> viewModel.removeVocabularyWord(docId, word) },
                     onClearReadingHistory = { viewModel.clearReadingHistory() }
                 )
+                if (uiState.showTutorial) {
+                    OnboardingQuestChecklist(
+                        questTourDone = uiState.questTourDone,
+                        questImportDone = uiState.questImportDone,
+                        questSpeedDone = uiState.questSpeedDone,
+                        questBookmarkDone = uiState.questBookmarkDone,
+                        onStartTour = {
+                            viewModel.createWelcomeDocumentSilently()
+                            OnboardingController.activeStep = OnboardingStep.WELCOME
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 90.dp)
+                            .onGloballyPositioned { OnboardingController.updateBounds("quest_checklist", it) }
+                    )
+                }
             } else {
                 val activeDocument = uiState.activeDocument ?: return@Box
                 val activeMetadata = activeDocument.id?.let { activeId ->
@@ -1453,7 +1480,11 @@ private fun VeritasReaderApp(
                 onOpenAskAiSettings = { viewModel.updateState { it.copy(showAskAiSettings = true) } },
                 onStartRecord = { viewModel.startRecordSoundFile() },
                 onOpenTextEditor = { viewModel.openCurrentPartTextEditor() },
-                onOpenTutorial = { viewModel.updateState { it.copy(showTutorial = true) } },
+                onOpenTutorial = {
+                    viewModel.updateState { it.copy(showTutorial = true, showSettingsHub = false) }
+                    viewModel.createWelcomeDocumentSilently()
+                    OnboardingController.activeStep = OnboardingStep.WELCOME
+                },
                 onOpenPdfTools = { viewModel.updateState { it.copy(showPdfImportTools = true) } },
                 onOpenFileBrowser = { viewModel.openFileBrowser() },
                 onOpenSleepTimer = { viewModel.updateState { it.copy(showSleepTimerDialog = true) } },
@@ -2185,29 +2216,140 @@ private fun VeritasReaderApp(
         }
 
         if (uiState.showTutorial) {
-            TutorialDialog(
-                initialName = uiState.userName,
-                onDismiss = { name -> viewModel.finishOnboarding(name) },
-                onImport = { name ->
-                    viewModel.finishOnboarding(name); viewModel.updateState {
-                    it.copy(
-                        showPdfImportTools = true
-                    )
+            val activeStep = OnboardingController.activeStep
+            // Voice-assisted tutorial: read each step aloud automatically
+            LaunchedEffect(activeStep) {
+                if (activeStep != null) {
+                    TutorialSpeaker.init(context)
+                    TutorialSpeaker.speak("${activeStep.title}. ${activeStep.body}")
+                } else {
+                    TutorialSpeaker.stop()
                 }
-                },
-                onVoice = { name ->
-                    viewModel.finishOnboarding(name); viewModel.updateState {
-                    it.copy(
-                        showVoiceStudio = true
-                    )
+            }
+            // Shutdown speaker when tutorial is dismissed entirely
+            LaunchedEffect(uiState.showTutorial) {
+                if (!uiState.showTutorial) {
+                    TutorialSpeaker.shutdown()
                 }
-                },
-                onThemes = { name ->
-                    viewModel.finishOnboarding(name); viewModel.updateState {
-                    it.copy(
-                        showReaderSettings = true
-                    )
-                }
+            }
+            if (activeStep != null) {
+                OnboardingSpotlightOverlay(
+                    step = activeStep,
+                    onNext = {
+                        coroutineScope.launch {
+                            TutorialSpeaker.stop() // stop current reading before moving to next step
+                            val nextStep = when (activeStep) {
+                                OnboardingStep.WELCOME -> OnboardingStep.FAB_SPOTLIGHT
+                                OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
+                                OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
+                                OnboardingStep.DOCUMENT_SPOTLIGHT -> {
+                                    val targetDoc = uiState.documents.firstOrNull()
+                                    if (targetDoc != null) {
+                                        viewModel.openSavedDocument(targetDoc)
+                                        // Wait for reader screen to load and render the mode toggle
+                                        var elapsed = 0
+                                        while (viewModel.uiState.value.activeDocument == null && elapsed < 40) {
+                                            delay(50)
+                                            elapsed++
+                                        }
+                                        elapsed = 0
+                                        while (!OnboardingController.componentBounds.containsKey("reader_mode_toggle") && elapsed < 40) {
+                                            delay(50)
+                                            elapsed++
+                                        }
+                                        OnboardingStep.MODE_TOGGLE_SPOTLIGHT
+                                    } else {
+                                        OnboardingStep.CONGRATULATIONS
+                                    }
+                                }
+                                OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> OnboardingStep.PLAYER_PANEL_SPOTLIGHT
+                                OnboardingStep.PLAYER_PANEL_SPOTLIGHT -> OnboardingStep.READER_TEXT_SPOTLIGHT
+                                OnboardingStep.READER_TEXT_SPOTLIGHT -> {
+                                    viewModel.returnToLibrary()
+                                    // Wait for library screen to load
+                                    var elapsed = 0
+                                    while (viewModel.uiState.value.activeDocument != null && elapsed < 40) {
+                                        delay(50)
+                                        elapsed++
+                                    }
+                                    OnboardingStep.CONGRATULATIONS
+                                }
+                                OnboardingStep.CONGRATULATIONS -> null
+                            }
+                            if (nextStep == null) {
+                                OnboardingController.activeStep = null
+                                viewModel.completeQuestTour()
+                            } else {
+                                OnboardingController.activeStep = nextStep
+                            }
+                        }
+                    },
+                    onBack = {
+                        coroutineScope.launch {
+                            TutorialSpeaker.stop() // stop current reading before moving to prev step
+                            val prevStep = when (activeStep) {
+                                OnboardingStep.WELCOME -> null
+                                OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.WELCOME
+                                OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.FAB_SPOTLIGHT
+                                OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
+                                OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> {
+                                    viewModel.returnToLibrary()
+                                    // Wait for library screen to load and render the document card
+                                    var elapsed = 0
+                                    while (viewModel.uiState.value.activeDocument != null && elapsed < 40) {
+                                        delay(50)
+                                        elapsed++
+                                    }
+                                    elapsed = 0
+                                    while (!OnboardingController.componentBounds.containsKey("document_card_0") && elapsed < 40) {
+                                        delay(50)
+                                        elapsed++
+                                    }
+                                    OnboardingStep.DOCUMENT_SPOTLIGHT
+                                }
+                                OnboardingStep.PLAYER_PANEL_SPOTLIGHT -> OnboardingStep.MODE_TOGGLE_SPOTLIGHT
+                                OnboardingStep.READER_TEXT_SPOTLIGHT -> OnboardingStep.PLAYER_PANEL_SPOTLIGHT
+                                OnboardingStep.CONGRATULATIONS -> {
+                                    val targetDoc = uiState.documents.firstOrNull()
+                                    if (targetDoc != null) {
+                                        viewModel.openSavedDocument(targetDoc)
+                                        // Wait for reader screen to load and render the reader text view
+                                        var elapsed = 0
+                                        while (viewModel.uiState.value.activeDocument == null && elapsed < 40) {
+                                            delay(50)
+                                            elapsed++
+                                        }
+                                        elapsed = 0
+                                        while (!OnboardingController.componentBounds.containsKey("reader_text_view") && elapsed < 40) {
+                                            delay(50)
+                                            elapsed++
+                                        }
+                                        OnboardingStep.READER_TEXT_SPOTLIGHT
+                                    } else {
+                                        OnboardingStep.DOCUMENT_SPOTLIGHT
+                                    }
+                                }
+                            }
+                            OnboardingController.activeStep = prevStep
+                        }
+                    },
+                    onDismiss = {
+                        coroutineScope.launch {
+                            TutorialSpeaker.stop()
+                            if (uiState.activeDocument != null) {
+                                viewModel.returnToLibrary()
+                            }
+                            OnboardingController.activeStep = null
+                        }
+                    }
+                )
+            }
+        }
+
+        if (uiState.showConfetti) {
+            ConfettiOverlay(
+                onFinished = {
+                    viewModel.finishConfettiCelebration()
                 }
             )
         }
@@ -2831,7 +2973,7 @@ private fun FileBrowserDialog(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         rowFiles.forEach { file ->
-                                            val isSelected = selectedFiles.contains(file)
+                                            val isSelected = selectedFiles.any { it.uri == file.uri }
                                             FileBrowserFileTileCard(
                                                 file = file,
                                                 importing = importing,
@@ -2839,7 +2981,11 @@ private fun FileBrowserDialog(
                                                 onImport = { onImportFile(file) },
                                                 isSelected = isSelected,
                                                 onSelectedChange = { checked ->
-                                                    if (checked) selectedFiles.add(file) else selectedFiles.remove(file)
+                                                    if (checked) {
+                                                        if (selectedFiles.none { it.uri == file.uri }) selectedFiles.add(file)
+                                                    } else {
+                                                        selectedFiles.removeAll { it.uri == file.uri }
+                                                    }
                                                 },
                                                 selectionMode = selectedFiles.isNotEmpty(),
                                                 modifier = Modifier.weight(1f)
@@ -2853,7 +2999,7 @@ private fun FileBrowserDialog(
                                 }
                             } else {
                                 items(files, key = { it.uri.toString() }) { file ->
-                                    val isSelected = selectedFiles.contains(file)
+                                    val isSelected = selectedFiles.any { it.uri == file.uri }
                                     FileBrowserFileRow(
                                         file = file,
                                         viewMode = viewMode,
@@ -2862,7 +3008,11 @@ private fun FileBrowserDialog(
                                         onImport = { onImportFile(file) },
                                         isSelected = isSelected,
                                         onSelectedChange = { checked ->
-                                            if (checked) selectedFiles.add(file) else selectedFiles.remove(file)
+                                            if (checked) {
+                                                if (selectedFiles.none { it.uri == file.uri }) selectedFiles.add(file)
+                                            } else {
+                                                selectedFiles.removeAll { it.uri == file.uri }
+                                            }
                                         },
                                         selectionMode = selectedFiles.isNotEmpty()
                                     )
@@ -3055,6 +3205,7 @@ private fun FileBrowserFileRow(
 ) {
     val enabled = if (file.isDirectory) file.targetLocation != null else file.isSupported && !importing
     val action = if (file.isDirectory) onOpenDirectory else onImport
+    val haptic = LocalHapticFeedback.current
 
     val padding = when (viewMode) {
         LibraryViewMode.SMALL -> 6.dp
@@ -3089,6 +3240,7 @@ private fun FileBrowserFileRow(
                 enabled = enabled,
                 onClick = {
                     if (selectionMode && !file.isDirectory) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         if (isSelected == true) onSelectedChange?.invoke(false)
                         else onSelectedChange?.invoke(true)
                     } else {
@@ -3097,6 +3249,7 @@ private fun FileBrowserFileRow(
                 },
                 onLongClick = {
                     if (!file.isDirectory && onSelectedChange != null) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSelectedChange(true)
                     }
                 }
@@ -3116,7 +3269,10 @@ private fun FileBrowserFileRow(
             if (selectionMode && isSelected != null && onSelectedChange != null && !file.isDirectory) {
                 Checkbox(
                     checked = isSelected,
-                    onCheckedChange = onSelectedChange,
+                    onCheckedChange = { checked ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onSelectedChange(checked)
+                    },
                     modifier = Modifier.padding(end = 4.dp)
                 )
             }
@@ -3197,6 +3353,7 @@ private fun FileBrowserFileTileCard(
 ) {
     val enabled = if (file.isDirectory) file.targetLocation != null else file.isSupported && !importing
     val action = if (file.isDirectory) onOpenDirectory else onImport
+    val haptic = LocalHapticFeedback.current
 
     val (emoji, tint, bg) = getFileColorAndIcon(file)
 
@@ -3207,6 +3364,7 @@ private fun FileBrowserFileTileCard(
                 enabled = enabled,
                 onClick = {
                     if (selectionMode && !file.isDirectory) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         if (isSelected == true) onSelectedChange?.invoke(false)
                         else onSelectedChange?.invoke(true)
                     } else {
@@ -3215,6 +3373,7 @@ private fun FileBrowserFileTileCard(
                 },
                 onLongClick = {
                     if (!file.isDirectory && onSelectedChange != null) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSelectedChange(true)
                     }
                 }
@@ -3245,7 +3404,10 @@ private fun FileBrowserFileTileCard(
                 if (selectionMode && isSelected != null && onSelectedChange != null && !file.isDirectory) {
                     Checkbox(
                         checked = isSelected,
-                        onCheckedChange = onSelectedChange,
+                        onCheckedChange = { checked ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSelectedChange(checked)
+                        },
                         modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
                     )
                 }

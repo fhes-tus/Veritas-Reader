@@ -159,3 +159,45 @@ object VoiceConfigurator {
         }
     }
 }
+
+object TutorialSpeaker {
+    private var tts: TextToSpeech? = null
+    private var isInitialized = false
+    private var pendingText: String? = null
+
+    fun init(context: Context) {
+        if (tts == null) {
+            tts = TextToSpeech(context.applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    isInitialized = true
+                    pendingText?.let {
+                        tts?.speak(it, TextToSpeech.QUEUE_FLUSH, null, "tutorial")
+                        pendingText = null
+                    }
+                }
+            }
+        }
+    }
+
+    fun speak(text: String) {
+        if (tts != null && isInitialized) {
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tutorial")
+        } else {
+            pendingText = text
+        }
+    }
+
+    fun stop() {
+        pendingText = null
+        if (tts != null && isInitialized) {
+            tts?.stop()
+        }
+    }
+
+    fun shutdown() {
+        pendingText = null
+        tts?.shutdown()
+        tts = null
+        isInitialized = false
+    }
+}

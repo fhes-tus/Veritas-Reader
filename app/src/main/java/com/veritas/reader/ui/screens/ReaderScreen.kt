@@ -138,6 +138,8 @@ import com.veritas.reader.capWords
 import com.veritas.reader.installedPackageForOption
 import com.veritas.reader.openPlayStoreForPackage
 import kotlinx.coroutines.delay
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.veritas.reader.ui.OnboardingController
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -382,7 +384,9 @@ fun ReaderScreen(
                 currentMode = state.readerMode,
                 onModeSelected = onReaderModeChange,
                 hasCanvas = hasCanvas,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { OnboardingController.updateBounds("reader_mode_toggle", it) }
             )
             Spacer(modifier = Modifier.height(6.dp))
             LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
@@ -543,7 +547,9 @@ fun ReaderScreen(
                                     }
 
                                     AndroidView(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .onGloballyPositioned { OnboardingController.updateBounds("reader_text_view", it) },
                                         factory = { viewContext ->
                                             TextView(viewContext).apply {
                                                 setTextIsSelectable(true)
@@ -2289,7 +2295,8 @@ private fun PlayerPanel(
             .anchoredDraggable(
                 state = draggableState,
                 orientation = Orientation.Vertical
-            ),
+            )
+            .onGloballyPositioned { OnboardingController.updateBounds("player_panel_header", it) },
         shape = VeritasPackStyle.cardShape(),
         tonalElevation = 2.dp,
         shadowElevation = 2.dp,

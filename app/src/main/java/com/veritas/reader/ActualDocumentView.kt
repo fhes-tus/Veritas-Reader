@@ -47,8 +47,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -290,12 +293,19 @@ internal fun ActualDocumentView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            TextButton(onClick = onClose) { Text("←", style = MaterialTheme.typography.headlineSmall) }
+            IconButton(onClick = onClose) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Close",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
             Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    if (isPdf) "Page ${pageIndex + 1} / $pageCount" else "Original View",
+                    text = if (isPdf) "Page ${pageIndex + 1} / $pageCount" else "Original View",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 if (isPdf && pageCount > 1) {
                     SlimPageSlider(
@@ -306,7 +316,7 @@ internal fun ActualDocumentView(
                     )
                 } else {
                     Text(
-                        document.title,
+                        text = document.title,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall,
@@ -314,15 +324,27 @@ internal fun ActualDocumentView(
                     )
                 }
             }
-            TextButton(
+            IconButton(
                 onClick = {
                     rotationDegrees = (rotationDegrees + 90) % 360
                     zoomScale = 1f
                     zoomOffset = Offset.Zero
                 }
-            ) { Text("🔄", style = MaterialTheme.typography.headlineSmall) }
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                    contentDescription = "Rotate",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
             Box {
-                TextButton(onClick = { showMenu = true }) { Text("⋮", style = MaterialTheme.typography.headlineSmall) }
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More Options",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(
                         text = { Text("Open original") },

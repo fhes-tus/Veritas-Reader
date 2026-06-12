@@ -68,6 +68,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.core.content.edit
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.veritas.reader.ui.OnboardingController
 import com.veritas.reader.*
 import com.veritas.reader.ui.ReaderUiState
 import java.text.SimpleDateFormat
@@ -181,6 +183,11 @@ fun LibraryScreen(
     }
     var showLibraryViewMenu by remember { mutableStateOf(false) }
     var selectedHomeTab by remember { mutableStateOf(VeritasHomeTab.HOME) }
+    // Auto-switch to LIBRARY tab during onboarding so the FAB and document cards are rendered
+    val isTourActive = OnboardingController.activeStep != null
+    LaunchedEffect(isTourActive) {
+        if (isTourActive) { selectedHomeTab = VeritasHomeTab.LIBRARY }
+    }
     var showHomeSidebar by remember { mutableStateOf(false) }
     var showImportSheet by remember { mutableStateOf(false) }
     var importSheetMode by remember { mutableStateOf(ImportSheetMode.MENU) }
@@ -577,7 +584,8 @@ fun LibraryScreen(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         icon = { Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
-                        text = { Text("Add") }
+                        text = { Text("Add") },
+                        modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("add_fab", it) }
                     )
                 }
             },
@@ -1673,7 +1681,15 @@ fun LibraryScreen(
                                 onRename = { onRenameDocument(doc) },
                                 onSetCollection = { onSetCollection(doc) },
                                 onShowDetails = { onShowDetails(doc) },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .then(
+                                        if (doc == visibleDocuments.firstOrNull()) {
+                                            Modifier.onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
+                                        } else {
+                                            Modifier
+                                        }
+                                    ),
                                 onManageLists = { manageListsDocument = doc }
                             )
                         }
@@ -1706,7 +1722,12 @@ fun LibraryScreen(
                         onRename = { onRenameDocument(doc) },
                         onSetCollection = { onSetCollection(doc) },
                         onShowDetails = { onShowDetails(doc) },
-                        onManageLists = { manageListsDocument = doc }
+                        onManageLists = { manageListsDocument = doc },
+                        modifier = if (doc == visibleDocuments.firstOrNull()) {
+                            Modifier.onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
+                        } else {
+                            Modifier
+                        }
                     )
                 }
             }
@@ -2919,7 +2940,8 @@ fun DocumentCard(
     onRename: () -> Unit,
     onSetCollection: () -> Unit,
     onShowDetails: () -> Unit,
-    onManageLists: () -> Unit = {}
+    onManageLists: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     val progress = progressFraction(document)
     var showActions by remember { mutableStateOf(false) }
@@ -2945,7 +2967,7 @@ fun DocumentCard(
     }
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .graphicsLayer(scaleX = selectionScale, scaleY = selectionScale)
             .pointerInput(selectionMode, selected, document.id) {

@@ -89,6 +89,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val userName = repository.loadUserName()
             val hasCompletedOnboarding = repository.hasSeenOnboardingTutorial()
             val hasImportedOrOpenedDocument = repository.hasImportedOrOpenedDocument()
+            val questProgress = repository.loadQuestProgress()
             // Repair missing covers for existing files
             documents.forEach { doc ->
                 if (doc.originalFileName.isNotBlank() && CoverExtractor.coverFile(application, doc.id) == null) {
@@ -134,9 +135,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     annotationCount = annotationCount,
                     fileBrowserRoots = fileBrowserRoots,
                     fileBrowserAllFilesGranted = hasAllFilesAccess(),
-                    userName = userName,
+                     userName = userName,
                     hasCompletedOnboarding = hasCompletedOnboarding,
                     hasImportedOrOpenedDocument = hasImportedOrOpenedDocument,
+                    questTourDone = questProgress.tourDone,
+                    questImportDone = questProgress.importDone,
+                    questSpeedDone = questProgress.speedDone,
+                    questBookmarkDone = questProgress.bookmarkDone,
                     readerTrackerSnapshot = trackerSnapshot,
                     showTutorial = !hasCompletedOnboarding
                 )
@@ -326,6 +331,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 PlaybackStateStore.pitch = saved.preferredPitch
                 PlaybackStateStore.statusMessage = "Voice updated: ${saved.displayName}."
                 restartCurrentSectionIfPlaying()
+                completeQuestSpeed()
             }
         }
     }
@@ -409,6 +415,86 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
+    }
+
+    fun completeQuestTour() {
+        if (uiState.value.questTourDone) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val state = uiState.value
+            repository.saveQuestProgress(
+                tour = true,
+                import = state.questImportDone,
+                speed = state.questSpeedDone,
+                bookmark = state.questBookmarkDone
+            )
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(questTourDone = true) }
+                checkOnboardingOverallCompletion()
+            }
+        }
+    }
+
+    fun completeQuestImport() {
+        if (uiState.value.questImportDone) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val state = uiState.value
+            repository.saveQuestProgress(
+                tour = state.questTourDone,
+                import = true,
+                speed = state.questSpeedDone,
+                bookmark = state.questBookmarkDone
+            )
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(questImportDone = true) }
+                checkOnboardingOverallCompletion()
+            }
+        }
+    }
+
+    fun completeQuestSpeed() {
+        if (uiState.value.questSpeedDone) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val state = uiState.value
+            repository.saveQuestProgress(
+                tour = state.questTourDone,
+                import = state.questImportDone,
+                speed = true,
+                bookmark = state.questBookmarkDone
+            )
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(questSpeedDone = true) }
+                checkOnboardingOverallCompletion()
+            }
+        }
+    }
+
+    fun completeQuestBookmark() {
+        if (uiState.value.questBookmarkDone) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val state = uiState.value
+            repository.saveQuestProgress(
+                tour = state.questTourDone,
+                import = state.questImportDone,
+                speed = state.questSpeedDone,
+                bookmark = true
+            )
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(questBookmarkDone = true) }
+                checkOnboardingOverallCompletion()
+            }
+        }
+    }
+
+    private fun checkOnboardingOverallCompletion() {
+        val state = uiState.value
+        if (state.questTourDone && state.questImportDone && state.questSpeedDone && state.questBookmarkDone) {
+            _uiState.update { it.copy(showConfetti = true) }
+        }
+    }
+
+    fun finishConfettiCelebration() {
+        _uiState.update { it.copy(showConfetti = false) }
+        finishOnboarding(uiState.value.userName.ifBlank { "Reader" })
     }
 
     fun loadVoicesForEngine(enginePackage: String = uiState.value.voiceSettings.enginePackage) {
@@ -913,6 +999,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                                 val docId = workInfo.outputData.getString("documentId")
                                 if (docId != null) {
                                     refreshAll()
+                                    completeQuestImport()
                                     if (queueAfterImport) {
                                         viewModelScope.launch(Dispatchers.IO) {
                                             val queuedDocs = repository.addToQueue(docId)
@@ -1040,6 +1127,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         annotationCount = allAnnotations.size + documentNotes.size
                     )
                 }
+                completeQuestBookmark()
             }
         }
     }
@@ -2153,6 +2241,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         VeritasScreen.CANVAS_VIEW -> it.copy(showCanvasView = false)
                         VeritasScreen.GENERAL_NOTES_EDITOR -> it.copy(showGeneralNotesEditor = false)
                     }
+                }
+            }
+        }
+    }
+
+    fun createWelcomeDocumentSilently() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (repository.loadDocuments().isEmpty()) {
+                repository.createDocument(
+                    title = "Veritas Welcome Guide",
+                    text = "Welcome to Veritas Reader! This is a sample document designed to help you explore the reading environment. Veritas lets you convert research papers, textbooks, EPUBs, docx files, web articles, and images into high-quality spoken audio. Long-press any sentence in this guide to try highlighting, bookmarking, adding study notes, or asking the AI Assistant a question. Adjust the voice speed or select premium voices in the expandable player panel below. Toggle different layout modes like TEXT for clean reading or LISTEN to follow along sentence-by-sentence. Enjoy your reading journey!",
+                    sourceLabel = "System"
+                )
+                withContext(Dispatchers.Main) {
+                    refreshAll()
                 }
             }
         }

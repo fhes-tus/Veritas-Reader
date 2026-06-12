@@ -33,10 +33,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -146,9 +148,8 @@ fun AudioModeScreen(
             ) {
                 IconButton(onClick = onDismiss) {
                     Icon(
-                        imageVector = Icons.Default.SkipPrevious, // Wait, a left arrow or back icon
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        modifier = Modifier.graphicsLayer(rotationZ = 180f), // rotates it to look like back arrow
                         tint = contentColor
                     )
                 }
@@ -163,10 +164,9 @@ fun AudioModeScreen(
                 Box {
                     IconButton(onClick = { toolsExpanded = true }) {
                         Icon(
-                            imageVector = Icons.Default.Pause, // We can use a custom representation or standard ⋮ icon
+                            imageVector = Icons.Default.MoreVert,
                             contentDescription = "More options",
-                            tint = contentColor,
-                            modifier = Modifier.graphicsLayer(rotationZ = 90f) // Rotates pause to look like ⋮
+                            tint = contentColor
                         )
                     }
                     DropdownMenu(
