@@ -2,7 +2,7 @@
 
 Veritas Reader is an Android reading and listening app for imported documents. It turns text, PDFs, DOCX files, EPUBs, images, scanned PDFs, web articles, and shared text into a saved reading library with text-to-speech playback, notes, reader tools, and an actual PDF/document view.
 
-Current version: `1.0.0`
+Current version: `1.0.1`
 Package: `com.veritas.reader`
 Minimum Android: API 28
 Target Android: API 36
