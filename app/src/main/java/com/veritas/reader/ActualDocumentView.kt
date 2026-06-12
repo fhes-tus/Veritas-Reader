@@ -66,6 +66,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -93,6 +94,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
@@ -139,6 +143,8 @@ internal fun ActualDocumentView(
     var zoomScale by remember(document.id) { mutableFloatStateOf(1f) }
     var zoomOffset by remember(document.id) { mutableStateOf(Offset.Zero) }
     var rotationDegrees by remember(document.id) { mutableIntStateOf(0) }
+    var topBarVisible by remember { mutableStateOf(true) }
+    var bottomBarVisible by remember { mutableStateOf(true) }
 
     val isPdf = remember(document) {
         if (document.originalMimeType.contains("pdf", ignoreCase = true) ||
@@ -279,16 +285,211 @@ internal fun ActualDocumentView(
         }
     }
 
-    Column(
+    val topBarOffset by animateFloatAsState(
+        targetValue = if (topBarVisible) 0f else -300f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "topBarOffset"
+    )
+    val bottomBarOffset by animateFloatAsState(
+        targetValue = if (bottomBarVisible) 0f else 400f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "bottomBarOffset"
+    )
+
+    val activeBg = MaterialTheme.colorScheme.background
+    val isThemeDark = remember(activeBg) {
+        val bg = activeBg
+        (0.299f * bg.red + 0.587f * bg.green + 0.114f * bg.blue) < 0.5f
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .background(if (isThemeDark) androidx.compose.ui.graphics.Color(0xFF121212) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
     ) {
+        // 1. Full-screen rendering canvas
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val density = LocalDensity.current
+            val viewportWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
+            val viewportHeightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
+            fun clampOffset(offset: Offset, scale: Float): Offset {
+                val maxOffsetX = (viewportWidthPx * (scale - 1f)) / 2f
+                val maxOffsetY = (viewportHeightPx * (scale - 1f)) / 2f
+                return Offset(
+                    offset.x.coerceIn(-maxOffsetX, maxOffsetX),
+                    offset.y.coerceIn(-maxOffsetY, maxOffsetY)
+                )
+            }
+            fun setZoom(nextScale: Float, nextOffset: Offset = zoomOffset) {
+                val safeScale = nextScale.coerceIn(MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
+                zoomScale = safeScale
+                zoomOffset = clampOffset(nextOffset, safeScale)
+            }
+
+            val image = bitmap
+            when {
+                image != null -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            bitmap = image.asImageBitmap(),
+                            contentDescription = "Rendered original document",
+                            colorFilter = if (isThemeDark) {
+                                ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+                                    -1.0f,  0.0f,  0.0f,  0.0f, 255.0f,
+                                     0.0f, -1.0f,  0.0f,  0.0f, 255.0f,
+                                     0.0f,  0.0f, -1.0f,  0.0f, 255.0f,
+                                     0.0f,  0.0f,  0.0f,  1.0f,   0.0f
+                                )))
+                            } else null,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    scaleX = zoomScale
+                                    scaleY = zoomScale
+                                    rotationZ = rotationDegrees.toFloat()
+                                    translationX = zoomOffset.x
+                                    translationY = zoomOffset.y
+                                }
+                                .pointerInput(isPdf, pageIndex, pageCount, viewportWidthPx, viewportHeightPx, zoomScale) {
+                                    awaitEachGesture {
+                                        var dragTotalX = 0f
+                                        var dragTotalY = 0f
+                                        val firstDown = awaitFirstDown(requireUnconsumed = false)
+                                        val startY = firstDown.position.y
+                                        do {
+                                            val event = awaitPointerEvent()
+                                            val pressedCount = event.changes.count { it.pressed }
+                                            if (pressedCount > 1) {
+                                                val nextScale = (zoomScale * event.calculateZoom()).coerceIn(MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
+                                                val nextOffset = zoomOffset + event.calculatePan()
+                                                setZoom(nextScale, nextOffset)
+                                                event.changes.forEach { change -> if (change.pressed) change.consume() }
+                                                dragTotalX = 0f
+                                                dragTotalY = 0f
+                                            } else {
+                                                val change = event.changes.firstOrNull { it.id == firstDown.id }
+                                                    ?: event.changes.firstOrNull()
+                                                if (change != null && change.pressed) {
+                                                    val delta = change.positionChange()
+                                                    if (zoomScale > 1.01f) {
+                                                        zoomOffset = clampOffset(zoomOffset + delta, zoomScale)
+                                                        change.consume()
+                                                    } else {
+                                                        dragTotalX += delta.x
+                                                        dragTotalY += delta.y
+                                                        if (Math.abs(dragTotalY) > 20f && Math.abs(dragTotalY) > Math.abs(dragTotalX)) {
+                                                            change.consume()
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } while (event.changes.any { it.pressed })
+
+                                        if (zoomScale <= 1.01f) {
+                                            if (Math.abs(dragTotalY) > 50f && Math.abs(dragTotalY) > Math.abs(dragTotalX)) {
+                                                val isDragUp = dragTotalY < 0
+                                                if (startY < viewportHeightPx / 2) {
+                                                    topBarVisible = !isDragUp
+                                                } else {
+                                                    bottomBarVisible = isDragUp
+                                                }
+                                            } else {
+                                                when {
+                                                    dragTotalX < -80f -> selectPage(pageIndex + 1)
+                                                    dragTotalX > 80f -> selectPage(pageIndex - 1)
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                            contentScale = ContentScale.Fit
+                        )
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(10.dp),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                            tonalElevation = 4.dp,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                TextButton(
+                                    onClick = { setZoom(zoomScale / CANVAS_ZOOM_STEP) },
+                                    enabled = zoomScale > MIN_CANVAS_ZOOM + 0.01f
+                                ) { Text("−") }
+                                TextButton(onClick = { setZoom(1f, Offset.Zero) }) {
+                                    Text(
+                                        "${(zoomScale * 100).roundToInt()}%",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { setZoom(zoomScale * CANVAS_ZOOM_STEP) },
+                                    enabled = zoomScale < MAX_CANVAS_ZOOM - 0.01f
+                                ) { Text("+") }
+                            }
+                        }
+                    }
+                }
+                message == null && (isPdf || isImage) -> {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
+                else -> {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "⚠️ original document view is unavailable",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                text = message ?: "Unrecognized document format.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(onClick = onOpenExternal, enabled = original != null) { Text("Open original") }
+                                TextButton(onClick = onClose) { Text("Extracted text") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Floating Top app bar
         Row(
             modifier = Modifier
+                .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .statusBarsPadding()
+                .graphicsLayer { translationY = topBarOffset }
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
+                .statusBarsPadding()
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -365,162 +566,34 @@ internal fun ActualDocumentView(
             }
         }
 
-        BoxWithConstraints(
+        // 3. Floating Bottom Player Panel
+        Box(
             modifier = Modifier
+                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .weight(1f),
-            contentAlignment = Alignment.Center
+                .graphicsLayer { translationY = bottomBarOffset }
         ) {
-            val density = LocalDensity.current
-            val viewportWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
-            val viewportHeightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
-            fun clampOffset(offset: Offset, scale: Float): Offset {
-                val xLimit = viewportWidthPx * (scale - 1f) / 2f
-                val yLimit = viewportHeightPx * (scale - 1f) / 2f
-                return if (scale <= 1.01f) {
-                    Offset.Zero
-                } else {
-                    Offset(offset.x.coerceIn(-xLimit, xLimit), offset.y.coerceIn(-yLimit, yLimit))
-                }
-            }
-            fun setZoom(nextScale: Float, nextOffset: Offset = zoomOffset) {
-                val safeScale = nextScale.coerceIn(MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
-                zoomScale = safeScale
-                zoomOffset = clampOffset(nextOffset, safeScale)
-            }
-
-            val image = bitmap
-            when {
-                image != null -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            bitmap = image.asImageBitmap(),
-                            contentDescription = "Rendered original document",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    scaleX = zoomScale
-                                    scaleY = zoomScale
-                                    rotationZ = rotationDegrees.toFloat()
-                                    translationX = zoomOffset.x
-                                    translationY = zoomOffset.y
-                                }
-                                .pointerInput(isPdf, pageIndex, pageCount, viewportWidthPx, viewportHeightPx) {
-                                    awaitEachGesture {
-                                        var dragTotal = 0f
-                                        val firstDown = awaitFirstDown(requireUnconsumed = false)
-                                        do {
-                                            val event = awaitPointerEvent()
-                                            val pressedCount = event.changes.count { it.pressed }
-                                            if (pressedCount > 1) {
-                                                val nextScale = (zoomScale * event.calculateZoom()).coerceIn(MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
-                                                val nextOffset = zoomOffset + event.calculatePan()
-                                                setZoom(nextScale, nextOffset)
-                                                event.changes.forEach { change -> if (change.pressed) change.consume() }
-                                                dragTotal = 0f
-                                            } else {
-                                                val change = event.changes.firstOrNull { it.id == firstDown.id }
-                                                    ?: event.changes.firstOrNull()
-                                                if (change != null && change.pressed) {
-                                                    val delta = change.positionChange()
-                                                    if (zoomScale > 1.01f) {
-                                                        zoomOffset = clampOffset(zoomOffset + delta, zoomScale)
-                                                        change.consume()
-                                                    } else {
-                                                        dragTotal += delta.x
-                                                    }
-                                                }
-                                            }
-                                        } while (event.changes.any { it.pressed })
-
-                                        if (zoomScale <= 1.01f) {
-                                            when {
-                                                dragTotal < -80f -> selectPage(pageIndex + 1)
-                                                dragTotal > 80f -> selectPage(pageIndex - 1)
-                                            }
-                                        }
-                                    }
-                                },
-                            contentScale = ContentScale.Fit
-                        )
-                        Surface(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(10.dp),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-                            tonalElevation = 4.dp,
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                TextButton(
-                                    onClick = { setZoom(zoomScale / CANVAS_ZOOM_STEP) },
-                                    enabled = zoomScale > MIN_CANVAS_ZOOM + 0.01f
-                                ) { Text("−") }
-                                TextButton(onClick = { setZoom(1f, Offset.Zero) }) {
-                                    Text("${(zoomScale * 100f).roundToInt()}%")
-                                }
-                                TextButton(
-                                    onClick = { setZoom(zoomScale * CANVAS_ZOOM_STEP) },
-                                    enabled = zoomScale < MAX_CANVAS_ZOOM - 0.01f
-                                ) { Text("+") }
-                            }
-                        }
-                    }
-                }
-                message == null && (isPdf || isImage) -> {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(26.dp))
-                        Text("Rendering original…")
-                    }
-                }
-                else -> {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(22.dp),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                    ) {
-                        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Original View", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                            Text(message.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = onOpenExternal, enabled = original != null) { Text("Open original") }
-                                TextButton(onClick = onClose) { Text("Extracted text") }
-                            }
-                        }
-                    }
-                }
-            }
+            DocPlayerPanel(
+                isPlaying = isPlaying,
+                statusMessage = statusMessage,
+                rate = rate,
+                pitch = pitch,
+                fontSizeSp = fontSizeSp,
+                queueCount = queueCount,
+                canGoPrevious = canGoPrevious,
+                canGoNext = canGoNext,
+                onPrevious = onPrevious,
+                onPlayPause = onPlayPause,
+                onNext = onNext,
+                onRateChange = onRateChange,
+                onPitchChange = onPitchChange,
+                onFontSizeChange = onFontSizeChange,
+                onOpenVoiceStudio = onOpenVoiceStudio,
+                voices = voices,
+                voiceSettings = voiceSettings,
+                onVoiceSelected = onVoiceSelected
+            )
         }
-        DocPlayerPanel(
-            isPlaying = isPlaying,
-            statusMessage = statusMessage,
-            rate = rate,
-            pitch = pitch,
-            fontSizeSp = fontSizeSp,
-            queueCount = queueCount,
-            canGoPrevious = canGoPrevious,
-            canGoNext = canGoNext,
-            onPrevious = onPrevious,
-            onPlayPause = onPlayPause,
-            onNext = onNext,
-            onRateChange = onRateChange,
-            onPitchChange = onPitchChange,
-            onFontSizeChange = onFontSizeChange,
-            onOpenVoiceStudio = onOpenVoiceStudio,
-            voices = voices,
-            voiceSettings = voiceSettings,
-            onVoiceSelected = onVoiceSelected
-        )
     }
 }
 
@@ -727,6 +800,7 @@ private fun DocPlayerPanel(
                         Text(
                             "Speed ${"%.2f".format(rate)}x",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -748,7 +822,14 @@ private fun DocPlayerPanel(
                         value = rate,
                         onValueChange = onRateChange,
                         valueRange = 0.5f..2.0f,
-                        modifier = Modifier.padding(horizontal = 8.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
+                            activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
+                            inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                        )
                     )
 
                     // Pitch & Font Size row
@@ -760,25 +841,41 @@ private fun DocPlayerPanel(
                             Text(
                                 "Pitch ${"%.2f".format(pitch)}",
                                 style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Slider(
                                 value = pitch,
                                 onValueChange = onPitchChange,
-                                valueRange = 0.7f..1.4f
+                                valueRange = 0.7f..1.4f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
+                                    activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
+                                    inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                )
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Text size ${fontSizeSp}sp",
                                 style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Slider(
                                 value = fontSizeSp.toFloat(),
                                 onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
                                 valueRange = 14f..28f,
-                                steps = 13
+                                steps = 13,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
+                                    activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
+                                    inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                )
                             )
                         }
                     }

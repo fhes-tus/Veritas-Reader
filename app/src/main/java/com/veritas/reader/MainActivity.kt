@@ -119,6 +119,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -612,7 +615,25 @@ object VeritasFileBrowserScanner {
             it.name.lowercase(Locale.getDefault())
         })
             .mapNotNull { child ->
-                if (child.name == "." || child.name == "..") return@mapNotNull null
+                val nameLower = child.name.lowercase(Locale.US)
+                if (child.name.startsWith(".") || child.name == "..") return@mapNotNull null
+                if (!child.isDirectory) {
+                    val isBinaryOrSystem = nameLower.endsWith(".bin") ||
+                            nameLower.endsWith(".apk") ||
+                            nameLower.endsWith(".exe") ||
+                            nameLower.endsWith(".so") ||
+                            nameLower.endsWith(".class") ||
+                            nameLower.endsWith(".dex") ||
+                            nameLower.endsWith(".tmp") ||
+                            nameLower.endsWith(".temp") ||
+                            nameLower.endsWith(".db") ||
+                            nameLower.endsWith(".sqlite") ||
+                            nameLower.endsWith(".sys") ||
+                            nameLower.endsWith(".dll") ||
+                            nameLower.endsWith(".log") ||
+                            nameLower.endsWith(".dat")
+                    if (isBinaryOrSystem) return@mapNotNull null
+                }
                 val relativePath =
                     child.relativeToOrSelf(storageRoot).path.replace(File.separatorChar, '/')
                 if (child.isDirectory) {
@@ -737,9 +758,29 @@ object VeritasFileBrowserScanner {
                         val name =
                             cursor.stringValue(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                                 .orEmpty()
+                        if (name.startsWith(".")) continue
                         val mimeType =
                             cursor.stringValue(DocumentsContract.Document.COLUMN_MIME_TYPE)
                                 .orEmpty()
+                        val isDir = mimeType == DocumentsContract.Document.MIME_TYPE_DIR
+                        if (!isDir) {
+                            val nameLower = name.lowercase(Locale.US)
+                            val isBinaryOrSystem = nameLower.endsWith(".bin") ||
+                                    nameLower.endsWith(".apk") ||
+                                    nameLower.endsWith(".exe") ||
+                                    nameLower.endsWith(".so") ||
+                                    nameLower.endsWith(".class") ||
+                                    nameLower.endsWith(".dex") ||
+                                    nameLower.endsWith(".tmp") ||
+                                    nameLower.endsWith(".temp") ||
+                                    nameLower.endsWith(".db") ||
+                                    nameLower.endsWith(".sqlite") ||
+                                    nameLower.endsWith(".sys") ||
+                                    nameLower.endsWith(".dll") ||
+                                    nameLower.endsWith(".log") ||
+                                    nameLower.endsWith(".dat")
+                            if (isBinaryOrSystem) continue
+                        }
                         val size = cursor.longValue(DocumentsContract.Document.COLUMN_SIZE)
                         val modified =
                             cursor.longValue(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
@@ -1062,6 +1103,7 @@ private fun VeritasReaderApp(
                         )
                     },
                     onClearContinueDocument = { viewModel.clearContinueReading(it) },
+                    onPlayPauseContinue = { viewModel.playOrPauseSavedDocument(it) },
                     onDeleteDocument = { doc -> viewModel.updateState { it.copy(deleteTarget = doc) } },
                     onToggleQueue = { viewModel.toggleQueue(it) },
                     onToggleFavorite = { viewModel.toggleFavorite(it) },
@@ -1104,7 +1146,10 @@ private fun VeritasReaderApp(
                     onWriteGeneralNote = { viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null) } },
                     onEditGeneralNote = { note -> viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = note) } },
                     onRemoveVocabularyWord = { docId, word -> viewModel.removeVocabularyWord(docId, word) },
-                    onClearReadingHistory = { viewModel.clearReadingHistory() }
+                    onClearReadingHistory = { viewModel.clearReadingHistory() },
+                    onToggleGeneralNotePin = viewModel::toggleGeneralNotePin,
+                    onChangeGeneralNoteColor = viewModel::changeGeneralNoteColor,
+                    onDeleteGeneralNote = viewModel::deleteGeneralNote
                 )
                 if (uiState.showTutorial) {
                     OnboardingQuestChecklist(
@@ -1481,7 +1526,8 @@ private fun VeritasReaderApp(
                 onStartRecord = { viewModel.startRecordSoundFile() },
                 onOpenTextEditor = { viewModel.openCurrentPartTextEditor() },
                 onOpenTutorial = {
-                    viewModel.updateState { it.copy(showTutorial = true, showSettingsHub = false) }
+                    viewModel.resetQuestProgress()
+                    viewModel.updateState { it.copy(showSettingsHub = false) }
                     viewModel.createWelcomeDocumentSilently()
                     OnboardingController.activeStep = OnboardingStep.WELCOME
                 },
@@ -1857,7 +1903,9 @@ private fun VeritasReaderApp(
         if (uiState.showGeneralNotesEditor) {
             GeneralNotesEditor(
                 note = uiState.generalNoteEditorTarget,
-                onSave = { title, content -> viewModel.saveGeneralNote(title, content) },
+                onSave = { title, content, color, pinned, isChecklist, imageUrl, audioUrl ->
+                    viewModel.saveGeneralNote(title, content, color, pinned, isChecklist, imageUrl, audioUrl)
+                },
                 onDelete = { noteId -> viewModel.deleteGeneralNote(noteId) },
                 onDismiss = { viewModel.updateState { it.copy(showGeneralNotesEditor = false, generalNoteEditorTarget = null) } }
             )
@@ -1900,6 +1948,19 @@ private fun VeritasReaderApp(
         }
 
         if (uiState.showFileBrowser && uiState.pendingImport == null) {
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        viewModel.refreshFileBrowser()
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
+
             FileBrowserDialog(
                 roots = uiState.fileBrowserRoots,
                 entries = uiState.fileBrowserFiles,
@@ -2217,6 +2278,12 @@ private fun VeritasReaderApp(
 
         if (uiState.showTutorial) {
             val activeStep = OnboardingController.activeStep
+            LaunchedEffect(uiState.showTutorial, uiState.hasCompletedOnboarding) {
+                if (uiState.showTutorial && !uiState.hasCompletedOnboarding && OnboardingController.activeStep == null) {
+                    viewModel.createWelcomeDocumentSilently()
+                    OnboardingController.activeStep = OnboardingStep.WELCOME
+                }
+            }
             // Voice-assisted tutorial: read each step aloud automatically
             LaunchedEffect(activeStep) {
                 if (activeStep != null) {
@@ -2235,13 +2302,20 @@ private fun VeritasReaderApp(
             if (activeStep != null) {
                 OnboardingSpotlightOverlay(
                     step = activeStep,
+                    userName = uiState.userName,
+                    onUserNameChanged = { viewModel.updateUserNameInMemory(it) },
                     onNext = {
                         coroutineScope.launch {
                             TutorialSpeaker.stop() // stop current reading before moving to next step
                             val nextStep = when (activeStep) {
-                                OnboardingStep.WELCOME -> OnboardingStep.FAB_SPOTLIGHT
+                                OnboardingStep.WELCOME -> OnboardingStep.NAME_INPUT
+                                OnboardingStep.NAME_INPUT -> {
+                                    viewModel.saveUserName(uiState.userName)
+                                    OnboardingStep.FAB_SPOTLIGHT
+                                }
                                 OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
-                                OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
+                                OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
+                                OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
                                 OnboardingStep.DOCUMENT_SPOTLIGHT -> {
                                     val targetDoc = uiState.documents.firstOrNull()
                                     if (targetDoc != null) {
@@ -2289,9 +2363,11 @@ private fun VeritasReaderApp(
                             TutorialSpeaker.stop() // stop current reading before moving to prev step
                             val prevStep = when (activeStep) {
                                 OnboardingStep.WELCOME -> null
-                                OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.WELCOME
+                                OnboardingStep.NAME_INPUT -> OnboardingStep.WELCOME
+                                OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.NAME_INPUT
                                 OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.FAB_SPOTLIGHT
-                                OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
+                                OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
+                                OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
                                 OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> {
                                     viewModel.returnToLibrary()
                                     // Wait for library screen to load and render the document card
@@ -6124,8 +6200,15 @@ private fun VeritasTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val selectedTheme = VeritasThemeCatalog.normalizeThemeId(VeritasThemeState.themeId)
     val selectedPack = VeritasThemePackCatalog.normalizePackId(VeritasThemeState.themePackId)
+    
+    val resolvedTheme = if (selectedTheme == "system") {
+        if (androidx.compose.foundation.isSystemInDarkTheme()) "default_dark_2026" else "light"
+    } else {
+        selectedTheme
+    }
+
     val colorScheme = veritasPackColorScheme(
-        base = veritasColorScheme(selectedTheme, context),
+        base = veritasColorScheme(resolvedTheme, context),
         packId = selectedPack
     )
 
@@ -6136,7 +6219,7 @@ private fun VeritasTheme(content: @Composable () -> Unit) {
             if (window != null) {
                 @Suppress("DEPRECATION")
                 window.statusBarColor = colorScheme.surface.toArgb()
-                val isLight = when (selectedTheme) {
+                val isLight = when (resolvedTheme) {
                     "light", "white_high_contrast", "bw_gradient_light", "github_light" -> true
                     else -> false
                 }

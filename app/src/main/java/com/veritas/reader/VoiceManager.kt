@@ -90,12 +90,34 @@ object VoiceManager {
                         )
                     }
                     .distinctBy { it.name }
-                    .sortedWith(
-                        compareByDescending<TtsVoiceOption> { it.requiresNetwork }
-                            .thenByDescending { it.localeTag.startsWith("en", ignoreCase = true) }
-                            .thenBy { it.localeTag.lowercase(Locale.getDefault()) }
-                            .thenBy { it.name.lowercase(Locale.getDefault()) }
-                    )
+                    .sortedWith { a, b ->
+                        val aEn = a.localeTag.startsWith("en", ignoreCase = true)
+                        val bEn = b.localeTag.startsWith("en", ignoreCase = true)
+                        val enCompare = when {
+                            aEn && !bEn -> -1
+                            !aEn && bEn -> 1
+                            aEn && bEn -> {
+                                val aUS = a.localeTag.equals("en-US", ignoreCase = true) || a.localeTag.equals("en_US", ignoreCase = true)
+                                val bUS = b.localeTag.equals("en-US", ignoreCase = true) || b.localeTag.equals("en_US", ignoreCase = true)
+                                val aGB = a.localeTag.equals("en-GB", ignoreCase = true) || a.localeTag.equals("en_GB", ignoreCase = true)
+                                val bGB = b.localeTag.equals("en-GB", ignoreCase = true) || b.localeTag.equals("en_GB", ignoreCase = true)
+                                when {
+                                    aUS && !bUS -> -1
+                                    !aUS && bUS -> 1
+                                    aGB && !bGB -> -1
+                                    !aGB && bGB -> 1
+                                    else -> a.localeTag.compareTo(b.localeTag, ignoreCase = true)
+                                }
+                            }
+                            else -> a.localeTag.compareTo(b.localeTag, ignoreCase = true)
+                        }
+                        if (enCompare != 0) enCompare
+                        else {
+                            val netCompare = a.requiresNetwork.compareTo(b.requiresNetwork)
+                            if (netCompare != 0) netCompare
+                            else a.name.compareTo(b.name, ignoreCase = true)
+                        }
+                    }
                 runCatching { current.shutdown() }
                 if (continuation.isActive) continuation.resume(voices)
                 else runCatching { current.shutdown() } // cleanup if already cancelled

@@ -128,7 +128,9 @@ data class VocabularyEntry(
     val word: String,
     val explanation: String,
     val source: String,
-    val sentenceIndex: Int
+    val sentenceIndex: Int,
+    val contextSentence: String? = null,
+    val pronunciation: String? = null
 )
 
 fun parseVocabularyNoteContent(content: String): List<VocabularyEntry> {
@@ -144,7 +146,18 @@ fun parseVocabularyNoteContent(content: String): List<VocabularyEntry> {
             val match = Regex("""sentence\s+(\d+)""", RegexOption.IGNORE_CASE).find(source)
             match?.groupValues?.getOrNull(1)?.toInt()?.minus(1) ?: 0
         }.getOrDefault(0)
-        VocabularyEntry(word, explanation, source, sentenceIndex)
+
+        var context: String? = null
+        var pron: String? = null
+        for (i in 3 until lines.size) {
+            val line = lines[i]
+            if (line.startsWith("context:", ignoreCase = true)) {
+                context = line.substringAfter("context:").trim().removeSurrounding("\"")
+            } else if (line.startsWith("pronunciation:", ignoreCase = true)) {
+                pron = line.substringAfter("pronunciation:").trim()
+            }
+        }
+        VocabularyEntry(word, explanation, source, sentenceIndex, context, pron)
     }
 }
 

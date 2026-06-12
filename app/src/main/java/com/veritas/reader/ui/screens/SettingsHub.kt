@@ -601,13 +601,56 @@ fun VoiceStudioDialog(
     val visibleVoices = remember(voices, settings.showNetworkVoices, currentLocale) {
         voices
             .filter { settings.showNetworkVoices || !it.requiresNetwork }
-            .sortedWith(
-                compareBy<TtsVoiceOption> { it.localeTag.lowercase(currentLocale) }
-                    .thenBy { it.name.lowercase(currentLocale) }
-            )
+            .sortedWith { a, b ->
+                val aLoc = a.localeTag
+                val bLoc = b.localeTag
+                val aEn = aLoc.startsWith("en", ignoreCase = true)
+                val bEn = bLoc.startsWith("en", ignoreCase = true)
+                val locCompare = when {
+                    aEn && !bEn -> -1
+                    !aEn && bEn -> 1
+                    aEn && bEn -> {
+                        val aUS = aLoc.equals("en-US", ignoreCase = true) || aLoc.equals("en_US", ignoreCase = true)
+                        val bUS = bLoc.equals("en-US", ignoreCase = true) || bLoc.equals("en_US", ignoreCase = true)
+                        val aGB = aLoc.equals("en-GB", ignoreCase = true) || aLoc.equals("en_GB", ignoreCase = true)
+                        val bGB = bLoc.equals("en-GB", ignoreCase = true) || bLoc.equals("en_GB", ignoreCase = true)
+                        when {
+                            aUS && !bUS -> -1
+                            !aUS && bUS -> 1
+                            aGB && !bGB -> -1
+                            !aGB && bGB -> 1
+                            else -> aLoc.compareTo(bLoc, ignoreCase = true)
+                        }
+                    }
+                    else -> aLoc.compareTo(bLoc, ignoreCase = true)
+                }
+                if (locCompare != 0) locCompare
+                else a.name.compareTo(b.name, ignoreCase = true)
+            }
     }
     val languageTags = remember(visibleVoices) {
-        visibleVoices.map { it.localeTag }.distinct()
+        visibleVoices.map { it.localeTag }.distinct().sortedWith { a, b ->
+            val aEn = a.startsWith("en", ignoreCase = true)
+            val bEn = b.startsWith("en", ignoreCase = true)
+            when {
+                aEn && !bEn -> -1
+                !aEn && bEn -> 1
+                aEn && bEn -> {
+                    val aUS = a.equals("en-US", ignoreCase = true) || a.equals("en_US", ignoreCase = true)
+                    val bUS = b.equals("en-US", ignoreCase = true) || b.equals("en_US", ignoreCase = true)
+                    val aGB = a.equals("en-GB", ignoreCase = true) || a.equals("en_GB", ignoreCase = true)
+                    val bGB = b.equals("en-GB", ignoreCase = true) || b.equals("en_GB", ignoreCase = true)
+                    when {
+                        aUS && !bUS -> -1
+                        !aUS && bUS -> 1
+                        aGB && !bGB -> -1
+                        !aGB && bGB -> 1
+                        else -> a.compareTo(b, ignoreCase = true)
+                    }
+                }
+                else -> a.compareTo(b, ignoreCase = true)
+            }
+        }
     }
     val selectedLanguageTag = when {
         settings.localeTag in languageTags -> settings.localeTag
@@ -843,7 +886,7 @@ fun VoiceStudioDialog(
 private fun voiceLanguageLabel(localeTag: String, displayLocale: Locale): String {
     if (localeTag.isBlank()) return "Default language"
     val locale = Locale.forLanguageTag(localeTag)
-    return locale.getDisplayLanguage(displayLocale).ifBlank { localeTag }
+    return locale.getDisplayName(displayLocale).ifBlank { localeTag }
 }
 
 private fun voiceProviderLabel(voice: TtsVoiceOption, displayLocale: Locale): String {

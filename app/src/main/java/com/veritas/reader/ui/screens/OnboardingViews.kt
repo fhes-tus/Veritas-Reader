@@ -167,6 +167,8 @@ fun ConfettiOverlay(
 @Composable
 fun OnboardingSpotlightOverlay(
     step: OnboardingStep,
+    userName: String,
+    onUserNameChanged: (String) -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
     onDismiss: () -> Unit
@@ -308,6 +310,8 @@ fun OnboardingSpotlightOverlay(
             ) {
                 OnboardingInfoCard(
                     step = step,
+                    userName = userName,
+                    onUserNameChanged = onUserNameChanged,
                     onNext = onNext,
                     onBack = onBack,
                     onDismiss = onDismiss,
@@ -321,6 +325,8 @@ fun OnboardingSpotlightOverlay(
 @Composable
 fun OnboardingInfoCard(
     step: OnboardingStep,
+    userName: String,
+    onUserNameChanged: (String) -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
@@ -384,6 +390,26 @@ fun OnboardingInfoCard(
                 lineHeight = 20.sp,
                 color = MaterialTheme.colorScheme.onSurface
             )
+
+            if (step == OnboardingStep.NAME_INPUT) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = userName,
+                    onValueChange = onUserNameChanged,
+                    label = { Text("Your Name") },
+                    placeholder = { Text("Enter your name") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = MaterialTheme.colorScheme.primary,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             if (showLiveTip) {
                 Spacer(modifier = Modifier.height(10.dp))

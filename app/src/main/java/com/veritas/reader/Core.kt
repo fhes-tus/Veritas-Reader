@@ -242,20 +242,35 @@ data class GeneralNote(
     val id: String,
     val title: String,
     val content: String,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val color: String? = null,
+    val pinned: Boolean = false,
+    val isChecklist: Boolean = false,
+    val imageUrl: String? = null,
+    val audioUrl: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("title", title)
         .put("content", content)
         .put("updatedAt", updatedAt)
+        .put("color", color ?: "")
+        .put("pinned", pinned)
+        .put("isChecklist", isChecklist)
+        .put("imageUrl", imageUrl ?: "")
+        .put("audioUrl", audioUrl ?: "")
 
     companion object {
         fun fromJson(obj: JSONObject): GeneralNote = GeneralNote(
             id = obj.optString("id", ""),
             title = obj.optString("title", ""),
             content = obj.optString("content", ""),
-            updatedAt = obj.optLong("updatedAt", 0L)
+            updatedAt = obj.optLong("updatedAt", 0L),
+            color = obj.optString("color", "").takeIf { it.isNotBlank() },
+            pinned = obj.optBoolean("pinned", false),
+            isChecklist = obj.optBoolean("isChecklist", false),
+            imageUrl = obj.optString("imageUrl", "").takeIf { it.isNotBlank() },
+            audioUrl = obj.optString("audioUrl", "").takeIf { it.isNotBlank() }
         )
     }
 }
@@ -418,9 +433,10 @@ object VeritasThemePackCatalog {
 }
 
 object VeritasThemeCatalog {
-    const val DEFAULT_ID = "light"
+    const val DEFAULT_ID = "system"
 
     val themeOptions: List<Pair<String, String>> = listOf(
+        "system" to "System Default",
         "dark" to "Dark",
         "light" to "Light",
         "neon" to "Neon",
@@ -773,7 +789,8 @@ data class ReaderTrackerSnapshot(
     val documentsReadThisWeek: Int = 0,
     val documentsCompletedThisMonth: Int = 0,
     val weeklyUsageByDay: List<Long> = List(7) { 0L },
-    val recentCompletions: List<ReaderTrackerCompletion> = emptyList()
+    val recentCompletions: List<ReaderTrackerCompletion> = emptyList(),
+    val activeDateKeys: Set<String> = emptySet()
 ) {
     companion object {
         fun empty(): ReaderTrackerSnapshot = ReaderTrackerSnapshot()
@@ -842,6 +859,66 @@ class DocumentRepository(context: Context) {
     private val docsDir: File = File(appContext.filesDir, "reader_documents").apply { mkdirs() }
     private val originalsDir: File = File(appContext.filesDir, "original_documents").apply { mkdirs() }
 
+    fun saveDocumentTitle(documentId: String, title: String) {
+        val raw = prefs.getString("document_titles", "{}") ?: "{}"
+        val json = JSONObject(raw)
+        json.put(documentId, title)
+        prefs.edit().putString("document_titles", json.toString()).apply()
+    }
+
+    fun getDocumentTitle(documentId: String): String {
+        val raw = prefs.getString("document_titles", "{}") ?: "{}"
+        val json = JSONObject(raw)
+        return json.optString(documentId, "Deleted Book")
+    }
+
+    fun loadAllDocumentTitles(): Map<String, String> {
+        val raw = prefs.getString("document_titles", "{}") ?: "{}"
+        val json = JSONObject(raw)
+        val map = mutableMapOf<String, String>()
+        
+        // Auto-backfill active document titles
+        runCatching {
+            loadDocuments().forEach { doc ->
+                map[doc.id] = doc.title
+                if (!json.has(doc.id)) {
+                    json.put(doc.id, doc.title)
+                }
+            }
+        }
+        
+        json.keys().forEach { key ->
+            map[key] = json.optString(key, "Deleted Book")
+        }
+        
+        runCatching {
+            prefs.edit().putString("document_titles", json.toString()).apply()
+        }
+        return map
+    }
+
+    fun recordDocReadingTime(documentId: String, durationMillis: Long, nowMillis: Long = System.currentTimeMillis()) {
+        val monthKey = SimpleDateFormat("yyyy-MM", Locale.US).format(java.util.Date(nowMillis))
+        val prefKey = "monthly_reading_time_$monthKey"
+        val raw = prefs.getString(prefKey, "{}") ?: "{}"
+        val json = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
+        val currentVal = json.optLong(documentId, 0L)
+        json.put(documentId, currentVal + durationMillis)
+        prefs.edit().putString(prefKey, json.toString()).apply()
+    }
+
+    fun loadDocReadingTimes(nowMillis: Long = System.currentTimeMillis()): Map<String, Long> {
+        val monthKey = SimpleDateFormat("yyyy-MM", Locale.US).format(java.util.Date(nowMillis))
+        val prefKey = "monthly_reading_time_$monthKey"
+        val raw = prefs.getString(prefKey, "{}") ?: "{}"
+        val json = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
+        val map = mutableMapOf<String, Long>()
+        json.keys().forEach { key ->
+            map[key] = json.optLong(key, 0L)
+        }
+        return map
+    }
+
     fun loadDocuments(): List<SavedDocument> {
         val raw = prefs.getString(KEY_DOCUMENTS, "[]") ?: "[]"
         val array = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
@@ -897,6 +974,7 @@ class DocumentRepository(context: Context) {
         val id = UUID.randomUUID().toString()
         val fileName = "$id.txt"
         File(docsDir, fileName).writeText(text, Charsets.UTF_8)
+        saveDocumentTitle(id, normalizedTitle)
         val originalFileResult = originalUri?.let { saveOriginalFileReference(id, it, originalDisplayName) }
         val originalFileName = originalFileResult?.getOrNull().orEmpty()
         val fileErrorNote = originalFileResult?.exceptionOrNull()?.let {
@@ -1351,6 +1429,10 @@ class DocumentRepository(context: Context) {
         prefs.edit { putBoolean(KEY_ONBOARDING_TUTORIAL_SEEN, true) }
     }
 
+    fun resetOnboardingState() {
+        prefs.edit { putBoolean(KEY_ONBOARDING_TUTORIAL_SEEN, false) }
+    }
+
     fun loadUserName(): String {
         return prefs.getString(KEY_USER_NAME, "")?.trim().orEmpty()
     }
@@ -1465,7 +1547,8 @@ class DocumentRepository(context: Context) {
             documentsReadThisWeek = readThisWeek,
             documentsCompletedThisMonth = completedThisMonth,
             weeklyUsageByDay = weeklyUsageByDay,
-            recentCompletions = completions.sortedByDescending { it.completedAt }.take(8)
+            recentCompletions = completions.sortedByDescending { it.completedAt }.take(8),
+            activeDateKeys = openDateKeys
         )
     }
 
@@ -1578,9 +1661,7 @@ class DocumentRepository(context: Context) {
         val updated = docs.filterNot { it.id == documentId }
         saveDocuments(updated)
         removeFromQueue(documentId)
-        deleteAnnotationsForDocument(documentId)
-        deleteDocumentNote(documentId)
-        saveReadingHistory(loadReadingHistory().filterNot { it.documentId == documentId })
+        // Keep annotations, document notes, and reading history intact so they can still be viewed in Study tab
         saveReadingListCatalog(loadReadingListCatalog().removeDocumentEverywhere(documentId))
         return updated
     }

@@ -75,11 +75,60 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private var panelSpeedLabel: TextView? = null
     private var panelPitchLabel: TextView? = null
 
+    private var isLightTheme = false
+    private var colorPrimary = 0
+    private var colorBackground = 0
+    private var colorToolbar = 0
+    private var colorSurface = 0
+    private var colorSurfaceVariant = 0
+    private var colorTextPrimary = 0
+    private var colorTextSecondary = 0
+    private var colorOutline = 0
+    private var colorSyncBackground = 0
+    private var colorActiveStrip = 0
+    private var colorAccentButton = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        configureSystemBars()
         repository = DocumentRepository(applicationContext)
+
+        val settings = repository.loadReaderSettings()
+        val themeId = settings.themeId
+        isLightTheme = if (themeId == "system") {
+            val mode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            mode != android.content.res.Configuration.UI_MODE_NIGHT_YES
+        } else {
+            themeId == "light" || themeId == "white_high_contrast" || themeId == "bw_gradient_light" || themeId == "github_light"
+        }
+
+        if (isLightTheme) {
+            colorPrimary = Color.rgb(91, 79, 207)
+            colorBackground = Color.rgb(244, 246, 250)
+            colorToolbar = Color.rgb(238, 238, 242)
+            colorSurface = Color.rgb(255, 255, 255)
+            colorSurfaceVariant = Color.rgb(238, 238, 242)
+            colorTextPrimary = Color.rgb(26, 26, 46)
+            colorTextSecondary = Color.rgb(84, 84, 100)
+            colorOutline = Color.rgb(200, 200, 208)
+            colorSyncBackground = Color.rgb(220, 226, 255)
+            colorActiveStrip = Color.rgb(91, 79, 207)
+            colorAccentButton = Color.rgb(91, 79, 207)
+        } else {
+            colorPrimary = Color.rgb(142, 220, 230)
+            colorBackground = Color.rgb(23, 31, 43)
+            colorToolbar = Color.rgb(39, 49, 64)
+            colorSurface = Color.rgb(23, 31, 43)
+            colorSurfaceVariant = Color.rgb(39, 49, 64)
+            colorTextPrimary = Color.rgb(233, 238, 245)
+            colorTextSecondary = Color.rgb(196, 206, 217)
+            colorOutline = Color.rgb(60, 75, 90)
+            colorSyncBackground = Color.rgb(12, 78, 86)
+            colorActiveStrip = Color.rgb(66, 133, 244)
+            colorAccentButton = Color.rgb(126, 218, 230)
+        }
+
+        configureSystemBars()
 
         val documentId = intent.getStringExtra(EXTRA_DOCUMENT_ID).orEmpty()
         val metadata = repository.findDocument(documentId)
@@ -112,14 +161,14 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private fun buildLayout(title: String) {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(17, 22, 26))
+            setBackgroundColor(colorBackground)
         }
 
         val toolbar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(8.dp, statusBarHeight() + 16.dp, 6.dp, 8.dp)
-            setBackgroundColor(Color.rgb(20, 25, 29))
+            setBackgroundColor(colorToolbar)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -129,7 +178,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         toolbar.addView(iconButton("‹") { finish() })
         toolbar.addView(TextView(this).apply {
             text = title
-            setTextColor(Color.WHITE)
+            setTextColor(colorTextPrimary)
             textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
@@ -138,10 +187,10 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         })
         syncCheckBox = CheckBox(this).apply {
             text = "🔗 Sync"
-            setTextColor(Color.rgb(225, 240, 244))
+            setTextColor(colorTextSecondary)
             textSize = 11f
             gravity = Gravity.CENTER
-            buttonTintList = ColorStateList.valueOf(Color.rgb(120, 221, 232))
+            buttonTintList = ColorStateList.valueOf(colorPrimary)
             setPadding(0, 0, 0, 0)
             layoutParams = LinearLayout.LayoutParams(68.dp, 44.dp)
             isChecked = true
@@ -160,7 +209,18 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
         fragmentContainer = FrameLayout(this).apply {
             id = R.id.pdf_fragment_container
-            setBackgroundColor(Color.rgb(34, 38, 42))
+            setBackgroundColor(if (isLightTheme) colorBackground else Color.WHITE)
+            if (!isLightTheme) {
+                val paint = android.graphics.Paint().apply {
+                    colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
+                        -1.0f,  0.0f,  0.0f,  0.0f, 255.0f,
+                         0.0f, -1.0f,  0.0f,  0.0f, 255.0f,
+                         0.0f,  0.0f, -1.0f,  0.0f, 255.0f,
+                         0.0f,  0.0f,  0.0f,  1.0f,   0.0f
+                    ))
+                }
+                setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+            }
             setOnTouchListener { _, event ->
                 handleDocumentChromeTouch(this, event)
                 false
@@ -175,7 +235,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         val controlsOuter = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(10.dp, 7.dp, 10.dp, 13.dp)
-            setBackgroundColor(Color.rgb(17, 22, 26))
+            setBackgroundColor(colorBackground)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -186,13 +246,13 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(Color.rgb(28, 36, 44), 24.dp)
+            background = rounded(colorSurface, 24.dp)
             elevation = 8f
         }
 
         // Progress strip (thin coloured bar at top of panel)
         val progressStrip = View(this).apply {
-            setBackgroundColor(if (PlaybackStateStore.isPlaying) Color.rgb(66, 133, 244) else Color.rgb(40, 50, 60))
+            setBackgroundColor(if (PlaybackStateStore.isPlaying) colorActiveStrip else colorOutline)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 3.dp)
         }
 
@@ -205,7 +265,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
         // Brand tile — tap to expand/collapse
         val brand = FrameLayout(this).apply {
-            background = rounded(Color.rgb(12, 78, 86), 12.dp)
+            background = rounded(colorSyncBackground, 12.dp)
             layoutParams = LinearLayout.LayoutParams(50.dp, 50.dp)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.veritas_reader_icon)
@@ -219,7 +279,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         // Status text
         panelStatusLabel = TextView(this).apply {
             text = if (PlaybackStateStore.isPlaying) "Now reading" else "Ready to read"
-            setTextColor(Color.WHITE)
+            setTextColor(colorTextPrimary)
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
@@ -243,7 +303,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         // Expand arrow indicator
         panelExpandArrow = TextView(this).apply {
             text = "▲"
-            setTextColor(Color.rgb(140, 160, 180))
+            setTextColor(colorTextSecondary)
             textSize = 13f
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(36.dp, 44.dp)
@@ -262,7 +322,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
         // Divider
         expandedSection.addView(View(this).apply {
-            setBackgroundColor(Color.rgb(60, 75, 90))
+            setBackgroundColor(colorOutline)
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1.dp).apply {
             topMargin = 2.dp; bottomMargin = 10.dp
         })
@@ -270,7 +330,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         // Status message row
         val expandedStatus = TextView(this).apply {
             text = PlaybackStateStore.statusMessage.ifBlank { "Original View" }
-            setTextColor(Color.rgb(160, 180, 200))
+            setTextColor(colorTextSecondary)
             textSize = 12f
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -307,13 +367,13 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         bottomRow.addView(TextView(this).apply {
             text = if (PlaybackStateStore.queueCount == 0) "Queue empty"
                    else "Queue (${PlaybackStateStore.queueCount})"
-            setTextColor(Color.rgb(140, 155, 170))
+            setTextColor(colorTextSecondary)
             textSize = 13f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
         bottomRow.addView(TextView(this).apply {
             text = "Voice Studio ›"
-            setTextColor(Color.rgb(100, 180, 255))
+            setTextColor(colorPrimary)
             textSize = 13f
             typeface = Typeface.DEFAULT_BOLD
             setOnClickListener { openVoiceAndLanguage() }
@@ -340,10 +400,38 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         if (chromeVisible) scheduleChromeAutoHide()
     }
 
+    override fun onPause() {
+        super.onPause()
+        saveCurrentProgress()
+    }
+
     override fun onDestroy() {
         highlightJob?.cancel()
         chromeHideJob?.cancel()
         super.onDestroy()
+    }
+
+    private fun saveCurrentProgress() {
+        val metadata = document ?: return
+        val view = pdfView ?: return
+        val visiblePage = runCatching { view.firstVisiblePage }.getOrNull() ?: return
+        val model = readerTextModel ?: return
+        
+        lifecycleScope.launch(Dispatchers.IO) {
+            val pageNum = visiblePage + 1
+            var sentenceIndex = model.sentences.indexOfFirst { it.pageNumber == pageNum }
+            if (sentenceIndex == -1) {
+                sentenceIndex = model.sentences.mapIndexed { idx, s -> idx to abs(s.pageNumber - pageNum) }
+                    .minByOrNull { it.second }?.first ?: -1
+            }
+            
+            if (sentenceIndex != -1) {
+                repository.updateProgress(metadata.id, sentenceIndex, model.sentences.size)
+                if (PlaybackStateStore.activeDocumentId == metadata.id) {
+                    PlaybackStateStore.currentIndex = sentenceIndex
+                }
+            }
+        }
     }
 
     override fun onActionModeStarted(mode: android.view.ActionMode?) {
@@ -705,7 +793,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         val menu = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16.dp, 14.dp, 16.dp, 14.dp)
-            background = rounded(Color.rgb(30, 28, 36), 18.dp)
+            background = rounded(colorSurface, 18.dp)
         }
         val popup = PopupWindow(menu, 330.dp, LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
             elevation = 12f
@@ -718,21 +806,21 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         }
         menu.addView(TextView(this).apply {
             text = "Playback"
-            setTextColor(Color.WHITE)
+            setTextColor(colorTextPrimary)
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             setPadding(0, 0, 0, 10.dp)
         })
         menu.addView(TextView(this).apply {
             text = status
-            setTextColor(Color.rgb(202, 199, 212))
+            setTextColor(colorTextSecondary)
             textSize = 15f
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             setPadding(0, 0, 0, 12.dp)
         })
         menu.addView(View(this).apply {
-            setBackgroundColor(Color.rgb(70, 66, 78))
+            setBackgroundColor(colorOutline)
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1.dp).apply {
             bottomMargin = 12.dp
         })
@@ -754,7 +842,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         ) { value -> adjustPlayback(rate = PlaybackStateStore.rate, pitch = value) }
         menu.addView(TextView(this).apply {
             text = "Voice and language"
-            setTextColor(Color.WHITE)
+            setTextColor(colorTextPrimary)
             textSize = 15f
             setPadding(0, 12.dp, 0, 12.dp)
             setOnClickListener {
@@ -764,7 +852,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         })
         menu.addView(TextView(this).apply {
             text = if (PlaybackStateStore.queueCount == 0) "Queue empty" else "Continue queue (${PlaybackStateStore.queueCount})"
-            setTextColor(Color.rgb(150, 146, 160))
+            setTextColor(colorTextSecondary)
             textSize = 14f
             setPadding(0, 8.dp, 0, 0)
         })
@@ -789,7 +877,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         val steps = ((max - min) * 100).toInt().coerceAtLeast(1)
         val label = TextView(this).apply {
             text = "$title ${"%.2f".format(current)}$suffix"
-            setTextColor(Color.WHITE)
+            setTextColor(colorTextPrimary)
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             setPadding(0, 4.dp, 0, 4.dp)
@@ -798,9 +886,9 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         menu.addView(SeekBar(this).apply {
             this.max = steps
             progress = (((current.coerceIn(min, max) - min) * 100).toInt()).coerceIn(0, steps)
-            progressTintList = ColorStateList.valueOf(Color.rgb(28, 203, 221))
-            thumbTintList = ColorStateList.valueOf(Color.rgb(120, 221, 232))
-            progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(31, 48, 49))
+            progressTintList = ColorStateList.valueOf(colorPrimary)
+            thumbTintList = ColorStateList.valueOf(colorPrimary)
+            progressBackgroundTintList = ColorStateList.valueOf(colorOutline)
             setPadding(0, 0, 0, 8.dp)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -855,7 +943,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         val menu = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 8.dp, 0, 8.dp)
-            background = rounded(Color.rgb(37, 41, 46), 18.dp)
+            background = rounded(colorSurface, 18.dp)
         }
         val popup = PopupWindow(menu, 260.dp, LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
             elevation = 10f
@@ -868,7 +956,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         actions.forEach { (label, action) ->
             menu.addView(TextView(this).apply {
                 text = label
-                setTextColor(Color.WHITE)
+                setTextColor(colorTextPrimary)
                 textSize = 16f
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(18.dp, 12.dp, 18.dp, 12.dp)
@@ -923,6 +1011,31 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                         false
                     }
                     startHighlightUpdates()
+                    
+                    // Initial scroll to saved page
+                    launch {
+                        val metadata = document ?: return@launch
+                        var retryCount = 0
+                        while (readerTextModel == null && retryCount < 50) {
+                            delay(100)
+                            retryCount++
+                        }
+                        val model = readerTextModel ?: return@launch
+                        
+                        var docRetryCount = 0
+                        while (runCatching { found.pdfDocument }.getOrNull() == null && docRetryCount < 50) {
+                            delay(100)
+                            docRetryCount++
+                        }
+                        val pdfDoc = runCatching { found.pdfDocument }.getOrNull() ?: return@launch
+                        
+                        val safeIndex = metadata.currentIndex.coerceIn(0, model.sentences.lastIndex.coerceAtLeast(0))
+                        val targetPage = model.sentences.getOrNull(safeIndex)?.pageNumber?.minus(1) ?: 0
+                        val pageCount = pdfDoc.pageCount.coerceAtLeast(1)
+                        val scrollPage = targetPage.coerceIn(0, pageCount - 1)
+                        runCatching { found.scrollToPage(scrollPage) }
+                    }
+                    
                     return@launch
                 }
                 delay(150)
@@ -1144,8 +1257,11 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     private fun configureSystemBars() {
-        window.statusBarColor = Color.rgb(20, 25, 29)
-        window.navigationBarColor = Color.rgb(17, 22, 26)
+        window.statusBarColor = colorToolbar
+        window.navigationBarColor = colorBackground
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.isAppearanceLightStatusBars = isLightTheme
+        controller.isAppearanceLightNavigationBars = isLightTheme
     }
 
     private fun showFallback(message: String) {
@@ -1153,16 +1269,16 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setPadding(24.dp, 24.dp, 24.dp, 24.dp)
-            setBackgroundColor(Color.rgb(17, 22, 26))
+            setBackgroundColor(colorBackground)
         }
         root.addView(TextView(this).apply {
             text = "Original View"
-            setTextColor(Color.WHITE)
+            setTextColor(colorTextPrimary)
             textSize = 22f
         })
         root.addView(TextView(this).apply {
             text = message
-            setTextColor(Color.rgb(210, 218, 224))
+            setTextColor(colorTextSecondary)
             textSize = 16f
             gravity = Gravity.CENTER
             setPadding(0, 12.dp, 0, 18.dp)
@@ -1222,7 +1338,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private fun iconButton(label: String, action: () -> Unit): TextView {
         return TextView(this).apply {
             text = label
-            setTextColor(Color.WHITE)
+            setTextColor(colorTextPrimary)
             textSize = 25f
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(44.dp, 44.dp)
@@ -1236,11 +1352,11 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private fun prominentButton(label: String, action: () -> Unit): TextView {
         return TextView(this).apply {
             text = label
-            setTextColor(Color.rgb(8, 34, 40))
+            setTextColor(if (isLightTheme) Color.WHITE else Color.rgb(8, 34, 40))
             textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = rounded(Color.rgb(126, 218, 230), 22.dp)
+            background = rounded(colorAccentButton, 22.dp)
             val targetWidth = if (label.length > 3) 170.dp else 70.dp
             layoutParams = LinearLayout.LayoutParams(targetWidth, 46.dp).apply {
                 marginStart = 4.dp
@@ -1255,7 +1371,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
     private fun brandTile(): View {
         return FrameLayout(this).apply {
-            background = rounded(Color.rgb(12, 78, 86), 12.dp)
+            background = rounded(colorSyncBackground, 12.dp)
             layoutParams = LinearLayout.LayoutParams(50.dp, 50.dp)
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.veritas_reader_icon)

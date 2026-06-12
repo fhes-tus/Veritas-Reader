@@ -41,6 +41,7 @@ data class ReaderUiState(
     val annotations: List<ReaderAnnotation> = emptyList(),
     val allAnnotations: List<ReaderAnnotation> = emptyList(),
     val documentNotes: Map<String, String> = emptyMap(),
+    val documentTitles: Map<String, String> = emptyMap(),
     val annotationCount: Int = 0,
     val noteTargetIndex: Int? = null,
     val noteTargetIndexes: List<Int> = emptyList(),
@@ -117,5 +118,6 @@ data class ReaderUiState(
     val pendingCropUri: Uri? = null,
     val readerTrackerSnapshot: ReaderTrackerSnapshot = ReaderTrackerSnapshot.empty(),
     val pendingImport: VeritasPendingImport? = null,
+    val documentReadingTimes: Map<String, Long> = emptyMap(),
     val navStack: List<VeritasScreen> = emptyList()
 )

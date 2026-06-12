@@ -48,3 +48,14 @@
 # 9. Jetpack PDF Viewer Keep Rules
 -keep class androidx.pdf.** { *; }
 -dontwarn androidx.pdf.**
+
+# 10. Jetpack WorkManager Keep Rules
+-keep class androidx.work.impl.WorkManagerInitializer { *; }
+-keep class androidx.work.impl.background.systemjob.SystemJobService { *; }
+-keep class androidx.work.impl.foreground.SystemForegroundService { *; }
+-keepclassmembers class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keep class androidx.work.** { *; }
+-dontwarn androidx.work.**
+

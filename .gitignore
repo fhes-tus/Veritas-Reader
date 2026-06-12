@@ -58,3 +58,6 @@ lint-results*.xml
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Release APKs - store locally only
+releases/

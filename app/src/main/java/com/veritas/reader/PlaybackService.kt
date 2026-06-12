@@ -366,6 +366,9 @@ class PlaybackService : MediaSessionService() {
 
             override fun onDone(utteranceId: String?) {
                 mainHandler.post {
+                    if (utteranceId != activeChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
+                        return@post
+                    }
                     if (utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) == true) {
                         PlaybackStateStore.statusMessage = "Selected text finished."
                         refreshForegroundNotification()
@@ -397,12 +400,18 @@ class PlaybackService : MediaSessionService() {
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 mainHandler.post {
+                    if (utteranceId != activeChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
+                        return@post
+                    }
                     handleTtsFailure("Voice engine failed. Try another sentence.", utteranceId)
                 }
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
                 mainHandler.post {
+                    if (utteranceId != activeChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
+                        return@post
+                    }
                     val errorMsg = when (errorCode) {
                         TextToSpeech.ERROR_NETWORK -> "Network error. Check internet connection."
                         TextToSpeech.ERROR_NETWORK_TIMEOUT -> "Network timeout. Try a local voice."

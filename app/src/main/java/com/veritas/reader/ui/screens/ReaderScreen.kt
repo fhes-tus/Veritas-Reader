@@ -61,6 +61,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -317,6 +318,7 @@ fun ReaderScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Black
                     )
                     Text(
@@ -753,7 +755,7 @@ fun ReaderScreen(
             onReaderModeChange = onReaderModeChange,
             hasCanvas = hasCanvas,
             documentChunks = document.chunks,
-            onSentenceClick = onSentenceClick,
+            onSentenceClick = { index -> onSentenceDoubleTap(index) },
             onOpenSleepTimer = onOpenSleepTimer,
             onOpenVoiceStudio = onOpenVoiceStudio,
             onOpenNarrationStudio = onOpenNarrationStudio,
@@ -2378,6 +2380,7 @@ private fun PlayerPanel(
                         Text(
                             "Speed ${"%.2f".format(rate)}x",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2400,7 +2403,14 @@ private fun PlayerPanel(
                         value = rate,
                         onValueChange = onRateChange,
                         valueRange = 0.5f..2.0f,
-                        modifier = Modifier.padding(horizontal = 8.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
+                            activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
+                            inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                        )
                     )
 
                     // Pitch & Font Size
@@ -2412,25 +2422,41 @@ private fun PlayerPanel(
                             Text(
                                 "Pitch ${"%.2f".format(pitch)}",
                                 style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Slider(
                                 value = pitch,
                                 onValueChange = onPitchChange,
-                                valueRange = 0.7f..1.4f
+                                valueRange = 0.7f..1.4f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
+                                    activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
+                                    inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                )
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Text size ${fontSizeSp}sp",
                                 style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Slider(
                                 value = fontSizeSp.toFloat(),
                                 onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
                                 valueRange = 14f..28f,
-                                steps = 13
+                                steps = 13,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
+                                    activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
+                                    inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                )
                             )
                         }
                     }

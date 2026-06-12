@@ -66,11 +66,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private var voiceJob: Job? = null
     private var scanJob: Job? = null
     private var appSessionStartedAt: Long = 0L
+    private var activeDocStartedAt: Long = 0L
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
             val trackerSnapshot = repository.recordAppOpen()
             val documents = repository.loadDocuments()
+            val documentReadingTimes = repository.loadDocReadingTimes()
             val queuedDocuments = repository.loadQueueDocuments()
             val pronunciationRules = repository.loadPronunciationRules()
             val voiceSettings = repository.loadVoiceSettings()
@@ -83,6 +85,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val readingHistory = repository.loadReadingHistory()
             val allAnnotations = repository.loadAllAnnotations()
             val documentNotes = repository.loadAllDocumentNotes()
+            val documentTitles = repository.loadAllDocumentTitles()
             val annotationCount = repository.loadAnnotationCount()
             val fileBrowserRoots = VeritasFileBrowserScanner.persistedRoots(application)
             val generalNotes = repository.loadGeneralNotes()
@@ -132,6 +135,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     readingHistory = readingHistory,
                     allAnnotations = allAnnotations,
                     documentNotes = documentNotes,
+                    documentTitles = documentTitles,
                     annotationCount = annotationCount,
                     fileBrowserRoots = fileBrowserRoots,
                     fileBrowserAllFilesGranted = hasAllFilesAccess(),
@@ -143,6 +147,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     questSpeedDone = questProgress.speedDone,
                     questBookmarkDone = questProgress.bookmarkDone,
                     readerTrackerSnapshot = trackerSnapshot,
+                    documentReadingTimes = documentReadingTimes,
                     showTutorial = !hasCompletedOnboarding
                 )
             }
@@ -201,6 +206,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun onAppForegrounded() {
         appSessionStartedAt = System.currentTimeMillis()
+        startActiveDocSessionTime()
         viewModelScope.launch(Dispatchers.IO) {
             val tracker = repository.recordAppOpen(appSessionStartedAt)
             withContext(Dispatchers.Main) {
@@ -210,6 +216,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun onAppBackgrounded() {
+        recordActiveDocSessionTime()
         val startedAt = appSessionStartedAt
         if (startedAt <= 0L) return
         appSessionStartedAt = 0L
@@ -222,13 +229,40 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private fun recordActiveDocSessionTime() {
+        val docId = uiState.value.activeDocument?.id
+        val startedAt = activeDocStartedAt
+        if (docId != null && startedAt > 0L) {
+            val duration = System.currentTimeMillis() - startedAt
+            activeDocStartedAt = 0L
+            if (duration > 0L) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    repository.recordDocReadingTime(docId, duration)
+                    val updatedTimes = repository.loadDocReadingTimes()
+                    withContext(Dispatchers.Main) {
+                        _uiState.update { it.copy(documentReadingTimes = updatedTimes) }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startActiveDocSessionTime() {
+        val docId = uiState.value.activeDocument?.id
+        if (docId != null) {
+            activeDocStartedAt = System.currentTimeMillis()
+        }
+    }
+
     private fun refreshAnnotationCatalog() {
         val annotations = repository.loadAllAnnotations()
         val documentNotes = repository.loadAllDocumentNotes()
+        val documentTitles = repository.loadAllDocumentTitles()
         _uiState.update {
             it.copy(
                 allAnnotations = annotations,
                 documentNotes = documentNotes,
+                documentTitles = documentTitles,
                 annotationCount = annotations.size + documentNotes.size
             )
         }
@@ -401,6 +435,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         finishOnboarding(uiState.value.userName)
     }
 
+    fun updateUserNameInMemory(name: String) {
+        _uiState.update { it.copy(userName = name) }
+    }
+
+    fun saveUserName(name: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.saveUserName(name)
+            val savedName = repository.loadUserName()
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(userName = savedName) }
+            }
+        }
+    }
+
     fun finishOnboarding(name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.markOnboardingComplete(name)
@@ -411,6 +459,25 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         showTutorial = false,
                         userName = savedName,
                         hasCompletedOnboarding = true
+                    )
+                }
+            }
+        }
+    }
+
+    fun resetQuestProgress() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.saveQuestProgress(tour = false, import = false, speed = false, bookmark = false)
+            repository.resetOnboardingState()
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        questTourDone = false,
+                        questImportDone = false,
+                        questSpeedDone = false,
+                        questBookmarkDone = false,
+                        showTutorial = true,
+                        hasCompletedOnboarding = false
                     )
                 }
             }
@@ -552,6 +619,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val serviceId = PlaybackStateStore.activeDocumentId
         if ((activeId != null && activeId in documentIds) || (serviceId != null && serviceId in documentIds)) {
             stopAndForgetPlayback("Reading removed.")
+            recordActiveDocSessionTime()
             _uiState.update { it.copy(activeDocument = null, annotations = emptyList(), documentNoteDraft = "", showCanvasView = false) }
         }
     }
@@ -708,13 +776,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun openSavedDocument(metadata: SavedDocument, startIndex: Int? = null) {
         _uiState.update { it.copy(isOpeningDocument = true) }
         viewModelScope.launch(Dispatchers.IO) {
-            val readerDocument = loadReaderDocument(metadata)
+            val latestMetadata = repository.findDocument(metadata.id) ?: metadata
+            val readerDocument = loadReaderDocument(latestMetadata)
             
-            if (metadata.language.isNotBlank()) {
+            if (latestMetadata.language.isNotBlank()) {
                 val currentVoiceSettings = repository.loadVoiceSettings()
-                if (currentVoiceSettings.localeTag != metadata.language) {
+                if (currentVoiceSettings.localeTag != latestMetadata.language) {
                     val updated = currentVoiceSettings.copy(
-                        localeTag = metadata.language,
+                        localeTag = latestMetadata.language,
                         voiceName = "",
                         voiceLabel = "System default voice"
                     )
@@ -725,12 +794,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
 
-            val annotations = repository.loadAnnotations(metadata.id)
-            val documentNote = repository.loadDocumentNote(metadata.id)
-            val outline = repository.loadDocumentOutline(metadata, readerDocument.chunks)
-            val targetIndex = startIndex ?: metadata.currentIndex
+            val annotations = repository.loadAnnotations(latestMetadata.id)
+            val documentNote = repository.loadDocumentNote(latestMetadata.id)
+            val outline = repository.loadDocumentOutline(latestMetadata, readerDocument.chunks)
+            val targetIndex = startIndex 
+                ?: (if (PlaybackStateStore.activeDocumentId == latestMetadata.id) PlaybackStateStore.currentIndex else latestMetadata.currentIndex)
             repository.markImportedOrOpenedDocument()
-            val tracker = repository.recordDocumentRead(metadata.id, metadata.title)
+            val tracker = repository.recordDocumentRead(latestMetadata.id, latestMetadata.title)
             withContext(Dispatchers.Main) {
                 _uiState.update {
                     it.copy(
@@ -747,6 +817,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         isOpeningDocument = false
                     )
                 }
+                startActiveDocSessionTime()
                 syncPlaybackStateForDocument(readerDocument, targetIndex)
             }
         }
@@ -1545,6 +1616,30 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun playOrPauseSavedDocument(metadata: SavedDocument) {
+        if (PlaybackStateStore.activeDocumentId == metadata.id) {
+            if (PlaybackStateStore.isPlaying) {
+                sendPlaybackIntent(getApplication(), PlaybackActions.ACTION_PAUSE)
+            } else {
+                requestNotificationPermissionForPlayback()
+                sendPlaybackIntent(
+                    context = getApplication(),
+                    action = PlaybackActions.ACTION_PLAY,
+                    documentId = metadata.id,
+                    startIndex = PlaybackStateStore.currentIndex
+                )
+            }
+        } else {
+            requestNotificationPermissionForPlayback()
+            sendPlaybackIntent(
+                context = getApplication(),
+                action = PlaybackActions.ACTION_PLAY,
+                documentId = metadata.id,
+                startIndex = metadata.currentIndex
+            )
+        }
+    }
+
     fun playQueue() {
         viewModelScope.launch(Dispatchers.IO) {
             val first = repository.loadQueueDocuments().firstOrNull() ?: return@launch
@@ -1916,8 +2011,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun returnToLibrary() {
-        persistProgress(PlaybackStateStore.currentIndex)
+        val doc = uiState.value.activeDocument
+        val docId = doc?.id
+        val currentIndex = PlaybackStateStore.currentIndex
         PlaybackStateStore.readerMode = ReaderMode.TEXT
+        recordActiveDocSessionTime()
         _uiState.update {
             it.copy(
                 activeDocument = null,
@@ -1928,7 +2026,27 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 searchCursor = 0
             )
         }
-        refreshAll()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (doc != null && docId != null) {
+                repository.updateProgress(docId, currentIndex, doc.chunks.size)
+            }
+            val docs = repository.loadDocuments()
+            val queue = repository.loadQueueDocuments()
+            val tracker = repository.loadReaderTrackerSnapshot()
+            val generalNotes = repository.loadGeneralNotes()
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        documents = docs,
+                        queuedDocuments = queue,
+                        readerTrackerSnapshot = tracker,
+                        generalNotes = generalNotes
+                    )
+                }
+                refreshAnnotationCatalog()
+                PlaybackStateStore.queueCount = queue.size
+            }
+        }
     }
 
     fun approveFileBrowserFolder(uri: Uri?) {
@@ -2040,7 +2158,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun saveGeneralNote(title: String, content: String) {
+    fun saveGeneralNote(
+        title: String,
+        content: String,
+        color: String? = null,
+        pinned: Boolean = false,
+        isChecklist: Boolean = false,
+        imageUrl: String? = null,
+        audioUrl: String? = null
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.loadGeneralNotes().toMutableList()
             val target = uiState.value.generalNoteEditorTarget
@@ -2049,7 +2175,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     id = java.util.UUID.randomUUID().toString(),
                     title = title,
                     content = content,
-                    updatedAt = System.currentTimeMillis()
+                    updatedAt = System.currentTimeMillis(),
+                    color = color,
+                    pinned = pinned,
+                    isChecklist = isChecklist,
+                    imageUrl = imageUrl,
+                    audioUrl = audioUrl
                 )
                 existing.add(0, newNote)
             } else {
@@ -2058,7 +2189,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     existing[index] = target.copy(
                         title = title,
                         content = content,
-                        updatedAt = System.currentTimeMillis()
+                        updatedAt = System.currentTimeMillis(),
+                        color = color,
+                        pinned = pinned,
+                        isChecklist = isChecklist,
+                        imageUrl = imageUrl,
+                        audioUrl = audioUrl
                     )
                 }
             }
@@ -2071,6 +2207,38 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         showGeneralNotesEditor = false,
                         generalNoteEditorTarget = null
                     )
+                }
+            }
+        }
+    }
+
+    fun toggleGeneralNotePin(noteId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadGeneralNotes().toMutableList()
+            val index = existing.indexOfFirst { it.id == noteId }
+            if (index != -1) {
+                val target = existing[index]
+                existing[index] = target.copy(pinned = !target.pinned, updatedAt = System.currentTimeMillis())
+                repository.saveGeneralNotes(existing)
+                val updated = repository.loadGeneralNotes()
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(generalNotes = updated) }
+                }
+            }
+        }
+    }
+
+    fun changeGeneralNoteColor(noteId: String, colorHex: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadGeneralNotes().toMutableList()
+            val index = existing.indexOfFirst { it.id == noteId }
+            if (index != -1) {
+                val target = existing[index]
+                existing[index] = target.copy(color = colorHex, updatedAt = System.currentTimeMillis())
+                repository.saveGeneralNotes(existing)
+                val updated = repository.loadGeneralNotes()
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(generalNotes = updated) }
                 }
             }
         }
@@ -2093,10 +2261,58 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private data class DictionaryDefinition(
+        val definition: String,
+        val pronunciation: String? = null
+    )
+
+    private fun fetchDictionaryDefinition(word: String): DictionaryDefinition? {
+        val cleanWord = word.trim().lowercase().replace(Regex("[^a-z\\-]"), "")
+        if (cleanWord.isBlank() || cleanWord.length > 30) return null
+        return try {
+            val url = java.net.URL("https://api.dictionaryapi.dev/api/v2/entries/en/$cleanWord")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            if (conn.responseCode == 200) {
+                val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
+                val array = org.json.JSONArray(jsonText)
+                if (array.length() > 0) {
+                    val entry = array.getJSONObject(0)
+                    val phonetic = entry.optString("phonetic").takeIf { it.isNotBlank() }
+                    val meanings = entry.optJSONArray("meanings")
+                    if (meanings != null && meanings.length() > 0) {
+                        val firstMeaning = meanings.getJSONObject(0)
+                        val pos = firstMeaning.optString("partOfSpeech", "")
+                        val definitions = firstMeaning.optJSONArray("definitions")
+                        if (definitions != null && definitions.length() > 0) {
+                            val defObj = definitions.getJSONObject(0)
+                            val defText = defObj.optString("definition", "")
+                            if (defText.isNotBlank()) {
+                                val fullDef = if (pos.isNotBlank()) "($pos) $defText" else defText
+                                return DictionaryDefinition(fullDef, phonetic)
+                            }
+                        }
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            android.util.Log.w("ReaderViewModel", "Failed to fetch meaning for $cleanWord", e)
+            null
+        }
+    }
+
     fun appendVocabularyWord(word: String, explanation: String) {
         val activeDoc = uiState.value.activeDocument ?: return
         val docId = activeDoc.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
+            val isPlaceholder = explanation.contains("Looked up") || explanation.contains("Asked AI")
+            val fetched = if (isPlaceholder) fetchDictionaryDefinition(word) else null
+            val finalExplanation = fetched?.definition ?: explanation
+            val pronunciation = fetched?.pronunciation
+
             val existing = repository.loadGeneralNotes().toMutableList()
             val targetTitle = "__vocab__$docId"
             val vocabIndex = existing.indexOfFirst { it.title == targetTitle }
@@ -2107,12 +2323,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val textModel = ReaderTextIndex.build(activeDoc.rawText, activeDoc.pageCount)
             val part = textModel.partForSentence(currentIndex)
             val sectionNum = (part?.index ?: 0) + 1
+            val contextSentence = activeDoc.sentences.getOrNull(currentIndex)?.trim()
 
             val entryText = buildString {
                 appendLine(word.trim())
-                appendLine("  $explanation")
+                appendLine("  $finalExplanation")
                 appendLine("  (looked up: Section $sectionNum, sentence ${currentIndex + 1})")
-                append("  [$formattedTime]")
+                appendLine("  [$formattedTime]")
+                if (!contextSentence.isNullOrBlank()) {
+                    appendLine("  context: \"$contextSentence\"")
+                }
+                if (!pronunciation.isNullOrBlank()) {
+                    appendLine("  pronunciation: $pronunciation")
+                }
             }
 
             if (vocabIndex != -1) {

@@ -17,6 +17,12 @@ enum class OnboardingStep(
         title = "Welcome to Veritas",
         body = "Let's walk through your reading environment. Tap Next to begin a quick tour of key locations."
     ),
+    NAME_INPUT(
+        key = "name_input",
+        targetKey = null,
+        title = "What should we call you?",
+        body = "Please enter your name so we can personalize your dashboard and messages."
+    ),
     FAB_SPOTLIGHT(
         key = "fab",
         targetKey = "add_fab",
@@ -28,6 +34,12 @@ enum class OnboardingStep(
         targetKey = "quest_checklist",
         title = "Your Quest Checklist",
         body = "This floating checklist shows your active missions. Complete all quests to master the app!"
+    ),
+    INSIGHTS_SPOTLIGHT(
+        key = "insights",
+        targetKey = "insights_trigger",
+        title = "Reading Insights Dashboard",
+        body = "Tap the menu button to open your personalized dashboard, track reading streaks, review stats, and manage preferences."
     ),
     DOCUMENT_SPOTLIGHT(
         key = "document",
