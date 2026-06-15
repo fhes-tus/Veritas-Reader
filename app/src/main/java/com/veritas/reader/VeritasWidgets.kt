@@ -20,7 +20,12 @@ import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
 import java.io.File
+import java.util.concurrent.Executors
 import kotlin.math.max
+
+// Cover rendering does file/PDF decoding; widget callbacks run on the main thread, so
+// all cover work is funneled through this single background executor.
+private val widgetExecutor = Executors.newSingleThreadExecutor()
 
 class VeritasPlayerWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -45,7 +50,10 @@ class VeritasPlayerWidgetProvider : AppWidgetProvider() {
             }
             views.setTextViewText(R.id.widget_title, title)
             views.setTextViewText(R.id.widget_subtitle, progress)
-            views.setTextViewText(R.id.widget_play_pause, if (PlaybackStateStore.isPlaying) "Ⅱ" else "▶")
+            views.setImageViewResource(
+                R.id.widget_play_pause,
+                if (PlaybackStateStore.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
+            )
             views.setOnClickPendingIntent(R.id.widget_root, mainPendingIntent(context, 10))
             views.setOnClickPendingIntent(R.id.widget_previous, servicePendingIntent(context, PlaybackActions.ACTION_PREVIOUS, 11))
             views.setOnClickPendingIntent(
@@ -62,27 +70,59 @@ class VeritasCoverWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_TOGGLE_FAVORITE) {
-            val repository = DocumentRepository(context)
-            val active = PlaybackStateStore.activeDocumentId?.let { repository.findDocument(it) }
-                ?: repository.loadDocuments().firstOrNull()
-            active?.let { repository.toggleFavorite(it.id) }
-            updateAll(context)
+            val result = goAsync()
+            val appContext = context.applicationContext
+            widgetExecutor.execute {
+                try {
+                    val repository = DocumentRepository(appContext)
+                    val active = PlaybackStateStore.activeDocumentId?.let { repository.findDocument(it) }
+                        ?: repository.loadDocuments().firstOrNull()
+                    active?.let { repository.toggleFavorite(it.id) }
+                    updateAllBlocking(appContext)
+                } finally {
+                    result.finish()
+                }
+            }
         }
     }
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ids.forEach { manager.updateAppWidget(it, coverViews(context)) }
+        val result = goAsync()
+        val appContext = context.applicationContext
+        widgetExecutor.execute {
+            try {
+                val views = coverViews(appContext)
+                ids.forEach { manager.updateAppWidget(it, views) }
+            } finally {
+                result.finish()
+            }
+        }
     }
 
     companion object {
         private const val ACTION_TOGGLE_FAVORITE = "com.veritas.reader.widget.TOGGLE_FAVORITE"
 
         fun updateAll(context: Context) {
+            val appContext = context.applicationContext
+            val manager = AppWidgetManager.getInstance(appContext)
+            val component = ComponentName(appContext, VeritasCoverWidgetProvider::class.java)
+            if (manager.getAppWidgetIds(component).isEmpty()) return
+            widgetExecutor.execute { runCatching { updateAllBlocking(appContext) } }
+        }
+
+        private fun updateAllBlocking(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, VeritasCoverWidgetProvider::class.java)
             val ids = manager.getAppWidgetIds(component)
-            ids.forEach { manager.updateAppWidget(it, coverViews(context)) }
+            if (ids.isEmpty()) return
+            val views = coverViews(context)
+            ids.forEach { manager.updateAppWidget(it, views) }
         }
+
+        // Playback updates refresh the widget every few seconds; cache the rendered
+        // circle cover per document so it is decoded once, not per sentence.
+        @Volatile
+        private var cachedCircleCover: Pair<String, Bitmap>? = null
 
         private fun coverViews(context: Context): RemoteViews {
             val repository = DocumentRepository(context)
@@ -90,10 +130,23 @@ class VeritasCoverWidgetProvider : AppWidgetProvider() {
                 ?: repository.loadDocuments().firstOrNull()
             val views = RemoteViews(context.packageName, R.layout.widget_veritas_cover)
             views.setTextViewText(R.id.widget_cover_title, active?.title ?: context.getString(R.string.app_name))
-            val cover = active?.let { loadCoverBitmap(context, repository, it) }
-            val fallback = BitmapFactory.decodeResource(context.resources, R.drawable.veritas_reader_icon)
-            views.setImageViewBitmap(R.id.widget_cover_image, circleFitBitmap(cover ?: fallback))
-            views.setTextViewText(R.id.widget_cover_play, if (PlaybackStateStore.isPlaying) "Ⅱ" else "▶")
+            val cacheKey = active?.id ?: "fallback"
+            val circleCover = cachedCircleCover?.takeIf { it.first == cacheKey }?.second
+                ?: run {
+                    val cover = active?.let { loadCoverBitmap(context, repository, it) }
+                    if (cover != null) {
+                        // Only real covers are cached; the fallback icon stays uncached so a
+                        // cover extracted after the first render still shows up.
+                        circleFitBitmap(cover).also { cachedCircleCover = cacheKey to it }
+                    } else {
+                        circleFitBitmap(BitmapFactory.decodeResource(context.resources, R.drawable.veritas_reader_icon))
+                    }
+                }
+            views.setImageViewBitmap(R.id.widget_cover_image, circleCover)
+            views.setImageViewResource(
+                R.id.widget_cover_play,
+                if (PlaybackStateStore.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
+            )
             views.setTextViewText(R.id.widget_cover_favorite, if (active?.favorite == true) "♥" else "♡")
             views.setOnClickPendingIntent(R.id.widget_cover_root, mainPendingIntent(context, 20))
             views.setOnClickPendingIntent(
@@ -108,7 +161,7 @@ class VeritasCoverWidgetProvider : AppWidgetProvider() {
             // 1. Try to load pre-extracted cover if it exists
             CoverExtractor.coverFile(context, document.id)?.let { file ->
                 runCatching {
-                    BitmapFactory.decodeFile(file.absolutePath)
+                    decodeFileBounded(file.absolutePath)
                 }.getOrNull()?.let { return it }
             }
 
@@ -116,12 +169,42 @@ class VeritasCoverWidgetProvider : AppWidgetProvider() {
             val original = repository.originalUri(document) ?: return null
             val mime = document.originalMimeType.lowercase()
             return when {
-                mime.startsWith("image/") -> {
-                    context.contentResolver.openInputStream(original)?.use { BitmapFactory.decodeStream(it) }
-                }
+                mime.startsWith("image/") -> decodeStreamBounded(context, original)
                 mime == "application/pdf" || document.originalFileName.endsWith(".pdf", ignoreCase = true) -> renderPdfFirstPage(context, original)
                 else -> null
             }
+        }
+
+        // RemoteViews bitmaps are size-capped by the system; decode with inSampleSize so a
+        // large source image cannot exhaust memory or get the widget update rejected.
+        private const val MAX_COVER_DIMENSION = 1024
+
+        private fun sampleSizeFor(width: Int, height: Int): Int {
+            var sample = 1
+            val maxSide = maxOf(width, height)
+            while (maxSide / sample > MAX_COVER_DIMENSION) sample *= 2
+            return sample
+        }
+
+        private fun decodeFileBounded(path: String): Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight)
+            }
+            return BitmapFactory.decodeFile(path, options)
+        }
+
+        private fun decodeStreamBounded(context: Context, uri: android.net.Uri): Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                ?: return null
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight)
+            }
+            return context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
         }
 
         private fun renderPdfFirstPage(context: Context, uri: android.net.Uri): Bitmap? {

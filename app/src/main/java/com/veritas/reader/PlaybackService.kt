@@ -57,6 +57,9 @@ class PlaybackService : MediaSessionService() {
     private var artworkBytesDocumentId: String? = null
     private var activeChunkUtteranceId: String? = null
     private var activeChunkIndex = -1
+    // Timestamp when the current sentence started speaking; used to attribute background
+    // listening time to the active document (see recordBackgroundListening()).
+    private var activeChunkStartedAt = 0L
     private var activeChunkSpeechText = ""
     private var activeChunkBaseOffset = 0
     private var spokenCharOffset = 0
@@ -82,6 +85,16 @@ class PlaybackService : MediaSessionService() {
         PlaybackStateStore.queueCount = repository.loadQueueDocuments().size
         createNotificationChannel()
         setupMediaSession()
+        // If the process died while a sleep timer was running, restore it from prefs
+        // so the timer survives instead of silently disappearing.
+        if (PlaybackStateStore.activeSleepTimerSnapshot() == null) {
+            repository.loadPersistedSleepTimer()?.let { persisted ->
+                PlaybackStateStore.sleepTimerDurationMillis = persisted.durationMillis
+                PlaybackStateStore.sleepTimerEndsAtMillis = persisted.endsAtMillis
+                PlaybackStateStore.sleepTimerActionName = persisted.action.name
+                PlaybackStateStore.sleepTimerStopAtEndOfSection = persisted.stopAtEndOfSection
+            }
+        }
         scheduleSleepTimerFromStore()
     }
 
@@ -221,6 +234,12 @@ class PlaybackService : MediaSessionService() {
         }
 
         PlaybackStateStore.setSleepTimer(request)
+        repository.saveSleepTimerState(
+            durationMillis = PlaybackStateStore.sleepTimerDurationMillis,
+            endsAtMillis = PlaybackStateStore.sleepTimerEndsAtMillis,
+            actionName = PlaybackStateStore.sleepTimerActionName,
+            stopAtEndOfSection = PlaybackStateStore.sleepTimerStopAtEndOfSection
+        )
         scheduleSleepTimerFromStore()
         PlaybackStateStore.statusMessage = if (stopAtEndOfSection) {
             "Sleep timer set to stop at end of section."
@@ -373,6 +392,8 @@ class PlaybackService : MediaSessionService() {
                         PlaybackStateStore.statusMessage = "Selected text finished."
                         refreshForegroundNotification()
                     } else if (PlaybackStateStore.isPlaying) {
+                        // Attribute this sentence's duration to background listening time.
+                        recordBackgroundListening()
                         // If the sleep timer fired while this sentence was playing,
                         // execute it now at the clean sentence boundary.
                         if (pendingTimerFire) {
@@ -425,6 +446,24 @@ class PlaybackService : MediaSessionService() {
         })
     }
 
+    /**
+     * Attributes the time spent speaking the just-finished sentence to the active document's
+     * reading time, but ONLY while the app UI is backgrounded. Foreground reading time is
+     * tracked by the ViewModel's session timer, so gating on appInForeground avoids double
+     * counting. Recording per-sentence means background listening is captured incrementally
+     * even if the process is later killed.
+     */
+    private fun recordBackgroundListening() {
+        val startedAt = activeChunkStartedAt
+        activeChunkStartedAt = 0L
+        if (startedAt <= 0L || PlaybackStateStore.appInForeground) return
+        val docId = activeDocument?.id ?: return
+        val delta = System.currentTimeMillis() - startedAt
+        if (delta in 1L..600_000L) {
+            repository.recordDocReadingTime(docId, delta)
+        }
+    }
+
     private fun handleTtsFailure(message: String, utteranceId: String? = null) {
         Log.w(TAG, "$message utterance=$utteranceId")
         pendingSpeak = false
@@ -465,6 +504,7 @@ class PlaybackService : MediaSessionService() {
         }
         activeChunkUtteranceId = "$CHUNK_UTTERANCE_PREFIX${UUID.randomUUID()}"
         activeChunkIndex = index
+        activeChunkStartedAt = System.currentTimeMillis()
         activeChunkSpeechText = rawChunkText
         activeChunkBaseOffset = resumeOffset
         spokenCharOffset = resumeOffset
@@ -512,7 +552,13 @@ class PlaybackService : MediaSessionService() {
             return
         }
 
-        val current = PlaybackStateStore.currentIndex
+        // Advance from the sentence we ACTUALLY just spoke (activeChunkIndex), not the
+        // UI-shared PlaybackStateStore.currentIndex. The shared index can be mutated by
+        // unrelated UI actions (opening/closing a document, recomposition, a stray tap)
+        // while an utterance is in flight; reading it here is the root cause of playback
+        // jumping to the wrong place ("rat bug"). The internal index is the source of truth.
+        val current = activeChunkIndex.takeIf { it in 0..chunks.lastIndex }
+            ?: PlaybackStateStore.currentIndex.coerceIn(0, chunks.lastIndex)
 
         // Section sleep timer check
         if (timer != null && timer.stopAtEndOfSection) {
@@ -653,7 +699,11 @@ class PlaybackService : MediaSessionService() {
 
     private fun normalizeResumeOffset(text: String, offset: Int): Int {
         var safeOffset = offset.coerceIn(0, text.length)
-        while (safeOffset < text.length && text[safeOffset].isWhitespace()) safeOffset++
+        // Skip whitespace and trailing punctuation so resume never starts on a
+        // stray period/comma left over from the previous word boundary.
+        while (safeOffset < text.length &&
+            (text[safeOffset].isWhitespace() || text[safeOffset] in RESUME_SKIP_CHARS)
+        ) safeOffset++
         return if (safeOffset >= text.length) 0 else safeOffset
     }
 
@@ -712,6 +762,7 @@ class PlaybackService : MediaSessionService() {
         pendingSelectionText = null
         cancelSleepTimerCallback()
         PlaybackStateStore.clearSleepTimer()
+        repository.clearSleepTimerState()
         clearResumePoint()
         tts?.stop()
         activeDocument?.let { repository.updateProgress(it.id, PlaybackStateStore.currentIndex, chunks.size) }
@@ -743,6 +794,7 @@ class PlaybackService : MediaSessionService() {
     private fun cancelSleepTimer(message: String) {
         cancelSleepTimerCallback()
         PlaybackStateStore.clearSleepTimer()
+        repository.clearSleepTimerState()
         PlaybackStateStore.statusMessage = message
         updateMediaSessionState()
         refreshForegroundNotification()
@@ -751,6 +803,7 @@ class PlaybackService : MediaSessionService() {
     private fun fireSleepTimer() {
         val snapshot = PlaybackStateStore.activeSleepTimerSnapshot() ?: return
         cancelSleepTimerCallback()
+        repository.clearSleepTimerState()
         // If TTS is actively speaking, defer the action until the current
         // sentence finishes (pendingTimerFire checked in onDone).
         // If not playing, fire immediately.
@@ -1167,5 +1220,6 @@ class PlaybackService : MediaSessionService() {
         private const val SELECTION_UTTERANCE_PREFIX = "selection:"
         private const val CHUNK_UTTERANCE_PREFIX = "chunk:"
         private const val RESUME_WORD_THRESHOLD = 8
+        private const val RESUME_SKIP_CHARS = ".,;:!?)]}\"'»›—–-"
     }
 }

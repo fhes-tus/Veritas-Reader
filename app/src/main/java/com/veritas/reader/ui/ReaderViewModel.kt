@@ -205,17 +205,23 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun onAppForegrounded() {
+        PlaybackStateStore.appInForeground = true
         appSessionStartedAt = System.currentTimeMillis()
         startActiveDocSessionTime()
         viewModelScope.launch(Dispatchers.IO) {
             val tracker = repository.recordAppOpen(appSessionStartedAt)
+            // Pick up reading time the PlaybackService accrued while we were backgrounded.
+            val readingTimes = repository.loadDocReadingTimes()
             withContext(Dispatchers.Main) {
-                _uiState.update { it.copy(readerTrackerSnapshot = tracker) }
+                _uiState.update {
+                    it.copy(readerTrackerSnapshot = tracker, documentReadingTimes = readingTimes)
+                }
             }
         }
     }
 
     fun onAppBackgrounded() {
+        PlaybackStateStore.appInForeground = false
         recordActiveDocSessionTime()
         val startedAt = appSessionStartedAt
         if (startedAt <= 0L) return
@@ -758,6 +764,18 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun syncPlaybackStateForDocument(readerDocument: ReaderDocument, startIndex: Int) {
+        val liveSameDocument = PlaybackStateStore.isPlaying &&
+            PlaybackStateStore.activeDocumentId == readerDocument.id
+        if (liveSameDocument) {
+            // The service is actively reading this document; its position is the source
+            // of truth. Overwriting it here would yank playback to a stale index.
+            return
+        }
+        if (PlaybackStateStore.isPlaying) {
+            // A different document is being read aloud; pause it before this one takes
+            // over the shared playback state, otherwise the service keeps mutating it.
+            sendPlaybackIntent(getApplication(), PlaybackActions.ACTION_PAUSE)
+        }
         val safeIndex = if (readerDocument.chunks.isEmpty()) 0 else startIndex.coerceIn(0, readerDocument.chunks.lastIndex)
         PlaybackStateStore.activeDocumentId = readerDocument.id
         PlaybackStateStore.documentTitle = readerDocument.title
@@ -781,12 +799,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             
             if (latestMetadata.language.isNotBlank()) {
                 val currentVoiceSettings = repository.loadVoiceSettings()
-                if (currentVoiceSettings.localeTag != latestMetadata.language) {
-                    val updated = currentVoiceSettings.copy(
-                        localeTag = latestMetadata.language,
-                        voiceName = "",
-                        voiceLabel = "System default voice"
-                    )
+                // Only realign the locale for the SYSTEM DEFAULT voice. If the user has
+                // explicitly chosen a voice (voiceName set), that voice carries its own
+                // locale and must be preserved — previously we wiped voiceName here, which
+                // reset the chosen voice to default on almost every document open.
+                if (currentVoiceSettings.voiceName.isBlank() &&
+                    currentVoiceSettings.localeTag != latestMetadata.language) {
+                    val updated = currentVoiceSettings.copy(localeTag = latestMetadata.language)
                     repository.saveVoiceSettings(updated)
                     withContext(Dispatchers.Main) {
                         _uiState.update { it.copy(voiceSettings = updated) }
@@ -1172,7 +1191,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         if (matchIndex >= 0) {
             _uiState.update { it.copy(searchCursor = matchIndex) }
         }
-        if (autoPlay && doc.id != null) {
+        // While the service is actively speaking, every index move must be sent to it.
+        // Otherwise the service finishes its current sentence and then advances from the
+        // mutated shared index, speaking the wrong sentence.
+        val notifyService = autoPlay || PlaybackStateStore.isPlaying
+        if (notifyService && doc.id != null) {
             if (forcePlaybackStart) requestNotificationPermissionForPlayback()
             sendPlaybackIntent(
                 context = getApplication(),
@@ -2165,13 +2188,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         pinned: Boolean = false,
         isChecklist: Boolean = false,
         imageUrl: String? = null,
-        audioUrl: String? = null
+        audioUrl: String? = null,
+        reminderAt: Long? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.loadGeneralNotes().toMutableList()
             val target = uiState.value.generalNoteEditorTarget
+            val savedNote: GeneralNote
             if (target == null) {
-                val newNote = GeneralNote(
+                savedNote = GeneralNote(
                     id = java.util.UUID.randomUUID().toString(),
                     title = title,
                     content = content,
@@ -2180,25 +2205,35 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     pinned = pinned,
                     isChecklist = isChecklist,
                     imageUrl = imageUrl,
-                    audioUrl = audioUrl
+                    audioUrl = audioUrl,
+                    reminderAt = reminderAt
                 )
-                existing.add(0, newNote)
+                existing.add(0, savedNote)
             } else {
                 val index = existing.indexOfFirst { it.id == target.id }
-                if (index != -1) {
-                    existing[index] = target.copy(
-                        title = title,
-                        content = content,
-                        updatedAt = System.currentTimeMillis(),
-                        color = color,
-                        pinned = pinned,
-                        isChecklist = isChecklist,
-                        imageUrl = imageUrl,
-                        audioUrl = audioUrl
-                    )
-                }
+                savedNote = target.copy(
+                    title = title,
+                    content = content,
+                    updatedAt = System.currentTimeMillis(),
+                    color = color,
+                    pinned = pinned,
+                    isChecklist = isChecklist,
+                    imageUrl = imageUrl,
+                    audioUrl = audioUrl,
+                    reminderAt = reminderAt
+                )
+                if (index != -1) existing[index] = savedNote
             }
             repository.saveGeneralNotes(existing)
+            // (Re)schedule or clear the note's reminder alarm.
+            val app = getApplication<Application>()
+            val reminderBody = title.ifBlank { content.take(80) }.ifBlank { "Note reminder" }
+            if (reminderAt != null && reminderAt > System.currentTimeMillis()) {
+                NoteReminderScheduler.ensureChannel(app)
+                NoteReminderScheduler.schedule(app, savedNote.id, title.ifBlank { "Veritas note" }, reminderBody, reminderAt)
+            } else {
+                NoteReminderScheduler.cancel(app, savedNote.id)
+            }
             val updated = repository.loadGeneralNotes()
             withContext(Dispatchers.Main) {
                 _uiState.update {
@@ -2248,6 +2283,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.loadGeneralNotes().filterNot { it.id == noteId }
             repository.saveGeneralNotes(existing)
+            NoteReminderScheduler.cancel(getApplication(), noteId)
             val updated = repository.loadGeneralNotes()
             withContext(Dispatchers.Main) {
                 _uiState.update {

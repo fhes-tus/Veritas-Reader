@@ -39,7 +39,13 @@ enum class OnboardingStep(
         key = "insights",
         targetKey = "insights_trigger",
         title = "Reading Insights Dashboard",
-        body = "Tap the menu button to open your personalized dashboard, track reading streaks, review stats, and manage preferences."
+        body = "This menu button opens your personalized dashboard. Tap Next and we'll take you straight there."
+    ),
+    INSIGHTS_PAGE_SPOTLIGHT(
+        key = "insights_page",
+        targetKey = null,
+        title = "Your Insights at a Glance",
+        body = "Track daily reading streaks on the heatmap, see how your library splits by source, and watch where your listening time goes each month — all stored privately on your device."
     ),
     DOCUMENT_SPOTLIGHT(
         key = "document",

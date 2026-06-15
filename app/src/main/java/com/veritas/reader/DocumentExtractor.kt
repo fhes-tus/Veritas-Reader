@@ -542,6 +542,7 @@ object DocumentExtractor {
                 }
 
                 val results = deferredResults.awaitAll()
+                var droppedPageCount = 0
                 results.forEach { (pageIndex, pageText) ->
                     if (pageText.isNotBlank()) {
                         if (output.isNotBlank()) output.append("\n\n")
@@ -551,12 +552,15 @@ object DocumentExtractor {
                         val cacheFile = java.io.File(cacheDir, "page_${pageIndex}.txt")
                         if (!cacheFile.exists()) {
                             partial = true
+                            droppedPageCount++
                         }
                     }
                 }
 
                 if (partial && !hasImportTimeRemaining(deadlineMillis)) {
-                    diagnostics.add("Opened OCR text from the completed pages after the foreground import window. More pages can be imported with a smaller range or plain text mode when available.")
+                    diagnostics.add(
+                        "$droppedPageCount page${if (droppedPageCount == 1) "" else "s"} ran out of time during OCR and will finish in the background, or can be re-imported with a smaller page range."
+                    )
                 }
 
                 if (!partial) {

@@ -99,7 +99,7 @@ internal object PdfSelectionLocator {
                     }
                     pendingSpace = false
                 }
-                normalized.append(char.lowercaseChar())
+                normalized.append(foldChar(char))
             } else if (char.isWhitespace() || char == '/' || char == '\\' || char == '_' || char == '|') {
                 pendingSpace = true
             }
@@ -119,8 +119,12 @@ internal object PdfSelectionLocator {
                     offsets.add(offset)
                     pendingSpaceOffset = null
                 }
-                normalized.append(char.lowercaseChar())
-                offsets.add(index)
+                // A folded char may expand (ligature "ﬁ" -> "fi"); every emitted char
+                // maps back to the same original index so offsets stay valid.
+                foldChar(char).forEach { folded ->
+                    normalized.append(folded)
+                    offsets.add(index)
+                }
             } else if (char.isWhitespace() || char == '/' || char == '\\' || char == '_' || char == '|') {
                 if (normalized.isNotEmpty() && pendingSpaceOffset == null) {
                     pendingSpaceOffset = index
@@ -129,6 +133,20 @@ internal object PdfSelectionLocator {
         }
 
         return NormalizedChunk(normalized.toString(), offsets.toIntArray())
+    }
+
+    // Fold accents and ligatures so a PDF selection matches extracted text regardless of
+    // Unicode form: "é" == "e" + combining accent, "ﬁ" == "fi".
+    private fun foldChar(char: Char): String {
+        if (char.code < 128) return char.lowercaseChar().toString()
+        val decomposed = java.text.Normalizer.normalize(char.toString(), java.text.Normalizer.Form.NFKD)
+        val folded = StringBuilder()
+        decomposed.forEach { c ->
+            if (Character.getType(c) != Character.NON_SPACING_MARK.toInt()) {
+                folded.append(c.lowercaseChar())
+            }
+        }
+        return if (folded.isEmpty()) char.lowercaseChar().toString() else folded.toString()
     }
 
     private data class NormalizedChunk(

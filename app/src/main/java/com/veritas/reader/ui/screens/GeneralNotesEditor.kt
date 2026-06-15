@@ -14,6 +14,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -21,18 +24,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.veritas.reader.GeneralNote
 import androidx.compose.ui.platform.LocalContext
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.Intent
 import android.widget.Toast
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 import java.util.Date
 import android.media.MediaRecorder
@@ -55,7 +64,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 @Composable
 fun GeneralNotesEditor(
     note: GeneralNote?,
-    onSave: (String, String, String?, Boolean, Boolean, String?, String?) -> Unit,
+    onSave: (String, String, String?, Boolean, Boolean, String?, String?, Long?) -> Unit,
     onDelete: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -68,7 +77,19 @@ fun GeneralNotesEditor(
     var isChecklist by remember { mutableStateOf(note?.isChecklist ?: false) }
     var imageUrl by remember { mutableStateOf(note?.imageUrl) }
     var audioUrl by remember { mutableStateOf(note?.audioUrl) }
+    var reminderAt by remember { mutableStateOf(note?.reminderAt) }
     var showColorPicker by remember { mutableStateOf(false) }
+    var showReminderMenu by remember { mutableStateOf(false) }
+
+    // Undo / redo history for the rich-text body.
+    val undoStack = remember { mutableStateListOf<TextFieldValue>() }
+    val redoStack = remember { mutableStateListOf<TextFieldValue>() }
+
+    fun pushHistory() {
+        undoStack.add(contentValue)
+        if (undoStack.size > 200) undoStack.removeAt(0)
+        redoStack.clear()
+    }
 
     var isRecording by remember { mutableStateOf(false) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
@@ -277,37 +298,190 @@ fun GeneralNotesEditor(
         "Brown" to "#D7CCC8"
     )
 
-    // Helper to format text with Markdown bold/italic
-    fun insertMarkdown(syntax: String) {
+    // Wrap the current selection (or insert empty markers at the caret) with an inline
+    // marker, or unwrap if the selection is already wrapped. The markers themselves are
+    // hidden by RichTextVisualTransformation so the user only sees the styled result.
+    fun applyInlineMarker(marker: String) {
         if (isChecklist) return
+        pushHistory()
         val text = contentValue.text
-        val selection = contentValue.selection
-        val start = selection.min
-        val end = selection.max
-        
-        val newText = if (start != end) {
-            text.substring(0, start) + syntax + text.substring(start, end) + syntax + text.substring(end)
-        } else {
-            text.substring(0, start) + syntax + syntax + text.substring(start)
+        val s = contentValue.selection.min
+        val e = contentValue.selection.max
+        val selected = text.substring(s, e)
+        val mlen = marker.length
+        val newValue: TextFieldValue = when {
+            selected.length >= 2 * mlen && selected.startsWith(marker) && selected.endsWith(marker) -> {
+                val inner = selected.substring(mlen, selected.length - mlen)
+                val nt = text.substring(0, s) + inner + text.substring(e)
+                TextFieldValue(nt, TextRange(s, s + inner.length))
+            }
+            s >= mlen && e + mlen <= text.length &&
+                text.substring(s - mlen, s) == marker && text.substring(e, e + mlen) == marker -> {
+                val nt = text.substring(0, s - mlen) + selected + text.substring(e + mlen)
+                TextFieldValue(nt, TextRange(s - mlen, e - mlen))
+            }
+            else -> {
+                val nt = text.substring(0, s) + marker + selected + marker + text.substring(e)
+                val sel = if (s == e) TextRange(s + mlen) else TextRange(s + mlen, e + mlen)
+                TextFieldValue(nt, sel)
+            }
         }
-        
-        val newSelectionStart = if (start != end) end + syntax.length * 2 else start + syntax.length
-        contentValue = TextFieldValue(text = newText, selection = androidx.compose.ui.text.TextRange(newSelectionStart))
-        contentText = newText
+        contentValue = newValue
+        contentText = newValue.text
+    }
+
+    // Toggle a line-level prefix (heading / list marker) across every line touched by the
+    // selection. For a numbered list each line is numbered sequentially (1., 2., 3., …) so
+    // "select all → numbered list" works correctly; for bullets/headings the same marker is
+    // applied to each line. With no selection it toggles the single caret line.
+    val linePrefixRegex = Regex("^(#{1,3} |[-*•] |\\d+\\. )")
+    fun applyLinePrefix(prefix: String) {
+        if (isChecklist) return
+        pushHistory()
+        val text = contentValue.text
+        val selMin = contentValue.selection.min
+        val selMax = contentValue.selection.max
+        val blockStart = text.lastIndexOf('\n', (selMin - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+        val blockEnd = text.indexOf('\n', selMax).let { if (it < 0) text.length else it }
+        val block = text.substring(blockStart, blockEnd)
+        val lines = block.split("\n")
+        val isNumbered = prefix.matches(Regex("\\d+\\. "))
+        // Toggle off when every non-blank line already carries this kind of marker.
+        val allHave = lines.all { line ->
+            line.isBlank() || if (isNumbered) line.matches(Regex("^\\d+\\. .*")) else line.startsWith(prefix)
+        }
+        val rebuilt = if (allHave) {
+            lines.joinToString("\n") { it.replaceFirst(linePrefixRegex, "") }
+        } else {
+            var n = 1
+            lines.joinToString("\n") { line ->
+                if (line.isBlank()) {
+                    line
+                } else {
+                    val stripped = line.replaceFirst(linePrefixRegex, "")
+                    if (isNumbered) "${n++}. $stripped" else "$prefix$stripped"
+                }
+            }
+        }
+        val nt = text.substring(0, blockStart) + rebuilt + text.substring(blockEnd)
+        val newCaret = (blockStart + rebuilt.length).coerceIn(0, nt.length)
+        contentValue = TextFieldValue(nt, TextRange(newCaret))
+        contentText = nt
+    }
+
+    // Continue list markers when Enter is pressed; terminate the list on an empty item.
+    fun handleSmartNewline(old: TextFieldValue, candidate: TextFieldValue): TextFieldValue {
+        if (candidate.text.length != old.text.length + 1) return candidate
+        val caret = candidate.selection.start
+        if (caret <= 0 || candidate.text.getOrNull(caret - 1) != '\n') return candidate
+        val before = candidate.text.substring(0, caret - 1)
+        val lineStart = before.lastIndexOf('\n') + 1
+        val line = before.substring(lineStart)
+        val match = Regex("^(\\s*)(?:([-*•])|(\\d+)\\.|(\\[[ xX]\\]))\\s+(.*)$").find(line) ?: return candidate
+        val indent = match.groupValues[1]
+        val bullet = match.groupValues[2]
+        val number = match.groupValues[3]
+        val check = match.groupValues[4]
+        val itemContent = match.groupValues[5]
+        if (itemContent.isBlank()) {
+            // Empty list item + Enter => remove the marker and end the list.
+            val nt = candidate.text.substring(0, lineStart) + candidate.text.substring(caret)
+            return candidate.copy(text = nt, selection = TextRange(lineStart))
+        }
+        val nextMarker = when {
+            bullet.isNotEmpty() -> "$indent$bullet "
+            number.isNotEmpty() -> "$indent${(number.toIntOrNull() ?: 1) + 1}. "
+            check.isNotEmpty() -> "$indent[ ] "
+            else -> return candidate
+        }
+        val nt = candidate.text.substring(0, caret) + nextMarker + candidate.text.substring(caret)
+        return candidate.copy(text = nt, selection = TextRange(caret + nextMarker.length))
+    }
+
+    fun shareNote() {
+        val body = if (isChecklist) {
+            contentText.lineSequence().joinToString("\n") { line ->
+                when {
+                    line.startsWith("[x]") -> "☑ " + line.removePrefix("[x]").trim()
+                    line.startsWith("[ ]") -> "☐ " + line.removePrefix("[ ]").trim()
+                    else -> line
+                }
+            }
+        } else {
+            RichTextFormatter.stripMarkup(contentValue.text)
+        }
+        val plain = buildString {
+            if (title.isNotBlank()) {
+                append(title)
+                append("\n\n")
+            }
+            append(body)
+        }.trim()
+        if (plain.isBlank()) {
+            Toast.makeText(context, "Nothing to share yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, title.ifBlank { "Veritas note" })
+            putExtra(Intent.EXTRA_TEXT, plain)
+        }
+        runCatching { context.startActivity(Intent.createChooser(send, "Share note")) }
+    }
+
+    fun pickReminderDateTime() {
+        val now = Calendar.getInstance()
+        val base = reminderAt?.let { Calendar.getInstance().apply { timeInMillis = it } } ?: now
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                TimePickerDialog(
+                    context,
+                    { _, hour, minute ->
+                        val cal = Calendar.getInstance().apply {
+                            set(Calendar.YEAR, year)
+                            set(Calendar.MONTH, month)
+                            set(Calendar.DAY_OF_MONTH, day)
+                            set(Calendar.HOUR_OF_DAY, hour)
+                            set(Calendar.MINUTE, minute)
+                            set(Calendar.SECOND, 0)
+                        }
+                        if (cal.timeInMillis <= System.currentTimeMillis()) {
+                            Toast.makeText(context, "Pick a time in the future", Toast.LENGTH_SHORT).show()
+                        } else {
+                            reminderAt = cal.timeInMillis
+                        }
+                    },
+                    base.get(Calendar.HOUR_OF_DAY),
+                    base.get(Calendar.MINUTE),
+                    false
+                ).show()
+            },
+            base.get(Calendar.YEAR),
+            base.get(Calendar.MONTH),
+            base.get(Calendar.DAY_OF_MONTH)
+        ).apply {
+            datePicker.minDate = now.timeInMillis
+        }.show()
     }
 
     val cardBgColor = noteColor?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.surface
     val onCardColor = if (noteColor != null) Color.Black else MaterialTheme.colorScheme.onSurface
 
+    fun performSave() {
+        val finalContent = if (isChecklist) contentText else contentValue.text
+        onSave(title, finalContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (note == null) "New Note" else "Edit Note", fontWeight = FontWeight.Bold) },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = {
                         val finalContent = if (isChecklist) contentText else contentValue.text
                         if (title.isNotBlank() || finalContent.isNotBlank() || imageUrl != null || audioUrl != null) {
-                            onSave(title, finalContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl)
+                            performSave()
                         } else {
                             onDismiss()
                         }
@@ -316,7 +490,38 @@ fun GeneralNotesEditor(
                     }
                 },
                 actions = {
-                    // Pinned Status Action
+                    // Undo / redo for the rich-text body.
+                    if (!isChecklist) {
+                        IconButton(
+                            onClick = {
+                                if (undoStack.isNotEmpty()) {
+                                    redoStack.add(contentValue)
+                                    val v = undoStack.removeAt(undoStack.lastIndex)
+                                    contentValue = v
+                                    contentText = v.text
+                                }
+                            },
+                            enabled = undoStack.isNotEmpty()
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                        }
+                        IconButton(
+                            onClick = {
+                                if (redoStack.isNotEmpty()) {
+                                    undoStack.add(contentValue)
+                                    val v = redoStack.removeAt(redoStack.lastIndex)
+                                    contentValue = v
+                                    contentText = v.text
+                                }
+                            },
+                            enabled = redoStack.isNotEmpty()
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
+                        }
+                    }
+                    IconButton(onClick = { shareNote() }) {
+                        Icon(Icons.Filled.Share, contentDescription = "Share Note")
+                    }
                     IconButton(onClick = { isPinned = !isPinned }) {
                         Icon(
                             imageVector = if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
@@ -329,10 +534,7 @@ fun GeneralNotesEditor(
                             Icon(Icons.Filled.Delete, contentDescription = "Delete Note", tint = MaterialTheme.colorScheme.error)
                         }
                     }
-                    IconButton(onClick = {
-                        val finalContent = if (isChecklist) contentText else contentValue.text
-                        onSave(title, finalContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl)
-                    }) {
+                    IconButton(onClick = { performSave() }) {
                         Icon(Icons.Filled.Done, contentDescription = "Save Note", tint = MaterialTheme.colorScheme.primary)
                     }
                 },
@@ -360,7 +562,7 @@ fun GeneralNotesEditor(
                             .padding(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        noteColors.forEach { (name, hex) ->
+                        noteColors.forEach { (_, hex) ->
                             val color = hex?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.surface
                             Box(
                                 modifier = Modifier
@@ -380,6 +582,27 @@ fun GeneralNotesEditor(
                     }
                 }
 
+                // Rich-text formatting toolbar (hidden in checklist mode).
+                if (!isChecklist) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FormatToolbarButton(Icons.Filled.Title, "Heading", onCardColor) { applyLinePrefix("# ") }
+                        FormatToolbarButton(Icons.Filled.FormatBold, "Bold", onCardColor) { applyInlineMarker("**") }
+                        FormatToolbarButton(Icons.Filled.FormatItalic, "Italic", onCardColor) { applyInlineMarker("*") }
+                        FormatToolbarButton(Icons.Filled.FormatUnderlined, "Underline", onCardColor) { applyInlineMarker("__") }
+                        FormatToolbarButton(Icons.Filled.StrikethroughS, "Strikethrough", onCardColor) { applyInlineMarker("~~") }
+                        FormatToolbarButton(Icons.Filled.Code, "Monospace", onCardColor) { applyInlineMarker("`") }
+                        FormatToolbarButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet list", onCardColor) { applyLinePrefix("- ") }
+                        FormatToolbarButton(Icons.Filled.FormatListNumbered, "Numbered list", onCardColor) { applyLinePrefix("1. ") }
+                    }
+                }
+
                 Surface(
                     tonalElevation = 3.dp,
                     color = cardBgColor,
@@ -388,42 +611,36 @@ fun GeneralNotesEditor(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Color picker trigger
                         IconButton(onClick = { showColorPicker = !showColorPicker }) {
                             Icon(Icons.Outlined.Palette, contentDescription = "Color Picker", tint = onCardColor.copy(alpha = 0.8f))
                         }
-                        
-                        // Checklist Toggle
-                        IconButton(onClick = { 
-                            isChecklist = !isChecklist 
+
+                        IconButton(onClick = {
+                            isChecklist = !isChecklist
                             if (isChecklist && contentText.isBlank()) {
                                 contentText = "[ ] Add item"
                             }
                         }) {
                             Icon(
-                                imageVector = if (isChecklist) Icons.Filled.Checklist else Icons.Outlined.Checklist, 
-                                contentDescription = "Checklist Toggle", 
+                                imageVector = if (isChecklist) Icons.Filled.Checklist else Icons.Outlined.Checklist,
+                                contentDescription = "Checklist Toggle",
                                 tint = if (isChecklist) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
                             )
                         }
 
-                        // Image Attachment
-                        IconButton(onClick = { 
-                            imageLauncher.launch("image/*")
-                        }) {
+                        IconButton(onClick = { imageLauncher.launch("image/*") }) {
                             Icon(
-                                imageVector = if (imageUrl != null) Icons.Filled.Image else Icons.Outlined.Image, 
-                                contentDescription = "Attach Image", 
+                                imageVector = if (imageUrl != null) Icons.Filled.Image else Icons.Outlined.Image,
+                                contentDescription = "Attach Image",
                                 tint = if (imageUrl != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
                             )
                         }
 
-                        // Audio Attachment
-                        IconButton(onClick = { 
+                        IconButton(onClick = {
                             if (isRecording) {
                                 stopRecording()
                             } else {
@@ -435,32 +652,61 @@ fun GeneralNotesEditor(
                             }
                         }) {
                             Icon(
-                                imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrl != null) Icons.Filled.Mic else Icons.Outlined.Mic), 
-                                contentDescription = if (isRecording) "Stop Recording" else "Record Audio", 
+                                imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrl != null) Icons.Filled.Mic else Icons.Outlined.Mic),
+                                contentDescription = if (isRecording) "Stop Recording" else "Record Audio",
                                 tint = if (isRecording) MaterialTheme.colorScheme.error else (if (audioUrl != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f))
                             )
                         }
 
-                        Spacer(modifier = Modifier.weight(1f))
-
-                        if (!isChecklist) {
-                            FilledTonalButton(
-                                onClick = { insertMarkdown("**") },
-                                colors = ButtonDefaults.filledTonalButtonColors(containerColor = onCardColor.copy(alpha = 0.1f), contentColor = onCardColor),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.defaultMinSize(minWidth = 36.dp, minHeight = 32.dp),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text("B", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Box {
+                            IconButton(onClick = { showReminderMenu = true }) {
+                                Icon(
+                                    imageVector = if (reminderAt != null) Icons.Filled.NotificationsActive else Icons.Outlined.NotificationAdd,
+                                    contentDescription = "Reminder",
+                                    tint = if (reminderAt != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
+                                )
                             }
-                            FilledTonalButton(
-                                onClick = { insertMarkdown("*") },
-                                colors = ButtonDefaults.filledTonalButtonColors(containerColor = onCardColor.copy(alpha = 0.1f), contentColor = onCardColor),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.defaultMinSize(minWidth = 36.dp, minHeight = 32.dp),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text("I", fontStyle = FontStyle.Italic, fontSize = 14.sp)
+                            DropdownMenu(expanded = showReminderMenu, onDismissRequest = { showReminderMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Later today (3 hrs)") },
+                                    onClick = {
+                                        reminderAt = System.currentTimeMillis() + 3 * 60 * 60 * 1000L
+                                        showReminderMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Tomorrow morning (9 AM)") },
+                                    onClick = {
+                                        val cal = Calendar.getInstance().apply {
+                                            add(Calendar.DAY_OF_YEAR, 1)
+                                            set(Calendar.HOUR_OF_DAY, 9)
+                                            set(Calendar.MINUTE, 0)
+                                            set(Calendar.SECOND, 0)
+                                        }
+                                        reminderAt = cal.timeInMillis
+                                        showReminderMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.WbSunny, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Pick date & time…") },
+                                    onClick = {
+                                        showReminderMenu = false
+                                        pickReminderDateTime()
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.EditCalendar, contentDescription = null) }
+                                )
+                                if (reminderAt != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Remove reminder") },
+                                        onClick = {
+                                            reminderAt = null
+                                            showReminderMenu = false
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.NotificationsOff, contentDescription = null) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -477,6 +723,27 @@ fun GeneralNotesEditor(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Reminder chip
+            if (reminderAt != null) {
+                val label = remember(reminderAt) {
+                    SimpleDateFormat("EEE, d MMM • h:mm a", Locale.getDefault()).format(Date(reminderAt!!))
+                }
+                AssistChip(
+                    onClick = { showReminderMenu = true },
+                    label = { Text("Reminder: $label") },
+                    leadingIcon = { Icon(Icons.Filled.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Remove reminder",
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clickable { reminderAt = null }
+                        )
+                    }
+                )
+            }
+
             // Display Image attachment preview if attached
             if (imageUrl != null) {
                 val bitmap = remember(imageUrl) {
@@ -504,7 +771,6 @@ fun GeneralNotesEditor(
                                 Text("Error loading image", color = onCardColor)
                             }
                         }
-                        // Close button to remove image
                         IconButton(
                             onClick = { imageUrl = null },
                             modifier = Modifier
@@ -572,7 +838,6 @@ fun GeneralNotesEditor(
                         .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Title input
                     TextField(
                         value = title,
                         onValueChange = { title = it },
@@ -600,7 +865,6 @@ fun GeneralNotesEditor(
                         )
                     )
 
-                    // Horizontal line separator
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -608,17 +872,25 @@ fun GeneralNotesEditor(
                             .background(onCardColor.copy(alpha = 0.15f))
                     )
 
-                    // Content body input or Checklist input
                     if (!isChecklist) {
                         TextField(
                             value = contentValue,
-                            onValueChange = { 
-                                contentValue = it 
-                                contentText = it.text
+                            onValueChange = { raw ->
+                                val processed = handleSmartNewline(contentValue, raw)
+                                // Coalesce keystrokes into word-level undo steps.
+                                val prev = contentValue
+                                val isBoundary = processed.text.length < prev.text.length ||
+                                    (processed.text.length - prev.text.length) > 1 ||
+                                    processed.text.lastOrNull()?.isWhitespace() == true
+                                if (isBoundary && prev.text != processed.text) {
+                                    undoStack.add(prev)
+                                    if (undoStack.size > 200) undoStack.removeAt(0)
+                                    redoStack.clear()
+                                }
+                                contentValue = processed
+                                contentText = processed.text
                             },
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                color = onCardColor
-                            ),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = onCardColor),
                             placeholder = {
                                 Text(
                                     "Note",
@@ -629,7 +901,7 @@ fun GeneralNotesEditor(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .defaultMinSize(minHeight = 200.dp),
-                            visualTransformation = MarkdownVisualTransformation(),
+                            visualTransformation = RichTextVisualTransformation(onCardColor),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,
@@ -640,7 +912,6 @@ fun GeneralNotesEditor(
                             )
                         )
                     } else {
-                        // Checklist View Mode
                         val items = remember(contentText) {
                             val list = contentText.split("\n").filter { it.isNotBlank() }.map { line ->
                                 val checked = line.startsWith("[x]")
@@ -687,7 +958,7 @@ fun GeneralNotesEditor(
                                         },
                                         textStyle = MaterialTheme.typography.bodyMedium.copy(
                                             color = onCardColor,
-                                            textDecoration = if (checked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                                            textDecoration = if (checked) TextDecoration.LineThrough else null
                                         ),
                                         modifier = Modifier.weight(1f)
                                     )
@@ -702,8 +973,7 @@ fun GeneralNotesEditor(
                                     }
                                 }
                             }
-                            
-                            // Add Item Button
+
                             TextButton(
                                 onClick = {
                                     items.add(false to "")
@@ -727,28 +997,136 @@ fun GeneralNotesEditor(
     }
 }
 
-class MarkdownVisualTransformation : VisualTransformation {
+@Composable
+private fun FormatToolbarButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
+        Icon(icon, contentDescription = description, tint = tint.copy(alpha = 0.85f), modifier = Modifier.size(22.dp))
+    }
+}
+
+/**
+ * Renders inline markdown-style markers as real formatting while HIDING the marker
+ * characters themselves, so the editor shows styled text instead of raw `**markup**`.
+ * Maintains an exact bidirectional offset mapping so the caret and selection stay correct.
+ */
+class RichTextVisualTransformation(private val baseColor: Color) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
-        val rawText = text.text
-        val annotated = buildAnnotatedString {
-            append(rawText)
-            
-            // Apply bold style for **text**
-            val boldRegex = Regex("\\*\\*(.*?)\\*\\*")
-            boldRegex.findAll(rawText).forEach { matchResult ->
-                val start = matchResult.range.first
-                val end = matchResult.range.last + 1
-                addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, end)
-            }
-            
-            // Apply italic style for *text*
-            val italicRegex = Regex("(?<!\\*)\\*(?!\\*)(.*?)(?<!\\*)\\*(?!\\*)")
-            italicRegex.findAll(rawText).forEach { matchResult ->
-                val start = matchResult.range.first
-                val end = matchResult.range.last + 1
-                addStyle(SpanStyle(fontStyle = FontStyle.Italic), start, end)
+        return RichTextFormatter.transform(text.text)
+    }
+}
+
+object RichTextFormatter {
+    private data class StyleSpan(val start: Int, val endExclusive: Int, val style: SpanStyle)
+
+    private val inlineMarkers: List<Pair<Regex, (String) -> SpanStyle>> = listOf(
+        Regex("\\*\\*(.+?)\\*\\*") to { _: String -> SpanStyle(fontWeight = FontWeight.Bold) },
+        Regex("__(.+?)__") to { _: String -> SpanStyle(textDecoration = TextDecoration.Underline) },
+        Regex("~~(.+?)~~") to { _: String -> SpanStyle(textDecoration = TextDecoration.LineThrough) },
+        Regex("`(.+?)`") to { _: String -> SpanStyle(fontFamily = FontFamily.Monospace) },
+        Regex("\\*(.+?)\\*") to { _: String -> SpanStyle(fontStyle = FontStyle.Italic) }
+    )
+
+    private val markerLengths = listOf(2, 2, 2, 1, 1)
+
+    fun transform(raw: String): TransformedText {
+        val n = raw.length
+        val hidden = BooleanArray(n)
+        val consumed = BooleanArray(n)
+        val spans = mutableListOf<StyleSpan>()
+
+        // Line-level headings: hide the leading "# " / "## " / "### " and enlarge the line.
+        run {
+            var lineStart = 0
+            while (lineStart <= n) {
+                val nl = raw.indexOf('\n', lineStart).let { if (it < 0) n else it }
+                val line = raw.substring(lineStart, nl)
+                val m = Regex("^(#{1,3}) ").find(line)
+                if (m != null) {
+                    val prefixLen = m.value.length
+                    for (i in lineStart until (lineStart + prefixLen)) hidden[i] = true
+                    val level = m.groupValues[1].length
+                    val size = when (level) {
+                        1 -> 24f
+                        2 -> 20f
+                        else -> 17f
+                    }
+                    if (nl > lineStart + prefixLen) {
+                        spans.add(StyleSpan(lineStart + prefixLen, nl, SpanStyle(fontWeight = FontWeight.Bold, fontSize = size.sp)))
+                    }
+                }
+                if (nl >= n) break
+                lineStart = nl + 1
             }
         }
-        return TransformedText(annotated, OffsetMapping.Identity)
+
+        // Inline markers, in priority order, claiming non-overlapping balanced pairs.
+        inlineMarkers.forEachIndexed { index, (regex, styleFor) ->
+            val mlen = markerLengths[index]
+            regex.findAll(raw).forEach { match ->
+                val s = match.range.first
+                val e = match.range.last // inclusive
+                if (s < 0 || e >= n) return@forEach
+                var overlaps = false
+                for (i in s..e) if (consumed[i]) { overlaps = true; break }
+                if (overlaps) return@forEach
+                val innerStart = s + mlen
+                val innerEnd = e + 1 - mlen
+                if (innerEnd <= innerStart) return@forEach
+                for (i in s..e) consumed[i] = true
+                for (i in s until innerStart) hidden[i] = true
+                for (i in innerEnd..e) hidden[i] = true
+                spans.add(StyleSpan(innerStart, innerEnd, styleFor(match.groupValues.getOrElse(1) { "" })))
+            }
+        }
+
+        // Build the visible text plus exact offset maps.
+        val origToTrans = IntArray(n + 1)
+        val sb = StringBuilder()
+        val transToOrigList = ArrayList<Int>(n + 1)
+        var t = 0
+        for (i in 0 until n) {
+            origToTrans[i] = t
+            if (!hidden[i]) {
+                sb.append(raw[i])
+                transToOrigList.add(i)
+                t++
+            }
+        }
+        origToTrans[n] = t
+        transToOrigList.add(n)
+        val transToOrig = IntArray(t + 1) { idx -> transToOrigList.getOrElse(idx) { n } }
+
+        val annotated = buildAnnotatedString {
+            append(sb.toString())
+            spans.forEach { span ->
+                val ts = origToTrans[span.start.coerceIn(0, n)]
+                val te = origToTrans[span.endExclusive.coerceIn(0, n)]
+                if (ts < te) addStyle(span.style, ts, te)
+            }
+        }
+
+        val mapping = object : OffsetMapping {
+            override fun originalToTransformed(offset: Int): Int = origToTrans[offset.coerceIn(0, n)]
+            override fun transformedToOriginal(offset: Int): Int = transToOrig[offset.coerceIn(0, t)]
+        }
+
+        return TransformedText(annotated, mapping)
+    }
+
+    /** Removes inline markup and heading prefixes for plain-text sharing. */
+    fun stripMarkup(raw: String): String {
+        var out = raw
+        out = out.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+        out = out.replace(Regex("__(.+?)__"), "$1")
+        out = out.replace(Regex("~~(.+?)~~"), "$1")
+        out = out.replace(Regex("`(.+?)`"), "$1")
+        out = out.replace(Regex("\\*(.+?)\\*"), "$1")
+        out = out.lineSequence().joinToString("\n") { it.replaceFirst(Regex("^#{1,3} "), "") }
+        return out
     }
 }

@@ -1162,7 +1162,9 @@ private fun VeritasReaderApp(
                             OnboardingController.activeStep = OnboardingStep.WELCOME
                         },
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
+                            .align(Alignment.BottomStart)
+                            // Keep the card clear of the Add FAB anchored at the bottom end.
+                            .fillMaxWidth(0.65f)
                             .padding(bottom = 90.dp)
                             .onGloballyPositioned { OnboardingController.updateBounds("quest_checklist", it) }
                     )
@@ -1903,8 +1905,8 @@ private fun VeritasReaderApp(
         if (uiState.showGeneralNotesEditor) {
             GeneralNotesEditor(
                 note = uiState.generalNoteEditorTarget,
-                onSave = { title, content, color, pinned, isChecklist, imageUrl, audioUrl ->
-                    viewModel.saveGeneralNote(title, content, color, pinned, isChecklist, imageUrl, audioUrl)
+                onSave = { title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt ->
+                    viewModel.saveGeneralNote(title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt)
                 },
                 onDelete = { noteId -> viewModel.deleteGeneralNote(noteId) },
                 onDismiss = { viewModel.updateState { it.copy(showGeneralNotesEditor = false, generalNoteEditorTarget = null) } }
@@ -2299,7 +2301,9 @@ private fun VeritasReaderApp(
                     TutorialSpeaker.shutdown()
                 }
             }
-            if (activeStep != null) {
+            // INSIGHTS_PAGE_SPOTLIGHT renders its card inside the insights dialog window;
+            // the main overlay would be hidden behind that dialog, so skip it here.
+            if (activeStep != null && activeStep != OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT) {
                 OnboardingSpotlightOverlay(
                     step = activeStep,
                     userName = uiState.userName,
@@ -2315,7 +2319,8 @@ private fun VeritasReaderApp(
                                 }
                                 OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
                                 OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
-                                OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
+                                OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
+                                OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
                                 OnboardingStep.DOCUMENT_SPOTLIGHT -> {
                                     val targetDoc = uiState.documents.firstOrNull()
                                     if (targetDoc != null) {
@@ -2367,7 +2372,8 @@ private fun VeritasReaderApp(
                                 OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.NAME_INPUT
                                 OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.FAB_SPOTLIGHT
                                 OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
-                                OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
+                                OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
+                                OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
                                 OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> {
                                     viewModel.returnToLibrary()
                                     // Wait for library screen to load and render the document card
@@ -2625,7 +2631,11 @@ private fun FileBrowserDialog(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             IconButton(onClick = { selectedFiles.clear() }) {
-                                Text("✕", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Clear selection",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
@@ -6194,6 +6204,23 @@ fun AnnotationPill(label: String) {
     }
 }
 
+@Composable
+fun AnnotationPill(icon: androidx.compose.ui.graphics.vector.ImageVector, contentDescription: String) {
+    Box(
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(50))
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
 
 @Composable
 private fun VeritasTheme(content: @Composable () -> Unit) {
@@ -6202,7 +6229,7 @@ private fun VeritasTheme(content: @Composable () -> Unit) {
     val selectedPack = VeritasThemePackCatalog.normalizePackId(VeritasThemeState.themePackId)
     
     val resolvedTheme = if (selectedTheme == "system") {
-        if (androidx.compose.foundation.isSystemInDarkTheme()) "default_dark_2026" else "light"
+        if (isSystemInDarkTheme()) "default_dark_2026" else "light"
     } else {
         selectedTheme
     }

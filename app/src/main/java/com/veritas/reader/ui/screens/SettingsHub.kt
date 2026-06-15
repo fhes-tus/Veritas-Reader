@@ -446,7 +446,7 @@ fun ReaderSettingsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        title = { Text("⚙") },
+        title = { Text("Reader Settings") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("Theme pack: ${VeritasThemePackCatalog.displayName(settings.themePackId)}", fontWeight = FontWeight.SemiBold)

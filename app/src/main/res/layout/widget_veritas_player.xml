@@ -54,16 +54,15 @@
         android:textSize="28sp"
         android:textStyle="bold" />
 
-    <TextView
+    <ImageView
         android:id="@+id/widget_play_pause"
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:background="@drawable/widget_veritas_button"
-        android:gravity="center"
-        android:text="@string/widget_play"
-        android:textColor="#FF101418"
-        android:textSize="20sp"
-        android:textStyle="bold" />
+        android:contentDescription="@string/widget_play"
+        android:padding="12dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_widget_play" />
 
     <TextView
         android:id="@+id/widget_next"

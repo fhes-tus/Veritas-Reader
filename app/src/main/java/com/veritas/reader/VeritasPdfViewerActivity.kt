@@ -175,7 +175,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             )
         }
         applyToolbarInsets(toolbar)
-        toolbar.addView(iconButton("‹") { finish() })
+        toolbar.addView(iconButton(R.drawable.ic_m3_chevron_left) { finish() })
         toolbar.addView(TextView(this).apply {
             text = title
             setTextColor(colorTextPrimary)
@@ -202,21 +202,24 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             }
         }
         toolbar.addView(syncCheckBox)
-        toolbar.addView(iconButton("🔎") { toggleSearch() })
-        toolbar.addView(iconButton("⟳") { rotateViewer() })
-        toolbar.addView(iconButton("⋮") { showTopMenu(toolbar) })
+        toolbar.addView(iconButton(R.drawable.ic_m3_search) { toggleSearch() })
+        toolbar.addView(iconButton(R.drawable.ic_m3_rotate_right) { rotateViewer() })
+        toolbar.addView(iconButton(R.drawable.ic_m3_more_vert) { showTopMenu(toolbar) })
         toolbarChrome = toolbar
 
         fragmentContainer = FrameLayout(this).apply {
             id = R.id.pdf_fragment_container
             setBackgroundColor(if (isLightTheme) colorBackground else Color.WHITE)
             if (!isLightTheme) {
+                // True dark mode: soft brightness inversion that PRESERVES HUE. White paper
+                // -> ~#242424, black text -> ~#EBEBEB, but coloured elements keep their hue
+                // (red stays reddish, blue stays bluish) instead of flipping to cyan/orange.
                 val paint = android.graphics.Paint().apply {
                     colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
-                        -1.0f,  0.0f,  0.0f,  0.0f, 255.0f,
-                         0.0f, -1.0f,  0.0f,  0.0f, 255.0f,
-                         0.0f,  0.0f, -1.0f,  0.0f, 255.0f,
-                         0.0f,  0.0f,  0.0f,  1.0f,   0.0f
+                         0.4477f, -1.1154f, -0.1123f, 0.0f, 235.0f,
+                        -0.3323f, -0.3354f, -0.1123f, 0.0f, 235.0f,
+                        -0.3323f, -1.1154f,  0.6677f, 0.0f, 235.0f,
+                         0.0f,     0.0f,     0.0f,    1.0f,   0.0f
                     ))
                 }
                 setLayerType(View.LAYER_TYPE_HARDWARE, paint)
@@ -292,22 +295,24 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         controlRow.addView(panelStatusLabel)
 
         // Playback controls
-        controlRow.addView(iconButton("‹") { sendPlaybackIntent(this, PlaybackActions.ACTION_PREVIOUS) })
-        playPauseControl = prominentButton(if (PlaybackStateStore.isPlaying) "Ⅱ" else "▶") {
+        controlRow.addView(iconButton(R.drawable.ic_m3_chevron_left) { sendPlaybackIntent(this, PlaybackActions.ACTION_PREVIOUS) })
+        playPauseControl = prominentButton("") {
             sendPlaybackIntent(this, if (PlaybackStateStore.isPlaying) PlaybackActions.ACTION_PAUSE else PlaybackActions.ACTION_PLAY)
             playPauseControl?.postDelayed({ updatePlaybackControls() }, 180)
         }
+        applyPlayPauseIcon(PlaybackStateStore.isPlaying)
         controlRow.addView(requireNotNull(playPauseControl))
-        controlRow.addView(iconButton("›") { sendPlaybackIntent(this, PlaybackActions.ACTION_NEXT) })
+        controlRow.addView(iconButton(R.drawable.ic_m3_chevron_right) { sendPlaybackIntent(this, PlaybackActions.ACTION_NEXT) })
 
         // Expand arrow indicator
         panelExpandArrow = TextView(this).apply {
-            text = "▲"
-            setTextColor(colorTextSecondary)
-            textSize = 13f
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(36.dp, 44.dp)
             setOnClickListener { togglePanelExpand() }
+        }
+        panelExpandArrow?.let { arrow ->
+            applyIconGlyph(arrow, R.drawable.ic_m3_expand_less)
+            arrow.foreground?.setTint(colorTextSecondary)
         }
         controlRow.addView(panelExpandArrow)
 
@@ -1287,9 +1292,23 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    // Material play/pause glyphs rendered as a centered foreground drawable; the
+    // control stays a TextView so the prominentButton styling is unchanged.
+    private fun applyPlayPauseIcon(playing: Boolean) {
+        val control = playPauseControl ?: return
+        control.text = ""
+        val icon = androidx.core.content.ContextCompat.getDrawable(
+            this,
+            if (playing) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
+        )?.mutate()
+        icon?.setTint(if (isLightTheme) Color.WHITE else Color.rgb(8, 34, 40))
+        control.foreground = icon
+        control.foregroundGravity = Gravity.CENTER
+    }
+
     private fun updatePlaybackControls() {
         val playing = PlaybackStateStore.isPlaying
-        playPauseControl?.text = if (playing) "Ⅱ" else "▶"
+        applyPlayPauseIcon(playing)
         panelStatusLabel?.text = if (playing) "Now reading" else "Ready to read"
         panelSpeedLabel?.text = "Speed ${"%.2f".format(PlaybackStateStore.rate)}x"
         panelPitchLabel?.text = "Pitch ${"%.2f".format(PlaybackStateStore.pitch)}"
@@ -1298,7 +1317,10 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private fun togglePanelExpand() {
         val section = expandedPanelContent ?: return
         panelExpanded = !panelExpanded
-        panelExpandArrow?.text = if (panelExpanded) "▼" else "▲"
+        panelExpandArrow?.let { arrow ->
+            applyIconGlyph(arrow, if (panelExpanded) R.drawable.ic_m3_expand_more else R.drawable.ic_m3_expand_less)
+            arrow.foreground?.setTint(colorTextSecondary)
+        }
         showChrome(keepVisible = true)
         if (panelExpanded) {
             section.visibility = View.VISIBLE
@@ -1347,6 +1369,20 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 if (chromeVisible && !chromeMenuOpen) scheduleChromeAutoHide()
             }
         }
+    }
+
+    // Material icon variant: the glyph renders as a centered, tinted foreground
+    // drawable so the buttons match the Compose screens' Material 3 icons.
+    private fun iconButton(iconRes: Int, action: () -> Unit): TextView {
+        return iconButton("", action).apply { applyIconGlyph(this, iconRes) }
+    }
+
+    private fun applyIconGlyph(view: TextView, iconRes: Int) {
+        val icon = androidx.core.content.ContextCompat.getDrawable(this, iconRes)?.mutate()
+        icon?.setTint(colorTextPrimary)
+        view.text = ""
+        view.foreground = icon
+        view.foregroundGravity = Gravity.CENTER
     }
 
     private fun prominentButton(label: String, action: () -> Unit): TextView {

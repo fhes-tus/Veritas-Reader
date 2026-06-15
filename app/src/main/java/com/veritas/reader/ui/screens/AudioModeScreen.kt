@@ -259,14 +259,16 @@ fun AudioModeScreen(
                             attempts++
                         }
                         if (viewportHeight > 0) {
-                            val layoutInfo = readListState.layoutInfo
-                            val itemInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == currentIndex }
-                            val itemHeight = itemInfo?.size ?: 100
-                            val offset = -(viewportHeight / 3 - itemHeight / 2)
+                            // Anchor the active sentence's TOP in the upper fifth of the
+                            // viewport (fixed top anchor, not centering) so the line being
+                            // read sits high with one faded line of context above it and the
+                            // rest of the upcoming text below — consistent for short and tall
+                            // multi-line sentences.
+                            val offset = -(viewportHeight * 0.10f).toInt()
                             readListState.animateScrollToItem(currentIndex, offset)
                         } else {
                             // Fallback to average offset if measurement still pending
-                            readListState.animateScrollToItem(currentIndex, -220)
+                            readListState.animateScrollToItem(currentIndex, -90)
                         }
                     }
                 }
@@ -287,9 +289,20 @@ fun AudioModeScreen(
                     ) {
                         itemsIndexed(documentChunks) { index, sentence ->
                             val isActive = index == currentIndex
-                            val alpha = if (isActive) 1.0f else 0.35f
+                            // Animate the active-sentence emphasis so the lyrics view glides
+                            // between sentences instead of snapping.
+                            val alpha by animateFloatAsState(
+                                targetValue = if (isActive) 1.0f else 0.35f,
+                                animationSpec = tween(durationMillis = 350),
+                                label = "sentenceAlpha"
+                            )
+                            val fontSizeValue by animateFloatAsState(
+                                targetValue = if (isActive) 19f else 15f,
+                                animationSpec = tween(durationMillis = 350),
+                                label = "sentenceSize"
+                            )
                             val fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-                            val fontSize = if (isActive) 19.sp else 15.sp
+                            val fontSize = fontSizeValue.sp
                             val textColor = contentColor.copy(alpha = alpha)
 
                             Text(

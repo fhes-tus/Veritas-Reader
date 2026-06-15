@@ -305,7 +305,7 @@ internal fun ActualDocumentView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isThemeDark) androidx.compose.ui.graphics.Color(0xFF121212) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .background(if (isThemeDark) androidx.compose.ui.graphics.Color(0xFF1C1C1E) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
     ) {
         // 1. Full-screen rendering canvas
         BoxWithConstraints(
@@ -342,11 +342,16 @@ internal fun ActualDocumentView(
                             bitmap = image.asImageBitmap(),
                             contentDescription = "Rendered original document",
                             colorFilter = if (isThemeDark) {
+                                // True dark mode (not a plain colour inversion): softly inverts
+                                // BRIGHTNESS while PRESERVING HUE. White paper maps to ~#242424
+                                // and black text to ~#EBEBEB, but a red heading stays reddish and
+                                // a blue link stays bluish instead of flipping to cyan/orange.
+                                // Derived from (soft-invert ∘ 180° hue-rotation about luminance).
                                 ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
-                                    -1.0f,  0.0f,  0.0f,  0.0f, 255.0f,
-                                     0.0f, -1.0f,  0.0f,  0.0f, 255.0f,
-                                     0.0f,  0.0f, -1.0f,  0.0f, 255.0f,
-                                     0.0f,  0.0f,  0.0f,  1.0f,   0.0f
+                                     0.4477f, -1.1154f, -0.1123f, 0.0f, 235.0f,
+                                    -0.3323f, -0.3354f, -0.1123f, 0.0f, 235.0f,
+                                    -0.3323f, -1.1154f,  0.6677f, 0.0f, 235.0f,
+                                     0.0f,     0.0f,     0.0f,    1.0f,   0.0f
                                 )))
                             } else null,
                             modifier = Modifier
@@ -490,21 +495,22 @@ internal fun ActualDocumentView(
                 .graphicsLayer { translationY = topBarOffset }
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f))
                 .statusBarsPadding()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            IconButton(onClick = onClose) {
+            IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Close",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = if (isPdf) "Page ${pageIndex + 1} / $pageCount" else "Original View",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -530,20 +536,23 @@ internal fun ActualDocumentView(
                     rotationDegrees = (rotationDegrees + 90) % 360
                     zoomScale = 1f
                     zoomOffset = Offset.Zero
-                }
+                },
+                modifier = Modifier.size(36.dp)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.RotateRight,
                     contentDescription = "Rotate",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             Box {
-                IconButton(onClick = { showMenu = true }) {
+                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "More Options",
-                        tint = MaterialTheme.colorScheme.onSurface
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {

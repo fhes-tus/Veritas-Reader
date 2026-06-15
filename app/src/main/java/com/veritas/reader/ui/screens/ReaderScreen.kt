@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -76,7 +77,14 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreVert
@@ -261,6 +269,10 @@ fun ReaderScreen(
     var selectedTextSelection by remember(document.id) { mutableStateOf<ReaderTextSelection?>(null) }
     var selectedTextView by remember(document.id) { mutableStateOf<TextView?>(null) }
     var feedbackSentenceIndex by remember(document.id) { mutableStateOf<Int?>(null) }
+    // Bumped to force the auto-scroll effect to re-anchor the active sentence after events
+    // that otherwise leave its keys unchanged (bookmarking, switching reader modes), which
+    // previously left the page locked at the top of the section.
+    var scrollTick by remember(document.id) { mutableStateOf(0) }
 
     val readerModel = remember(document.rawText, document.pageCount, document.chunks.size) {
         ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
@@ -292,6 +304,12 @@ fun ReaderScreen(
             delay(420)
             feedbackSentenceIndex = null
         }
+    }
+
+    // Re-anchor the active sentence after events that don't change the scroll effect's other
+    // keys: annotation changes (bookmark/note) and returning from LISTEN/ORIGINAL to TEXT.
+    LaunchedEffect(annotations, state.readerMode) {
+        scrollTick++
     }
 
     Column(modifier = Modifier
@@ -453,31 +471,41 @@ fun ReaderScreen(
                                 activeRange?.endExclusive,
                                 selectedTextView,
                                 partListItemIndex,
-                                readerSettings.fontSizeSp
+                                readerSettings.fontSizeSp,
+                                scrollTick
                             ) {
                                 val textView = selectedTextView
                                 val range = activeRange
                                 if (textView != null && range != null) {
-                                    val topPaddingPx = with(density) { 132.dp.toPx().roundToInt() }
-                                    listOf(0L, 90L, 220L).forEach { settleDelay ->
-                                        if (settleDelay > 0L) delay(settleDelay)
-                                        val layout = textView.layout ?: return@forEach
+                                    val topPaddingPx = with(density) { 120.dp.toPx().roundToInt() }
+
+                                    // Resolve the scroll offset of the line holding the active
+                                    // sentence so it lands ~120dp below the top of the viewport.
+                                    fun activeLineOffset(): Int? {
+                                        val layout = textView.layout ?: return null
                                         val textLength = textView.text?.length ?: part.text.length
                                         val targetLine = layout.getLineForOffset(
-                                            range.start.coerceIn(
-                                                0,
-                                                textLength.coerceAtLeast(0)
-                                            )
+                                            range.start.coerceIn(0, textLength.coerceAtLeast(0))
                                         )
-                                        val targetTop =
-                                            layout.getLineTop(targetLine).coerceAtLeast(0)
-                                        layout.getLineBottom(targetLine)
-                                            .coerceAtLeast(targetTop + 1)
-                                        listState.animateScrollToItem(
-                                            partListItemIndex,
-                                            (targetTop - topPaddingPx).coerceAtLeast(0)
-                                        )
+                                        val targetTop = layout.getLineTop(targetLine).coerceAtLeast(0)
+                                        return (targetTop - topPaddingPx).coerceAtLeast(0)
                                     }
+
+                                    // A freshly composed section renders one large TextView
+                                    // whose layout is not measured for a frame or two. Poll
+                                    // (bounded) until the layout exists so the very first
+                                    // scroll lands instead of leaving the page stuck at the
+                                    // top of the section.
+                                    var waited = 0
+                                    while (textView.layout == null && waited < 800) {
+                                        delay(32)
+                                        waited += 32
+                                    }
+                                    activeLineOffset()?.let { listState.animateScrollToItem(partListItemIndex, it) }
+                                    // Re-check after the layout settles (font metrics, line
+                                    // wrapping) so we land precisely on the active sentence.
+                                    delay(140)
+                                    activeLineOffset()?.let { listState.animateScrollToItem(partListItemIndex, it) }
                                 }
                             }
                             val bookmarkedSentenceIndexes = annotations
@@ -541,10 +569,10 @@ fun ReaderScreen(
                                         } else {
                                             Spacer(modifier = Modifier.weight(1f))
                                         }
-                                        if (bookmarked) AnnotationPill("🔖")
+                                        if (bookmarked) AnnotationPill(Icons.Filled.Bookmark, "Bookmarked")
                                         if (note != null) {
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            AnnotationPill("✏️")
+                                            AnnotationPill(Icons.Filled.EditNote, "Has note")
                                         }
                                     }
 
@@ -559,9 +587,12 @@ fun ReaderScreen(
                                             }
                                         },
                                         update = { textView ->
-                                            if (currentIndex in part.sentenceStartIndex until part.sentenceEndIndexExclusive) {
-                                                selectedTextView = textView
-                                            }
+                                            // This item only ever renders the current part, so
+                                            // this TextView is always the active one. Assign it
+                                            // unconditionally so the auto-scroll effect never
+                                            // ends up holding a null/stale reference after a
+                                            // bookmark, text action, or mode switch.
+                                            selectedTextView = textView
                                             textView.text = renderedPart
                                             textView.setTextColor(textColor)
                                             textView.textSize = readerSettings.fontSizeSp.toFloat()
@@ -1497,52 +1528,68 @@ private fun SelectedTextToolbar(
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             TextButton(onClick = { onReadFromHere() }) {
-                Text(
-                    "▶",
-                    color = MaterialTheme.colorScheme.inverseOnSurface
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = "Read from here",
+                    tint = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             TextButton(onClick = { onTranslate(); onDismiss() }) {
-                Text(
-                    "文",
-                    color = MaterialTheme.colorScheme.inverseOnSurface
+                Icon(
+                    imageVector = Icons.Filled.Translate,
+                    contentDescription = "Translate",
+                    tint = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             TextButton(onClick = { onCopy(); onDismiss() }) {
-                Text(
-                    "⧉",
-                    color = MaterialTheme.colorScheme.inverseOnSurface
+                Icon(
+                    imageVector = Icons.Filled.ContentCopy,
+                    contentDescription = "Copy",
+                    tint = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             TextButton(onClick = { onSelectAll() }) {
-                Text(
-                    "▦",
-                    color = MaterialTheme.colorScheme.inverseOnSurface
+                Icon(
+                    imageVector = Icons.Filled.SelectAll,
+                    contentDescription = "Select all",
+                    tint = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             TextButton(onClick = { onSearch(); onDismiss() }) {
-                Text(
-                    "⌕",
-                    color = MaterialTheme.colorScheme.inverseOnSurface
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = "Search",
+                    tint = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             TextButton(onClick = { onBookmark(); onDismiss() }) {
-                Text(
-                    "🔖",
-                    color = MaterialTheme.colorScheme.inverseOnSurface
+                Icon(
+                    imageVector = Icons.Filled.BookmarkAdd,
+                    contentDescription = "Bookmark",
+                    tint = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.size(20.dp)
                 )
             }
             TextButton(onClick = { onNote(); onDismiss() }) {
-                Text(
-                    "✏️",
-                    color = MaterialTheme.colorScheme.inverseOnSurface
+                Icon(
+                    imageVector = Icons.Filled.EditNote,
+                    contentDescription = "Add note",
+                    tint = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.size(22.dp)
                 )
             }
             Box {
                 TextButton(onClick = { showMore = true }) {
-                    Text(
-                        "⋮",
-                        color = MaterialTheme.colorScheme.inverseOnSurface
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "More",
+                        tint = MaterialTheme.colorScheme.inverseOnSurface,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
                 DropdownMenu(
@@ -2125,16 +2172,42 @@ private fun BookmarksOverviewDialog(
     onJumpToSection: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val bookmarks = annotations
-        .filter { it.type == AnnotationType.BOOKMARK }
-        .sortedBy { it.chunkIndex }
+    // Group contiguous bookmarked sentences into a single file-level bookmark entry so a
+    // multi-sentence selection shows as ONE bookmark spanning a range, not many rows.
+    val bookmarkRanges = remember(annotations) {
+        val indexes = annotations
+            .filter { it.type == AnnotationType.BOOKMARK }
+            .map { it.chunkIndex }
+            .distinct()
+            .sorted()
+        val ranges = mutableListOf<IntRange>()
+        var runStart = -1
+        var prev = -2
+        indexes.forEach { idx ->
+            if (idx == prev + 1) {
+                prev = idx
+            } else {
+                if (runStart >= 0) ranges.add(runStart..prev)
+                runStart = idx
+                prev = idx
+            }
+        }
+        if (runStart >= 0) ranges.add(runStart..prev)
+        ranges
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(onClick = onDismiss, shape = VeritasPackStyle.chipShape()) { Text("Close") }
         },
-        title = { Text("🔖 Bookmarks") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Bookmarks")
+            }
+        },
         text = {
             Column(
                 modifier = Modifier
@@ -2153,22 +2226,27 @@ private fun BookmarksOverviewDialog(
 
                 HorizontalDivider()
 
-                if (bookmarks.isNotEmpty()) {
+                if (bookmarkRanges.isNotEmpty()) {
                     Text(
                         "Bookmarks",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    bookmarks.forEach { bookmark ->
-                        val excerpt = document.chunks.getOrNull(bookmark.chunkIndex)
-                            .orEmpty()
+                    bookmarkRanges.forEach { range ->
+                        val excerpt = (range.first..range.last)
+                            .joinToString(" ") { document.chunks.getOrNull(it).orEmpty() }
                             .replace(Regex("\\s+"), " ")
                             .trim()
+                        val label = if (range.first == range.last) {
+                            "Sentence ${range.first + 1}"
+                        } else {
+                            "Sentences ${range.first + 1}–${range.last + 1} (${range.last - range.first + 1})"
+                        }
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onJumpToSection(bookmark.chunkIndex) },
+                                .clickable { onJumpToSection(range.first) },
                             shape = VeritasPackStyle.compactShape(),
                             border = androidx.compose.foundation.BorderStroke(
                                 width = 1.dp,
@@ -2181,17 +2259,24 @@ private fun BookmarksOverviewDialog(
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Filled.Bookmark,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        "🔖 Bookmark • Sentence ${bookmark.chunkIndex + 1}",
+                                        label,
                                         fontWeight = FontWeight.Black,
                                         modifier = Modifier.weight(1f),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    Text(
-                                        "›",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Icon(
+                                        Icons.Filled.ChevronRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 if (excerpt.isNotBlank()) {
@@ -2206,11 +2291,9 @@ private fun BookmarksOverviewDialog(
                             }
                         }
                     }
-                }
-
-                if (bookmarks.isEmpty()) {
+                } else {
                     Text(
-                        "No bookmarks yet in this document. Bookmark a sentence to highlight it and keep it here.",
+                        "No bookmarks yet in this document. Select one or more sentences and tap the bookmark icon to save them here.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )

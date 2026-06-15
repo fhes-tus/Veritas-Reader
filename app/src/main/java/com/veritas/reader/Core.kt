@@ -62,6 +62,10 @@ object PlaybackStateStore {
     var statusMessage by mutableStateOf("Ready.")
     var readerMode by mutableStateOf(ReaderMode.TEXT)
     var pendingPronunciationFixWord by mutableStateOf<String?>(null)
+    // Whether the app UI is currently in the foreground. The PlaybackService uses this to
+    // attribute listening time to background playback (foreground reading time is tracked
+    // separately by the ViewModel's session timer, so this prevents double counting).
+    var appInForeground by mutableStateOf(true)
 
     var sentenceCount: Int
         get() = chunkCount
@@ -247,7 +251,8 @@ data class GeneralNote(
     val pinned: Boolean = false,
     val isChecklist: Boolean = false,
     val imageUrl: String? = null,
-    val audioUrl: String? = null
+    val audioUrl: String? = null,
+    val reminderAt: Long? = null
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -259,6 +264,7 @@ data class GeneralNote(
         .put("isChecklist", isChecklist)
         .put("imageUrl", imageUrl ?: "")
         .put("audioUrl", audioUrl ?: "")
+        .put("reminderAt", reminderAt ?: 0L)
 
     companion object {
         fun fromJson(obj: JSONObject): GeneralNote = GeneralNote(
@@ -270,7 +276,8 @@ data class GeneralNote(
             pinned = obj.optBoolean("pinned", false),
             isChecklist = obj.optBoolean("isChecklist", false),
             imageUrl = obj.optString("imageUrl", "").takeIf { it.isNotBlank() },
-            audioUrl = obj.optString("audioUrl", "").takeIf { it.isNotBlank() }
+            audioUrl = obj.optString("audioUrl", "").takeIf { it.isNotBlank() },
+            reminderAt = obj.optLong("reminderAt", 0L).takeIf { it > 0L }
         )
     }
 }
@@ -781,6 +788,14 @@ data class ReaderTrackerCompletion(
     }
 }
 
+/** One week of Monday-first daily reading totals, for the swipeable weekly bar chart. */
+data class WeekBars(
+    val label: String,
+    val values: List<Long>,
+    val totalMillis: Long,
+    val isCurrentWeek: Boolean
+)
+
 data class ReaderTrackerSnapshot(
     val currentStreak: Int = 0,
     val longestStreak: Int = 0,
@@ -789,6 +804,7 @@ data class ReaderTrackerSnapshot(
     val documentsReadThisWeek: Int = 0,
     val documentsCompletedThisMonth: Int = 0,
     val weeklyUsageByDay: List<Long> = List(7) { 0L },
+    val weeklyHistory: List<WeekBars> = emptyList(),
     val recentCompletions: List<ReaderTrackerCompletion> = emptyList(),
     val activeDateKeys: Set<String> = emptySet()
 ) {
@@ -897,18 +913,62 @@ class DocumentRepository(context: Context) {
         return map
     }
 
+    // Sleep timer state is mirrored to prefs so a process kill mid-timer does not
+    // silently lose it; the service restores and re-schedules on creation.
+    fun saveSleepTimerState(durationMillis: Long, endsAtMillis: Long, actionName: String, stopAtEndOfSection: Boolean) {
+        prefs.edit()
+            .putLong("sleep_timer_duration", durationMillis)
+            .putLong("sleep_timer_ends_at", endsAtMillis)
+            .putString("sleep_timer_action", actionName)
+            .putBoolean("sleep_timer_stop_at_section_end", stopAtEndOfSection)
+            .apply()
+    }
+
+    fun clearSleepTimerState() {
+        prefs.edit()
+            .remove("sleep_timer_duration")
+            .remove("sleep_timer_ends_at")
+            .remove("sleep_timer_action")
+            .remove("sleep_timer_stop_at_section_end")
+            .apply()
+    }
+
+    fun loadPersistedSleepTimer(nowMillis: Long = System.currentTimeMillis()): VeritasSleepTimerSnapshot? {
+        val duration = prefs.getLong("sleep_timer_duration", 0L)
+        val endsAt = prefs.getLong("sleep_timer_ends_at", 0L)
+        val stopAtEnd = prefs.getBoolean("sleep_timer_stop_at_section_end", false)
+        if (!stopAtEnd && (duration <= 0L || endsAt <= nowMillis)) {
+            clearSleepTimerState()
+            return null
+        }
+        return VeritasSleepTimerSnapshot(
+            durationMillis = duration,
+            endsAtMillis = endsAt,
+            action = VeritasSleepTimerAction.fromName(prefs.getString("sleep_timer_action", null)),
+            stopAtEndOfSection = stopAtEnd
+        )
+    }
+
     fun recordDocReadingTime(documentId: String, durationMillis: Long, nowMillis: Long = System.currentTimeMillis()) {
-        val monthKey = SimpleDateFormat("yyyy-MM", Locale.US).format(java.util.Date(nowMillis))
+        val monthKey = SimpleDateFormat("yyyy-MM", Locale.US).format(Date(nowMillis))
         val prefKey = "monthly_reading_time_$monthKey"
-        val raw = prefs.getString(prefKey, "{}") ?: "{}"
-        val json = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
-        val currentVal = json.optLong(documentId, 0L)
-        json.put(documentId, currentVal + durationMillis)
-        prefs.edit().putString(prefKey, json.toString()).apply()
+        // The reading-time counter is read-modify-written from both the UI (foreground session
+        // timer) and the PlaybackService (background listening). Without a process-wide lock the
+        // two could interleave and lose an update. Serialise the whole RMW.
+        synchronized(LIBRARY_WRITE_LOCK) {
+            val raw = prefs.getString(prefKey, "{}") ?: "{}"
+            val json = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
+            val currentVal = json.optLong(documentId, 0L)
+            json.put(documentId, currentVal + durationMillis)
+            // apply() (not commit()) so this never blocks the caller's thread on disk I/O —
+            // this runs on the main thread from the service's onDone. The lock guarantees the
+            // in-memory read-modify-write is consistent across the UI and service.
+            prefs.edit().putString(prefKey, json.toString()).apply()
+        }
     }
 
     fun loadDocReadingTimes(nowMillis: Long = System.currentTimeMillis()): Map<String, Long> {
-        val monthKey = SimpleDateFormat("yyyy-MM", Locale.US).format(java.util.Date(nowMillis))
+        val monthKey = SimpleDateFormat("yyyy-MM", Locale.US).format(Date(nowMillis))
         val prefKey = "monthly_reading_time_$monthKey"
         val raw = prefs.getString(prefKey, "{}") ?: "{}"
         val json = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
@@ -920,8 +980,7 @@ class DocumentRepository(context: Context) {
     }
 
     fun loadDocuments(): List<SavedDocument> {
-        val raw = prefs.getString(KEY_DOCUMENTS, "[]") ?: "[]"
-        val array = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
+        val array = readResilientJsonArray(KEY_DOCUMENTS)
         val docs = mutableListOf<SavedDocument>()
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
@@ -1020,9 +1079,15 @@ class DocumentRepository(context: Context) {
         if (cleanText.isBlank()) return null
         val documents = loadDocuments()
         val target = documents.firstOrNull { it.id == documentId } ?: return null
+        val oldChunks = runCatching {
+            File(docsDir, target.fileName).takeIf { it.exists() }
+                ?.readText(Charsets.UTF_8)
+                ?.let { TextChunker.chunk(it) }
+        }.getOrNull().orEmpty()
         ReaderTextModelCache.invalidate(documentId)
         File(docsDir, target.fileName).writeText(cleanText, Charsets.UTF_8)
         val chunks = TextChunker.chunk(cleanText)
+        remapAnnotationsAfterEdit(documentId, oldChunks, chunks)
         val now = System.currentTimeMillis()
         val updatedTarget = target.copy(
             updatedAt = now,
@@ -1036,6 +1101,41 @@ class DocumentRepository(context: Context) {
         saveDocuments(listOf(updatedTarget) + documents.filterNot { it.id == documentId })
         return updatedTarget
     }
+
+    // Annotations are anchored by chunk index; an edit can renumber chunks and leave
+    // bookmarks/notes pointing at the wrong sentence. Re-anchor each one by matching
+    // its original sentence text in the new chunk list.
+    private fun remapAnnotationsAfterEdit(documentId: String, oldChunks: List<String>, newChunks: List<String>) {
+        if (oldChunks.isEmpty() || newChunks.isEmpty()) return
+        val all = loadAllAnnotations()
+        if (all.none { it.documentId == documentId }) return
+        val newIndexByText = HashMap<String, MutableList<Int>>()
+        newChunks.forEachIndexed { idx, chunk ->
+            newIndexByText.getOrPut(normalizeChunkForRemap(chunk)) { mutableListOf() }.add(idx)
+        }
+        var changed = false
+        val remapped = all.map { ann ->
+            if (ann.documentId != documentId) return@map ann
+            val oldText = oldChunks.getOrNull(ann.chunkIndex) ?: return@map ann
+            val candidates = newIndexByText[normalizeChunkForRemap(oldText)]
+            val newIndex = if (candidates.isNullOrEmpty()) {
+                // Sentence no longer exists verbatim; keep the position but stay in bounds.
+                ann.chunkIndex.coerceIn(0, newChunks.lastIndex)
+            } else {
+                candidates.minByOrNull { kotlin.math.abs(it - ann.chunkIndex) } ?: ann.chunkIndex
+            }
+            if (newIndex != ann.chunkIndex) {
+                changed = true
+                ann.copy(chunkIndex = newIndex)
+            } else {
+                ann
+            }
+        }
+        if (changed) saveAllAnnotations(remapped.distinctBy { it.stableKey })
+    }
+
+    private fun normalizeChunkForRemap(chunk: String): String =
+        chunk.trim().replace(Regex("\\s+"), " ").lowercase(Locale.US)
 
     fun appendDocumentText(documentId: String, text: String, isComplete: Boolean = false): SavedDocument? {
         val cleanText = text.trim()
@@ -1529,6 +1629,20 @@ class DocumentRepository(context: Context) {
         val (weeklyUsage, weeklyAverage) = ReaderTrackerMath.weeklyUsage(days, weekKeys)
         val daysByKey = days.associateBy { it.dateKey }
         val weeklyUsageByDay = weekKeys.map { key -> daysByKey[key]?.usageMillis ?: 0L }
+        // Last 8 weeks of Monday-first daily totals for the swipeable weekly chart,
+        // ordered oldest -> newest so the chart defaults to the current (last) week.
+        val weeksToShow = 8
+        val weeklyHistory = (weeksToShow - 1 downTo 0).map { offset ->
+            val weekTime = nowMillis - offset * 7L * 24L * 60L * 60L * 1000L
+            val keys = trackerWeekKeys(weekTime)
+            val values = keys.map { daysByKey[it]?.usageMillis ?: 0L }
+            val label = when (offset) {
+                0 -> "This week"
+                1 -> "Last week"
+                else -> trackerWeekRangeLabel(keys.first(), keys.last())
+            }
+            WeekBars(label = label, values = values, totalMillis = values.sum(), isCurrentWeek = offset == 0)
+        }
         val readThisWeek = weekKeys
             .flatMap { key -> daysByKey[key]?.readDocumentIds.orEmpty() }
             .toSet()
@@ -1547,6 +1661,7 @@ class DocumentRepository(context: Context) {
             documentsReadThisWeek = readThisWeek,
             documentsCompletedThisMonth = completedThisMonth,
             weeklyUsageByDay = weeklyUsageByDay,
+            weeklyHistory = weeklyHistory,
             recentCompletions = completions.sortedByDescending { it.completedAt }.take(8),
             activeDateKeys = openDateKeys
         )
@@ -2082,8 +2197,7 @@ class DocumentRepository(context: Context) {
     }
 
     fun loadGeneralNotes(): List<GeneralNote> {
-        val raw = prefs.getString("general_notes", "[]") ?: "[]"
-        val array = runCatching { org.json.JSONArray(raw) }.getOrDefault(JSONArray())
+        val array = readResilientJsonArray("general_notes")
         val notes = mutableListOf<GeneralNote>()
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
@@ -2096,7 +2210,7 @@ class DocumentRepository(context: Context) {
     fun saveGeneralNotes(notes: List<GeneralNote>) {
         val array = JSONArray()
         notes.forEach { array.put(it.toJson()) }
-        prefs.edit { putString("general_notes", array.toString()) }
+        commitResilientJson("general_notes", array.toString())
     }
 
     fun loadAllAnnotations(): List<ReaderAnnotation> {
@@ -2202,6 +2316,16 @@ class DocumentRepository(context: Context) {
 
     private fun trackerDateKey(timestamp: Long): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(timestamp))
 
+    private fun trackerWeekRangeLabel(startKey: String, endKey: String): String {
+        val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val out = SimpleDateFormat("MMM d", Locale.getDefault())
+        return runCatching {
+            val start = parser.parse(startKey)
+            val end = parser.parse(endKey)
+            if (start != null && end != null) "${out.format(start)} – ${out.format(end)}" else startKey
+        }.getOrDefault(startKey)
+    }
+
     private fun trackerWeekKeys(timestamp: Long): List<String> {
         val cursor = Calendar.getInstance().apply {
             timeInMillis = timestamp
@@ -2221,10 +2345,36 @@ class DocumentRepository(context: Context) {
         }
     }
 
+    /**
+     * Writes a JSON payload to [key] while preserving the previous value as a "last known
+     * good" backup. If a later write is ever corrupt/partial, [readResilientJsonArray] can
+     * recover from the backup instead of the data silently vanishing.
+     */
+    private fun commitResilientJson(key: String, value: String) {
+        val previous = prefs.getString(key, null)
+        prefs.edit {
+            if (!previous.isNullOrEmpty()) putString("${key}__bak", previous)
+            putString(key, value)
+        }
+    }
+
+    /**
+     * Reads a JSON array from [key], verifying it parses. If the primary value is corrupt,
+     * falls back to the last-known-good backup rather than returning empty — which would look
+     * to the user like their library/notes had been wiped.
+     */
+    private fun readResilientJsonArray(key: String): JSONArray {
+        prefs.getString(key, null)?.let { raw ->
+            runCatching { JSONArray(raw) }.getOrNull()?.let { return it }
+        }
+        val backup = prefs.getString("${key}__bak", null) ?: return JSONArray()
+        return runCatching { JSONArray(backup) }.getOrDefault(JSONArray())
+    }
+
     private fun saveDocuments(documents: List<SavedDocument>) {
         val array = JSONArray()
         documents.forEach { array.put(it.toJson()) }
-        prefs.edit { putString(KEY_DOCUMENTS, array.toString()) }
+        commitResilientJson(KEY_DOCUMENTS, array.toString())
     }
 
     private fun saveQueueEntries(entries: List<QueueEntry>) {
@@ -2303,6 +2453,9 @@ class DocumentRepository(context: Context) {
     companion object {
         private const val TAG = "DocumentRepository"
         private const val MAX_READING_HISTORY = 40
+        // Process-wide lock for read-modify-write of shared prefs counters that are touched
+        // from multiple components/threads (UI + PlaybackService).
+        private val LIBRARY_WRITE_LOCK = Any()
         private const val KEY_DOCUMENTS = "documents"
         private const val KEY_QUEUE = "reading_queue"
         private const val KEY_READING_LISTS = "reading_lists"
