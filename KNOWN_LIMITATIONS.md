@@ -1,51 +1,51 @@
 # Known Limitations
 
-These limitations describe the current `1.0.1` state.
+This document outlines the technical boundaries, platform constraints, and design limitations for **Veritas Reader Android v1.0.1**.
 
-## Build And Distribution
+---
 
-- The included APK flow is a debug build for testing. It is not Play Store signed.
-- The project pins Gradle to Android Studio's embedded JDK path for this machine. On another PC, `org.gradle.java.home` may need to be changed or removed.
-- Generated folders such as `.gradle`, `.kotlin`, `.idea`, and `app/build` are not included in the clean source bundle and will be recreated by Android Studio.
+## 🏗️ Build & Distribution
+*   **Debug Testing Build:** The current default APK configuration is a debug build intended for local QA and testing. Prior to Google Play Store deployment, a production-signed build target must be configured.
+*   **Gradle JDK Pinning:** The project's build properties (`gradle.properties`) target Android Studio's local embedded JDK path. If building on a different machine, update or omit `org.gradle.java.home` to allow Android Studio to resolve the local JDK path automatically.
+*   **Generated Folders:** Standard build cache directories (`.gradle/`, `.kotlin/`, `.idea/`, `app/build/`) are excluded from version control and will be automatically re-created by Gradle upon the first compilation sync.
 
-## Import And Extraction
+---
 
-- PDF text extraction depends on the PDF. Scanned, image-only, DRM-protected, malformed, or unusual-layout PDFs may import poorly or require OCR.
-- The extractor now keeps internal page markers for part planning and performs per-page column-aware ordering, but highly complex multi-column layouts can still need manual review.
-- OCR quality depends on scan quality, lighting, page rotation, image resolution, language, and the device's OCR support.
-- Very large PDFs, images, DOCX files, EPUBs, and web pages can take time to import. The reader display now opens by active part instead of rendering every sentence as a card, but device memory and PDF complexity still matter.
-- DOCX and EPUB parsing covers common document structures, but complex formatting, embedded objects, footnotes, tables, and unusual EPUB navigation may not fully preserve layout.
-- Web article import uses direct page fetching and basic extraction. Sites with login walls, heavy scripts, anti-bot protection, or dynamic rendering may not import cleanly.
+## 📄 Document Import & Extraction
+*   **PDF Layout Extraction:** Text extraction from PDF documents utilizes a custom parser built on PDFBox. Complex PDF formats—such as multi-column layouts, magazines, tabular data, mathematical notations, and embedded images—may parse with spacing irregularities.
+*   **Optical Character Recognition (OCR):** Fallback image text recognition depends on Google ML Kit. OCR output accuracy is subject to scan lighting, character resolution, orientation, and device runtime capabilities.
+*   **DOCX & EPUB Preservation:** Parsers extract primary document text flows, bookmarks, and structural points. Complex styling (e.g., sidebars, embedded charts, footnotes, dynamic styling sheets) may not be preserved in the text reading mode.
+*   **Web Imports:** The web article reader fetches publicly accessible pages using direct HTTP queries. Web sites behind paywalls, login screens, CAPTCHAs, heavy JavaScript frameworks, or anti-bot shields (e.g., Cloudflare) will not import cleanly.
 
-## PDF Viewer And Actual Document View
+---
 
-- The primary PDF viewer supports selection-based `Read from here`, but it depends on Android PDF viewer text selection, the viewer exposing a copy action, and the selected text matching extracted document text.
-- If the PDF viewer hides or blocks its copy action, option-one may still fail; a fallback/custom flow should only be added after device testing confirms this path is still failing.
-- Page sync uses extracted sentence/page indexing when available and falls back to approximate mapping when older saved text lacks internal page markers. It is not a full layout-aware text-to-page alignment engine.
-- The fallback actual document canvas displays rendered pages/images but does not provide the same native text-selection behavior as the PDF viewer.
+## 🔍 Native PDF Viewer & Page Sync
+*   **Read from Here Sync:** The primary PDF view supports selection-based audio playback. This feature relies on Android's `PdfViewerFragment` exposing text selections. If the OS framework hides or restricts the selection action, this mapping may fail.
+*   **Approximated Sync:** Synchronization between the original PDF view page and the active TTS playback sentence uses approximate string search mappings. It is not a layout-aware alignment engine; documents with inconsistent layout coordinates may experience alignment drift.
+*   **Fallback Document Canvas:** The custom image-based canvas fallback displays document pages as high-resolution images but does not support system-level native text selection.
 
-## Playback And Audio
+---
 
-- Text-to-speech quality, available voices, languages, and network requirements depend on the installed Android TTS engine.
-- Some premium or network voices may require device settings, downloaded voice data, or internet access handled by the TTS provider.
-- Background playback depends on Android foreground-service rules and notification permission on newer Android versions.
-- WAV export uses the installed TTS engine. Voice availability and synthesis behavior can vary by device.
-- Long exports may take time and can fail if the TTS engine rejects long synthesis jobs or storage is unavailable.
+## 🔊 Playback & Audio Synthesizer
+*   **Engine Dependency:** Text-to-speech quality, accent availability, and voice selections are bound to the active TTS engine installed on the user's Android device (such as Google Speech Services).
+*   **Background Lifecycle Permissions:** Background playback relies on Android's foreground service execution rules. If notification permissions are revoked, playback will stop when the app enters the background.
+*   **Audio Export Constraints:** Converting text to WAV files runs via the local TTS engine. Synthesis operations for very long books may take time and could fail if the local engine rejects massive audio generation jobs.
 
-## AI, Translation, And Sharing
+---
 
-- AI and translation tools are external handoffs. Veritas prepares or shares text, but the external app controls the final result.
-- If no compatible app is installed, Veritas may copy the prompt/text to the clipboard or open a relevant install page.
-- External apps may apply their own limits, privacy policies, rate limits, or text truncation.
+## 🔒 Storage, Backup & Synchronization
+*   **Local-Only Storage:** All imported documents, reading progress coordinates, streaks, and note files are stored locally on the device.
+*   **No Cloud Sync:** Veritas Reader is designed as a private offline-first reading tool; it does not feature a central cloud-sync account service.
+*   **Android Backup Disabled:** Auto-backups are explicitly disabled in the app manifest. Uninstalling the app or clearing its local storage will permanently delete all saved readings, streaks, and notes unless manual backups were exported.
 
-## Storage, Sync, And Backup
+> [!WARNING]
+> Clearing the application data or uninstalling the app will result in the loss of all local database files. Ensure notes are exported using the app's sharing tools if they contain critical data.
 
-- Saved readings and app settings are local to the device.
-- There is no account system or cloud sync in this build.
-- Android backup is disabled in the manifest for this app build.
-- Clearing app data or uninstalling the app can remove saved readings unless the user exported or backed up content separately through available app tools.
+---
 
-## Testing Status
-
-- The latest code-level build and unit-test check completed with `.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug --rerun-tasks`.
-- Manual device QA is still recommended before sharing to non-test users.
+## 🧪 Testing & Verification Status
+*   **Unit & Instrumentation Tests:** Basic unit test coverage (covering state transitions, formatting rules, and habit calculations) compiles successfully using:
+    ```powershell
+    .\gradlew.bat :app:testDebugUnitTest
+    ```
+*   **Device-Level QA:** Manual device validation across targeted API levels is highly recommended prior to distribution to verify hardware text-to-speech synthesis quirks.

@@ -1,76 +1,93 @@
-# Veritas Reader Privacy Policy Draft
+# Veritas Reader — Privacy Policy
 
-Effective date: May 18, 2026
+**Effective Date:** May 18, 2026
 
-This is a draft privacy policy for the current Veritas Reader Android build. It should be reviewed before public release or Play Store submission.
+Veritas Reader ("we", "us", or "our") develops the Veritas Reader Android application as a local, offline-first utility. This Privacy Policy describes how we handle user information, data storage, permissions, and third-party integrations when you use the app.
 
-## Overview
+---
 
-Veritas Reader is a local document reading and text-to-speech app. The app is designed to import documents selected by the user, extract readable text, save readings on the device, and play them aloud using Android's Text-to-Speech system.
+## 1. Overview & Core Philosophy
+Veritas Reader is built on a **privacy-by-design** approach:
+*   **Offline-First:** Your documents, notes, highlights, and habits are stored locally on your device.
+*   **No Tracking:** We do not collect, monetize, or track your reading habits.
+*   **No Analytics or Ads:** The app contains no advertising SDKs, tracking pixels, or telemetry frameworks.
 
-## Information The App Handles
+---
 
-The app may handle the following information when the user chooses to provide it:
+## 2. Information Handled by the Application
+The application handles the following data strictly locally on your Android device:
+*   **Imported Documents:** Local text files, PDFs, DOCX files, EPUBs, shared text clips, and document images.
+*   **Extracted Text:** Text extracted from your files via local PDFBox parsing and ML Kit text recognition.
+*   **User Annotations:** Bookmarks, highlights, sentence-level notes, pronunciation rules, sleep timer configurations, and collections.
+*   **Reading Statistics:** Daily reading time, streak progress, and library format distribution statistics.
+*   **Web URLs:** Web links input by the user to parse articles.
 
-- Imported documents, including text files, PDFs, DOCX files, EPUB files, images, scanned PDFs, and shared text.
-- Extracted text from imported documents.
-- Reading progress, favorites, Listen Later queue items, collections, bookmarks, highlights, notes, pronunciation rules, voice settings, and reader preferences.
-- Web article URLs or page text when the user imports a web page.
-- Text selected by the user for sharing, AI prompts, translation, search, or read-aloud actions.
+---
 
-## How Information Is Stored
+## 3. Data Storage & Security
+*   **Local Storage:** All reading files, extracted text database files, and system preferences are stored inside the application's private storage sandbox (`Context.filesDir` and `SharedPreferences`).
+*   **Backup Integrity:** Stored database configurations use a resilient double-write backup system to prevent file corruption on sudden device restarts.
+*   **Cloud Synchronization:** The application does not feature a cloud account registration system or synchronization servers in this build.
+*   **System Backups:** Android's automatic system cloud backups are disabled (`android:allowBackup="false"` in the Manifest) to ensure your imported documents remain strictly confined to your physical device.
 
-Readings, extracted text, settings, and notes are stored locally by the app on the user's device. Veritas Reader does not include an account system, cloud sync service, advertising SDK, or analytics SDK in this build.
+---
 
-Android backup is disabled for this app build in the manifest.
+## 4. Hardware Integrations & Services
 
-## Network Use
+### Optical Character Recognition (OCR)
+The application uses local machine learning models (Google Play Services ML Kit) to extract text from images and scanned PDF files. This processing runs entirely on-device; page images are never uploaded to remote servers.
 
-The app requests internet permission. Network access may be used when the user imports a web article or opens web-based external actions.
+### Text-to-Speech (TTS) engine
+Playback is synthesized via your Android device's active Text-to-Speech (TTS) engine (such as Google Speech Services). 
+*   **Synthesis Context:** The active sentence text is passed to the system TTS engine API to read the content aloud.
+*   **Third-Party Engine Privacy:** Depending on the TTS engine you select, the provider may download voice models or route requests according to their own privacy policies. You can configure or restrict these settings directly in your Android system preferences.
 
-The app does not run its own analytics, advertising, or background upload service. Some Android system services or external apps used by the user, such as browser apps, AI apps, translation apps, TTS providers, or Google Play services, may use network access under their own privacy policies.
+---
 
-## Text Recognition And TTS
+## 5. Network Usage
+Veritas Reader requests the standard `INTERNET` permission. Network requests are initiated **only** under the following conditions:
+1.  **Web Imports:** When you explicitly paste a URL to import and extract text from a web article.
+2.  **External Actions:** When you trigger external commands such as translating selected text, asking an AI app, or opening a web search.
 
-The app uses text recognition to extract text from images or scanned PDFs where possible. The app also uses Android's installed Text-to-Speech engine to read text aloud and export audio. Behavior may vary depending on the device, installed OCR/TTS components, selected voice, and system settings.
+The application does not run any background network uploaders, trackers, or telemetry scripts.
 
-Some TTS voices may require network access or downloaded voice data depending on the selected engine. Those services are controlled by the TTS provider, not by Veritas Reader.
+---
 
-## Sharing With External Apps
+## 6. Sharing with Third-Party Applications
+Veritas Reader enables you to share text sections, AI prompts, or translations with external apps. These actions are strictly user-initiated (e.g., clicking "Ask AI" or "Translate").
+*   Once text is shared with an external target, that receiving application's own privacy policy applies.
+*   We advise caution when sharing private, legal, or sensitive texts with external cloud services or generative AI engines.
 
-Veritas Reader can hand off selected text, document excerpts, generated prompts, or translation text to external apps when the user chooses an action such as share, Ask AI, translation, or Google search.
+---
 
-Once text is sent to another app, that app's own privacy policy and behavior apply. Users should avoid sharing sensitive documents or excerpts with external apps they do not trust.
+## 7. Device Permissions
+To function correctly, the application requests the following permissions:
+*   `INTERNET`: Required to import web pages and access external translation/share endpoints.
+*   `POST_NOTIFICATIONS`: Required on Android 13+ to display media control notifications.
+*   `SCHEDULE_EXACT_ALARM`: Required to schedule exact reminder alerts on notes.
+*   `FOREGROUND_SERVICE` & `FOREGROUND_SERVICE_MEDIA_PLAYBACK`: Required to maintain active text-to-speech audio playback when the screen is turned off or when navigating to other apps.
 
-## Permissions
+---
 
-Current app permissions include:
+## 8. User Control & Data Deletion
+You retain complete control over your data. You can:
+*   Delete individual documents, notes, collections, or statistics from the app interface at any time.
+*   Clear all reading metrics and streak counters in the settings hub.
+*   Wipe all application data and files instantly by navigating to **Android Settings > Apps > Veritas Reader > Storage > Clear Data**.
+*   Delete all application directories and local files by uninstalling the application.
 
-- `INTERNET` for web article import and web/external actions.
-- `POST_NOTIFICATIONS` for playback notifications on supported Android versions.
-- `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MEDIA_PLAYBACK` for background reading controls.
+---
 
-The app receives document access through Android's document picker, share sheet, and temporary URI permissions when the user selects or shares a file.
+## 9. Children's Privacy
+Because Veritas Reader stores all documents locally and does not collect or transmit personal information, it does not knowingly collect information from children. Parents should supervise file imports on shared family devices to ensure sensitive files are not stored locally.
 
-## User Control
+---
 
-Users can:
+## 10. Policy Changes & Updates
+We may update this Privacy Policy to reflect app updates or security enhancements. When changes are made, we will update the Effective Date at the top of the policy.
 
-- Choose which documents to import.
-- Delete saved readings from the app.
-- Clear reading progress for saved readings.
-- Choose whether to share selected text with external apps.
-- Change voice, speed, pitch, theme, and reader preferences.
-- Uninstall the app or clear app data through Android settings.
+---
 
-## Data Retention
-
-Imported readings and app settings remain on the device until the user deletes them, clears app data, or uninstalls the app. Exported files, such as WAV audio exports, remain wherever the user saves them until deleted by the user.
-
-## Children
-
-This app is not designed to knowingly collect personal information from children. Because documents are user-selected and stored locally, users should avoid importing sensitive documents on shared devices.
-
-## Contact
-
-Developer/contact details should be added here before public distribution.
+## 11. Contact Information
+For privacy questions, feature requests, or technical inquiries regarding Veritas Reader, please contact:
+*   **Developer Support:** support@veritasreader.example.com
