@@ -60,6 +60,10 @@ Veritas Reader is built using standard Android architecture guidelines and moder
 *   **AndroidX Media3:** Background media session integration and TTS configurations.
 
 ---
+<img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/13421941-9501-4693-ad24-bb1cfa7cfbc0" /><img width="311" height="1280" alt="image" src="https://github.com/user-attachments/assets/5463e131-7d40-4073-b92d-b2a46587de9a" /><img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/ab6f20e5-af96-4cf6-a2f8-2ce22ab867b0" /><img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/6a253d15-9350-4d7a-a4d2-15511dda4e76" />
+
+
+
 
 Download and install the newest release apk for the most up-to-date app experience.
 
