@@ -45,7 +45,6 @@ Veritas Reader is a modern, high-fidelity Android reading and text-to-speech (TT
 *   **Habit Heatmap:** Visual calendar heatmap showing daily read sessions.
 *   **Interactive Analytics Charts:** Dynamic donut charts displaying Format Distribution and Top Book Allocation with spring-bouncy expansion and details cards.
 *   **8-Week Rolling History:** Swipeable bar charts displaying daily reading metrics.
-*   **GitHub Update Checker:** A custom, non-compulsory update checking service that queries latest GitHub Releases and prompts users on launch when updates exist.
 *   **Local Progress Sync Pack:** Export, share, and import local reading progress, notes, lists, and settings without requiring cloud accounts.
 
 ### 6. UI Customization & Aesthetics
