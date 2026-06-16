@@ -49,8 +49,6 @@ The debug APK is generated at:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-This project pins Gradle to Android Studio's embedded JDK on this machine in `gradle.properties` to avoid the old Java 8 runtime on PATH. If the project is moved to another Windows PC and Android Studio is installed somewhere else, update or remove `org.gradle.java.home` in `gradle.properties` and let Android Studio choose its embedded JDK.
-
 ## Project Layout
 
 - `app/src/main/java/com/veritas/reader/` - Kotlin app source.
@@ -60,4 +58,3 @@ This project pins Gradle to Android Studio's embedded JDK on this machine in `gr
 - `KNOWN_LIMITATIONS.md` - current technical and product limits.
 - `PRIVACY_POLICY.md` - current privacy policy.
 
-Generated folders such as `.gradle`, `.kotlin`, `.idea`, and `app/build` are intentionally not part of the clean source bundle. Android Studio and Gradle recreate them automatically.
