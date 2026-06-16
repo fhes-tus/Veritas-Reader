@@ -1206,7 +1206,7 @@ class DocumentRepository(context: Context) {
         val root = JSONObject()
             .put("schema", "veritas.reader.backup.v1")
             .put("createdAt", System.currentTimeMillis())
-            .put("appVersion", "1.0.0")
+            .put("appVersion", "1.0.1")
             .put("syncPeer", "android")
 
         val documentArray = JSONArray()

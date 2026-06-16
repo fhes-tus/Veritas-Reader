@@ -1,6 +1,6 @@
 # Known Limitations
 
-These limitations describe the current `1.0.0` state.
+These limitations describe the current `1.0.1` state.
 
 ## Build And Distribution
 

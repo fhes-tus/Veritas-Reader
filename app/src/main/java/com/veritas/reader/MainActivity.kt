@@ -6003,7 +6003,7 @@ private fun AppHealthDialog(
                             fontWeight = FontWeight.Black
                         )
                         Text(
-                            "Version: 1.0.0",
+                            "Version: 1.0.1",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
