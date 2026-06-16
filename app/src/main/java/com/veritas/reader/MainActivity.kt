@@ -151,6 +151,7 @@ import com.veritas.reader.ui.screens.ReaderSettingsDialog
 import com.veritas.reader.ui.screens.ReadingListsDialog
 import com.veritas.reader.ui.screens.SettingsHubDialog
 import com.veritas.reader.ui.screens.SleepTimerDialog
+import com.veritas.reader.ui.screens.UpdateAvailableDialog
 import com.veritas.reader.ui.screens.VoiceStudioDialog
 import com.veritas.reader.ReaderMode
 import kotlinx.coroutines.delay
@@ -1870,6 +1871,24 @@ private fun VeritasReaderApp(
                 onSetTimer = viewModel::setSleepTimer,
                 onCancelTimer = viewModel::cancelSleepTimer,
                 onDismiss = { viewModel.updateState { it.copy(showSleepTimerDialog = false) } }
+            )
+        }
+
+        if (uiState.showUpdateDialog) {
+            val context = LocalContext.current
+            UpdateAvailableDialog(
+                versionName = uiState.updateVersionName,
+                changelog = uiState.updateChangelog,
+                onUpdate = {
+                    runCatching {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uiState.updateUrl))
+                        context.startActivity(intent)
+                    }
+                    viewModel.updateState { it.copy(showUpdateDialog = false) }
+                },
+                onDismiss = {
+                    viewModel.updateState { it.copy(showUpdateDialog = false) }
+                }
             )
         }
 

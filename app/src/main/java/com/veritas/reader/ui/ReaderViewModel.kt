@@ -70,6 +70,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
+            checkForUpdates()
+        }
+        viewModelScope.launch(Dispatchers.IO) {
             val trackerSnapshot = repository.recordAppOpen()
             val documents = repository.loadDocuments()
             val documentReadingTimes = repository.loadDocReadingTimes()
@@ -2517,6 +2520,56 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     refreshAll()
                 }
             }
+        }
+    }
+
+    private fun checkForUpdates() {
+        try {
+            val url = java.net.URL("https://api.github.com/repos/fhes-tus/Veritas-Reader/releases/latest")
+            val connection = url.openConnection() as java.net.HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+            connection.connectTimeout = 8000
+            connection.readTimeout = 8000
+            if (connection.responseCode == 200) {
+                val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = org.json.JSONObject(responseText)
+                val tagName = json.optString("tag_name", "").trim()
+                val cleanTagName = tagName.removePrefix("v").trim()
+                val localVersion = runCatching {
+                    val context = getApplication<Application>()
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                }.getOrNull() ?: "1.0.1"
+                if (isVersionNewer(localVersion, cleanTagName)) {
+                    val htmlUrl = json.optString("html_url", "https://github.com/fhes-tus/Veritas-Reader/releases")
+                    val body = json.optString("body", "")
+                    _uiState.update {
+                        it.copy(
+                            showUpdateDialog = true,
+                            updateVersionName = tagName,
+                            updateUrl = htmlUrl,
+                            updateChangelog = body
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ReaderViewModel", "Error checking for updates", e)
+        }
+    }
+
+    companion object {
+        fun isVersionNewer(local: String, remote: String): Boolean {
+            val localParts = local.split(".").map { it.toIntOrNull() ?: 0 }
+            val remoteParts = remote.split(".").map { it.toIntOrNull() ?: 0 }
+            val length = kotlin.math.max(localParts.size, remoteParts.size)
+            for (i in 0 until length) {
+                val l = localParts.getOrElse(i) { 0 }
+                val r = remoteParts.getOrElse(i) { 0 }
+                if (r > l) return true
+                if (l > r) return false
+            }
+            return false
         }
     }
 }

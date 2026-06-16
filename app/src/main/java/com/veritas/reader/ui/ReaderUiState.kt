@@ -119,5 +119,9 @@ data class ReaderUiState(
     val readerTrackerSnapshot: ReaderTrackerSnapshot = ReaderTrackerSnapshot.empty(),
     val pendingImport: VeritasPendingImport? = null,
     val documentReadingTimes: Map<String, Long> = emptyMap(),
-    val navStack: List<VeritasScreen> = emptyList()
+    val navStack: List<VeritasScreen> = emptyList(),
+    val showUpdateDialog: Boolean = false,
+    val updateVersionName: String = "",
+    val updateUrl: String = "",
+    val updateChangelog: String = ""
 )
