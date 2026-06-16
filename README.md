@@ -14,11 +14,14 @@ Veritas Reader is a modern, high-fidelity Android reading and text-to-speech (TT
 ### 1. Document Import & Text Extraction
 *   **Multi-Format Support:** Import local EPUB, DOCX, PDF, and TXT files, or extract content from web links.
 *   **Hybrid OCR & Text Extraction:** Uses a hybrid extraction system powered by PDFBox, native Android PDF rendering, and Google ML Kit OCR to parse content, preserve formatting, and identify column structures.
+*   **Text Encoding Options:** Choose auto-detect, Unicode (UTF-8), or legacy encodings (e.g. windows-1256, Shift_JIS) before saving imported text.
 *   **Asynchronous Import Queue:** Background file parsing is handled via Android WorkManager to prevent main-thread UI blockages during large file imports.
 
-### 2. Audio playback & Text-to-Speech Engine
+### 2. Audio Playback & Text-to-Speech Engine
 *   **Media3 Session Service:** Integrates Jetpack Media3 (`MediaSessionService`) to provide standard system notifications, lock screen widgets, and Bluetooth/headset media controls.
 *   **Voice Management:** Deep voice configurations allowing speed, pitch, engine preference, and accent selections.
+*   **Audio Output Safety:** Auto-pauses or ducks speech during audio focus changes (e.g., incoming phone calls) and headphone disconnects.
+*   **Headset Control Mapping:** Map wired, Bluetooth, and media-button actions to reading controls.
 *   **Audio Export:** Convert processed texts into standard WAV audio files for offline listening.
 *   **Sleep Timer:** Auto-stop playback with section-end boundaries so audio never halts mid-sentence.
 
@@ -28,14 +31,24 @@ Veritas Reader is a modern, high-fidelity Android reading and text-to-speech (TT
 *   **Multi-Media Notes:** Attach local images, audio clips, and voice recordings directly to note cards.
 *   **Document Annotations:** Store highlights, bookmarks, and sentence-level notes. An alignment remapping algorithm keeps annotations anchored even if the document text is edited.
 *   **Note Reminders:** Schedule exact alarms on notes, with automatic fallbacks for newer API versions.
+*   **Extracted Text Editor:** Repair or edit selected sentences directly within the reader app without modifying the original source document.
+*   **Pronunciation Rules:** Configure speech replacements/corrections (e.g., spelling out abbreviations or fixing phonetic anomalies) applied before playback and audio export.
 
-### 4. Reading Habit Analytics
+### 4. On-Device AI & Reference Utilities
+*   **Offline Study Tools:** Generate local summaries, key points, terms, flashcards, and quizzes from saved text without requiring external API keys.
+*   **Ask AI Handoff:** Instantly prepare selected text or a reading part for an installed AI app (like Gemini) without needing developer API keys.
+*   **Translation Handoff:** Prepare selected text, sections, or documents for installed translation apps.
+*   **Dictionary & Wikipedia Lookups:** Quick definition lookup for selected words through local dictionary databases or Wikipedia search shortcuts.
+
+### 5. Habit Analytics & App Updates
 *   **Daily Streaks:** Streak tracker showing current and longest reading patterns.
 *   **Habit Heatmap:** Visual calendar heatmap showing daily read sessions.
 *   **Interactive Analytics Charts:** Dynamic donut charts displaying Format Distribution and Top Book Allocation with spring-bouncy expansion and details cards.
 *   **8-Week Rolling History:** Swipeable bar charts displaying daily reading metrics.
+*   **GitHub Update Checker:** A custom, non-compulsory update checking service that queries latest GitHub Releases and prompts users on launch when updates exist.
+*   **Local Progress Sync Pack:** Export, share, and import local reading progress, notes, lists, and settings without requiring cloud accounts.
 
-### 5. UI Customization & Aesthetics
+### 6. UI Customization & Aesthetics
 *   **Premium Themes:** Deep UI custom styling including Material You, Liquid Glass, One UI-style, and High Contrast configurations.
 *   **Night Mode PDF Inversion:** Custom color-matrix filter to invert PDF page rendering for comfortable night-time reading.
 *   **IME Keyboard Alignment:** Dynamic input layout buffer to adjust note controls above the software keyboard automatically.
