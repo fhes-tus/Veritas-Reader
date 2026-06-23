@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "VeritasReaderAndroid"
 include(":app")
+include(":veritas-pc")
+

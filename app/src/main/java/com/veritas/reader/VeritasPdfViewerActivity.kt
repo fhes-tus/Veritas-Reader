@@ -74,6 +74,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private var panelStatusLabel: TextView? = null
     private var panelSpeedLabel: TextView? = null
     private var panelPitchLabel: TextView? = null
+    private var keepAwakeTimerJob: Job? = null
 
     private var isLightTheme = false
     private var colorPrimary = 0
@@ -167,7 +168,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         val toolbar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(8.dp, statusBarHeight() + 16.dp, 6.dp, 8.dp)
+            setPadding(8.dp, statusBarHeight() + 8.dp, 6.dp, 4.dp)
             setBackgroundColor(colorToolbar)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -179,7 +180,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         toolbar.addView(TextView(this).apply {
             text = title
             setTextColor(colorTextPrimary)
-            textSize = 20f
+            textSize = 17f
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -399,15 +400,32 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         scheduleChromeAutoHide()
     }
 
+    private fun resetInactivityTimer() {
+        keepAwakeTimerJob?.cancel()
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        keepAwakeTimerJob = lifecycleScope.launch {
+            delay(20L * 60L * 1000L) // 20 minutes
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         updatePlaybackControls()
         if (chromeVisible) scheduleChromeAutoHide()
+        resetInactivityTimer()
     }
 
     override fun onPause() {
         super.onPause()
         saveCurrentProgress()
+        keepAwakeTimerJob?.cancel()
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        resetInactivityTimer()
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onDestroy() {

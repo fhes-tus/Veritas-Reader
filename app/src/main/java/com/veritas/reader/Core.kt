@@ -353,6 +353,43 @@ data class ReaderAnnotation(
     }
 }
 
+data class FlashcardProgress(
+    val id: String,
+    val documentId: String,
+    val front: String,
+    val back: String,
+    val intervalDays: Int = 1,
+    val easeFactor: Float = 2.5f,
+    val repetitions: Int = 0,
+    val nextReviewTime: Long = 0L
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("documentId", documentId)
+        .put("front", front)
+        .put("back", back)
+        .put("intervalDays", intervalDays)
+        .put("easeFactor", easeFactor.toDouble())
+        .put("repetitions", repetitions)
+        .put("nextReviewTime", nextReviewTime)
+
+    companion object {
+        fun fromJson(json: JSONObject): FlashcardProgress {
+            return FlashcardProgress(
+                id = json.getString("id"),
+                documentId = json.getString("documentId"),
+                front = json.getString("front"),
+                back = json.getString("back"),
+                intervalDays = json.optInt("intervalDays", 1),
+                easeFactor = json.optDouble("easeFactor", 2.5).toFloat(),
+                repetitions = json.optInt("repetitions", 0),
+                nextReviewTime = json.optLong("nextReviewTime", 0L)
+            )
+        }
+    }
+}
+
+
 private const val DOCUMENT_NOTE_STABLE_KEY_PREFIX = "document-note:"
 
 fun documentNoteStableKey(documentId: String): String = "$DOCUMENT_NOTE_STABLE_KEY_PREFIX$documentId"
@@ -477,7 +514,8 @@ data class ReaderSettings(
     val showSectionNumbers: Boolean = true,
     val autoPlayQueue: Boolean = true,
     val themeId: String = VeritasThemeCatalog.DEFAULT_ID,
-    val themePackId: String = "veritas_media"
+    val themePackId: String = "veritas_media",
+    val adaptiveCover: Boolean = false
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("fontSizeSp", fontSizeSp)
@@ -486,6 +524,7 @@ data class ReaderSettings(
         .put("autoPlayQueue", autoPlayQueue)
         .put("themeId", themeId)
         .put("themePackId", themePackId)
+        .put("adaptiveCover", adaptiveCover)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderSettings {
@@ -498,7 +537,8 @@ data class ReaderSettings(
                 showSectionNumbers = obj.optBoolean("showSectionNumbers", true),
                 autoPlayQueue = obj.optBoolean("autoPlayQueue", true),
                 themeId = VeritasThemeCatalog.normalizeThemeId(migratedTheme),
-                themePackId = VeritasThemePackCatalog.normalizePackId(migratedPack)
+                themePackId = VeritasThemePackCatalog.normalizePackId(migratedPack),
+                adaptiveCover = obj.optBoolean("adaptiveCover", false)
             )
         }
     }
@@ -1843,16 +1883,20 @@ class DocumentRepository(context: Context) {
         val seen = mutableSetOf<String>()
         for (i in 0 until array.length()) {
             val entry = ReadingHistoryEntry.fromJson(array.optJSONObject(i) ?: continue) ?: continue
-            val document = existingDocs[entry.documentId] ?: continue
+            val document = existingDocs[entry.documentId]
             if (seen.add(entry.documentId)) {
-                entries.add(
-                    entry.copy(
-                        title = document.title,
-                        sourceLabel = document.sourceLabel,
-                        currentIndex = entry.currentIndex.coerceIn(0, (document.chunkCount - 1).coerceAtLeast(0)),
-                        chunkCount = document.chunkCount
+                if (document != null) {
+                    entries.add(
+                        entry.copy(
+                            title = document.title,
+                            sourceLabel = document.sourceLabel,
+                            currentIndex = entry.currentIndex.coerceIn(0, (document.chunkCount - 1).coerceAtLeast(0)),
+                            chunkCount = document.chunkCount
+                        )
                     )
-                )
+                } else {
+                    entries.add(entry)
+                }
             }
         }
         val normalized = entries.sortedByDescending { it.openedAt }.take(MAX_READING_HISTORY)
@@ -1880,6 +1924,12 @@ class DocumentRepository(context: Context) {
     fun clearReadingHistory(): List<ReadingHistoryEntry> {
         saveReadingHistory(emptyList())
         return emptyList()
+    }
+
+    fun removeReadingHistoryEntry(documentId: String): List<ReadingHistoryEntry> {
+        val current = loadReadingHistory().filterNot { it.documentId == documentId }
+        saveReadingHistory(current)
+        return loadReadingHistory()
     }
 
     fun isQueued(documentId: String): Boolean {
@@ -2211,6 +2261,7 @@ class DocumentRepository(context: Context) {
         val array = JSONArray()
         notes.forEach { array.put(it.toJson()) }
         commitResilientJson("general_notes", array.toString())
+        updateVeritasWidgets(appContext)
     }
 
     fun loadAllAnnotations(): List<ReaderAnnotation> {
@@ -2244,6 +2295,23 @@ class DocumentRepository(context: Context) {
         prefs.edit { putString(KEY_ANNOTATIONS, array.toString()) }
     }
 
+    fun loadAllFlashcards(): List<FlashcardProgress> {
+        val raw = prefs.getString("study_flashcards", "[]") ?: "[]"
+        val array = JSONArray(raw)
+        val list = mutableListOf<FlashcardProgress>()
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            list.add(FlashcardProgress.fromJson(obj))
+        }
+        return list
+    }
+
+    fun saveAllFlashcards(list: List<FlashcardProgress>) {
+        val array = JSONArray()
+        list.forEach { array.put(it.toJson()) }
+        prefs.edit { putString("study_flashcards", array.toString()) }
+    }
+
     private fun loadDocumentNotes(): Map<String, String> {
         val existingIds = loadDocuments().map { it.id }.toSet()
         val raw = prefs.getString(KEY_DOCUMENT_NOTES, "{}") ?: "{}"
@@ -2273,7 +2341,7 @@ class DocumentRepository(context: Context) {
         prefs.edit { putString(KEY_DOCUMENT_NOTES, obj.toString()) }
     }
 
-    private fun loadTrackerDays(): Map<String, ReaderTrackerDay> {
+    fun loadTrackerDays(): Map<String, ReaderTrackerDay> {
         val raw = prefs.getString(KEY_TRACKER_DAYS, "[]") ?: "[]"
         val array = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
         val days = linkedMapOf<String, ReaderTrackerDay>()
@@ -2291,6 +2359,7 @@ class DocumentRepository(context: Context) {
             .sortedBy { it.dateKey }
             .forEach { array.put(it.toJson()) }
         prefs.edit { putString(KEY_TRACKER_DAYS, array.toString()) }
+        updateVeritasWidgets(appContext)
     }
 
     private fun loadTrackerCompletions(): List<ReaderTrackerCompletion> {
@@ -2312,6 +2381,7 @@ class DocumentRepository(context: Context) {
             .take(MAX_TRACKER_COMPLETIONS)
             .forEach { array.put(it.toJson()) }
         prefs.edit { putString(KEY_TRACKER_COMPLETIONS, array.toString()) }
+        updateVeritasWidgets(appContext)
     }
 
     private fun trackerDateKey(timestamp: Long): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(timestamp))
@@ -2375,6 +2445,7 @@ class DocumentRepository(context: Context) {
         val array = JSONArray()
         documents.forEach { array.put(it.toJson()) }
         commitResilientJson(KEY_DOCUMENTS, array.toString())
+        updateVeritasWidgets(appContext)
     }
 
     private fun saveQueueEntries(entries: List<QueueEntry>) {
@@ -2388,6 +2459,7 @@ class DocumentRepository(context: Context) {
         val array = JSONArray()
         history.take(MAX_READING_HISTORY).forEach { array.put(it.toJson()) }
         prefs.edit { putString(KEY_READING_HISTORY, array.toString()) }
+        updateVeritasWidgets(appContext)
     }
 
     private fun saveReadingListCatalog(catalog: VeritasReadingListCatalog): VeritasReadingListCatalog {

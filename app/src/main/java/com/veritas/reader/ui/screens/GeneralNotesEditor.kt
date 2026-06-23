@@ -57,15 +57,28 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.AnnotatedString
+import com.veritas.reader.MainActivity
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.focus.*
+
+enum class NotesToolbarMenu {
+    NONE,
+    FORMATTING,
+    ATTACHMENTS
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeneralNotesEditor(
     note: GeneralNote?,
-    onSave: (String, String, String?, Boolean, Boolean, String?, String?, Long?) -> Unit,
+    onSave: (String, String, String?, Boolean, Boolean, String?, String?, Long?, Boolean) -> Unit,
     onDelete: (String) -> Unit,
+    onCopy: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -80,6 +93,67 @@ fun GeneralNotesEditor(
     var reminderAt by remember { mutableStateOf(note?.reminderAt) }
     var showColorPicker by remember { mutableStateOf(false) }
     var showReminderMenu by remember { mutableStateOf(false) }
+
+    var expandedMenu by remember { mutableStateOf(NotesToolbarMenu.NONE) }
+    var triggerImagePickerOnStart by remember { mutableStateOf(false) }
+
+    val focusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    val items = remember {
+        val list = mutableStateListOf<Pair<Boolean, TextFieldValue>>()
+        val lines = contentText.split("\n").filter { it.isNotBlank() }
+        lines.forEach { line ->
+            val checked = line.startsWith("[x]")
+            val text = line.removePrefix("[ ] ").removePrefix("[x] ")
+            list.add(checked to TextFieldValue(text, TextRange(text.length)))
+        }
+        if (list.isEmpty()) {
+            list.add(false to TextFieldValue(""))
+        }
+        list
+    }
+
+    fun updateChecklistString() {
+        contentText = items.joinToString("\n") { (checked, tfv) ->
+            if (checked) "[x] ${tfv.text}" else "[ ] ${tfv.text}"
+        }
+    }
+
+    LaunchedEffect(isChecklist) {
+        if (isChecklist) {
+            val lines = contentText.split("\n").filter { it.isNotBlank() }
+            items.clear()
+            lines.forEach { line ->
+                val checked = line.startsWith("[x]")
+                val text = line.removePrefix("[ ] ").removePrefix("[x] ")
+                items.add(checked to TextFieldValue(text, TextRange(text.length)))
+            }
+            if (items.isEmpty()) {
+                items.add(false to TextFieldValue(""))
+            }
+        }
+    }
+
+    LaunchedEffect(note) {
+        if (note == null) {
+            val act = context as? MainActivity
+            val state = act?.viewModel?.uiState?.value
+            if (state != null) {
+                if (state.noteEditorChecklistOnStart) {
+                    isChecklist = true
+                    if (contentText.isBlank()) {
+                        contentText = "[ ] "
+                    }
+                }
+                if (state.noteEditorImageOnStart) {
+                    triggerImagePickerOnStart = true
+                }
+                if (state.noteEditorReminderOnStart) {
+                    showReminderMenu = true
+                }
+                act.viewModel.clearNoteEditorFlags()
+            }
+        }
+    }
 
     // Undo / redo history for the rich-text body.
     val undoStack = remember { mutableStateListOf<TextFieldValue>() }
@@ -206,6 +280,13 @@ fun GeneralNotesEditor(
         }
     }
 
+    LaunchedEffect(triggerImagePickerOnStart) {
+        if (triggerImagePickerOnStart) {
+            imageLauncher.launch("image/*")
+            triggerImagePickerOnStart = false
+        }
+    }
+
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var playProgress by remember { mutableStateOf(0f) }
@@ -280,6 +361,29 @@ fun GeneralNotesEditor(
             mediaRecorder = null
             mediaPlayer?.release()
             mediaPlayer = null
+        }
+    }
+
+    // ── Continuous auto-save ────────────────────────────────────────────
+    // Debounced save: fires 800 ms after the user stops typing.
+    // This covers fast edits without hammering storage on every keystroke.
+    val autoSaveContent = if (isChecklist) contentText else contentValue.text
+    LaunchedEffect(title, autoSaveContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt) {
+        kotlinx.coroutines.delay(800)
+        if (title.isNotBlank() || autoSaveContent.isNotBlank() || imageUrl != null || audioUrl != null) {
+            onSave(title, autoSaveContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt, false)
+        }
+    }
+    // Heartbeat save: fires every 2 seconds while the editor is open.
+    // Ensures the note is saved even if no new edits occur (e.g. the user
+    // only scrolled or left the phone idle with the editor open).
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(2_000)
+            val currentContent = if (isChecklist) contentText else contentValue.text
+            if (title.isNotBlank() || currentContent.isNotBlank() || imageUrl != null || audioUrl != null) {
+                onSave(title, currentContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt, false)
+            }
         }
     }
 
@@ -470,7 +574,7 @@ fun GeneralNotesEditor(
 
     fun performSave() {
         val finalContent = if (isChecklist) contentText else contentValue.text
-        onSave(title, finalContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt)
+        onSave(title, finalContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt, true)
     }
 
     Scaffold(
@@ -490,52 +594,75 @@ fun GeneralNotesEditor(
                     }
                 },
                 actions = {
-                    // Undo / redo for the rich-text body.
-                    if (!isChecklist) {
-                        IconButton(
-                            onClick = {
-                                if (undoStack.isNotEmpty()) {
-                                    redoStack.add(contentValue)
-                                    val v = undoStack.removeAt(undoStack.lastIndex)
-                                    contentValue = v
-                                    contentText = v.text
-                                }
-                            },
-                            enabled = undoStack.isNotEmpty()
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
-                        }
-                        IconButton(
-                            onClick = {
-                                if (redoStack.isNotEmpty()) {
-                                    undoStack.add(contentValue)
-                                    val v = redoStack.removeAt(redoStack.lastIndex)
-                                    contentValue = v
-                                    contentText = v.text
-                                }
-                            },
-                            enabled = redoStack.isNotEmpty()
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
-                        }
-                    }
-                    IconButton(onClick = { shareNote() }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Share Note")
-                    }
+                    // Pin Button
                     IconButton(onClick = { isPinned = !isPinned }) {
                         Icon(
                             imageVector = if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                             contentDescription = "Pin Note",
-                            tint = if (isPinned) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.6f)
+                            tint = if (isPinned) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
                         )
                     }
-                    if (note != null) {
-                        IconButton(onClick = { onDelete(note.id) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete Note", tint = MaterialTheme.colorScheme.error)
+
+                    // Reminder Button
+                    Box {
+                        IconButton(onClick = { showReminderMenu = true }) {
+                            Icon(
+                                imageVector = if (reminderAt != null) Icons.Filled.NotificationsActive else Icons.Outlined.NotificationAdd,
+                                contentDescription = "Reminder",
+                                tint = if (reminderAt != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
+                            )
+                        }
+                        DropdownMenu(expanded = showReminderMenu, onDismissRequest = { showReminderMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Later today (3 hrs)") },
+                                onClick = {
+                                    reminderAt = System.currentTimeMillis() + 3 * 60 * 60 * 1000L
+                                    showReminderMenu = false
+                                },
+                                leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Tomorrow morning (9 AM)") },
+                                onClick = {
+                                    val cal = Calendar.getInstance().apply {
+                                        add(Calendar.DAY_OF_YEAR, 1)
+                                        set(Calendar.HOUR_OF_DAY, 9)
+                                        set(Calendar.MINUTE, 0)
+                                        set(Calendar.SECOND, 0)
+                                    }
+                                    reminderAt = cal.timeInMillis
+                                    showReminderMenu = false
+                                },
+                                leadingIcon = { Icon(Icons.Filled.WbSunny, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Pick date & time…") },
+                                onClick = {
+                                    showReminderMenu = false
+                                    pickReminderDateTime()
+                                },
+                                leadingIcon = { Icon(Icons.Filled.EditCalendar, contentDescription = null) }
+                            )
+                            if (reminderAt != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Remove reminder") },
+                                    onClick = {
+                                        reminderAt = null
+                                        showReminderMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.NotificationsOff, contentDescription = null) }
+                                )
+                            }
                         }
                     }
+
+                    // Save (Archive) Button
                     IconButton(onClick = { performSave() }) {
-                        Icon(Icons.Filled.Done, contentDescription = "Save Note", tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            imageVector = Icons.Filled.Archive,
+                            contentDescription = "Save Note",
+                            tint = onCardColor.copy(alpha = 0.8f)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -582,130 +709,207 @@ fun GeneralNotesEditor(
                     }
                 }
 
-                // Rich-text formatting toolbar (hidden in checklist mode).
-                if (!isChecklist) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FormatToolbarButton(Icons.Filled.Title, "Heading", onCardColor) { applyLinePrefix("# ") }
-                        FormatToolbarButton(Icons.Filled.FormatBold, "Bold", onCardColor) { applyInlineMarker("**") }
-                        FormatToolbarButton(Icons.Filled.FormatItalic, "Italic", onCardColor) { applyInlineMarker("*") }
-                        FormatToolbarButton(Icons.Filled.FormatUnderlined, "Underline", onCardColor) { applyInlineMarker("__") }
-                        FormatToolbarButton(Icons.Filled.StrikethroughS, "Strikethrough", onCardColor) { applyInlineMarker("~~") }
-                        FormatToolbarButton(Icons.Filled.Code, "Monospace", onCardColor) { applyInlineMarker("`") }
-                        FormatToolbarButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet list", onCardColor) { applyLinePrefix("- ") }
-                        FormatToolbarButton(Icons.Filled.FormatListNumbered, "Numbered list", onCardColor) { applyLinePrefix("1. ") }
-                    }
-                }
-
                 Surface(
                     tonalElevation = 3.dp,
                     color = cardBgColor,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = { showColorPicker = !showColorPicker }) {
-                            Icon(Icons.Outlined.Palette, contentDescription = "Color Picker", tint = onCardColor.copy(alpha = 0.8f))
-                        }
-
-                        IconButton(onClick = {
-                            isChecklist = !isChecklist
-                            if (isChecklist && contentText.isBlank()) {
-                                contentText = "[ ] Add item"
+                    val showUndoRedo = if (isChecklist) contentText.isNotEmpty() else contentValue.text.isNotEmpty()
+                    
+                    when (expandedMenu) {
+                        NotesToolbarMenu.FORMATTING -> {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(onClick = { expandedMenu = NotesToolbarMenu.NONE }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Close Menu", tint = onCardColor)
+                                }
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp), color = onCardColor.copy(alpha = 0.2f))
+                                
+                                FormatToolbarButton(Icons.Filled.Title, "Heading", onCardColor) { applyLinePrefix("# ") }
+                                FormatToolbarButton(Icons.Filled.FormatBold, "Bold", onCardColor) { applyInlineMarker("**") }
+                                FormatToolbarButton(Icons.Filled.FormatItalic, "Italic", onCardColor) { applyInlineMarker("*") }
+                                FormatToolbarButton(Icons.Filled.FormatUnderlined, "Underline", onCardColor) { applyInlineMarker("__") }
+                                FormatToolbarButton(Icons.Filled.StrikethroughS, "Strikethrough", onCardColor) { applyInlineMarker("~~") }
+                                FormatToolbarButton(Icons.Filled.Code, "Monospace", onCardColor) { applyInlineMarker("`") }
+                                FormatToolbarButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet list", onCardColor) { applyLinePrefix("- ") }
+                                FormatToolbarButton(Icons.Filled.FormatListNumbered, "Numbered list", onCardColor) { applyLinePrefix("1. ") }
                             }
-                        }) {
-                            Icon(
-                                imageVector = if (isChecklist) Icons.Filled.Checklist else Icons.Outlined.Checklist,
-                                contentDescription = "Checklist Toggle",
-                                tint = if (isChecklist) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
-                            )
                         }
+                        NotesToolbarMenu.ATTACHMENTS -> {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(onClick = { expandedMenu = NotesToolbarMenu.NONE }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Close Menu", tint = onCardColor)
+                                }
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp), color = onCardColor.copy(alpha = 0.2f))
 
-                        IconButton(onClick = { imageLauncher.launch("image/*") }) {
-                            Icon(
-                                imageVector = if (imageUrl != null) Icons.Filled.Image else Icons.Outlined.Image,
-                                contentDescription = "Attach Image",
-                                tint = if (imageUrl != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
-                            )
-                        }
+                                // Checklist Toggle
+                                IconButton(onClick = {
+                                    isChecklist = !isChecklist
+                                    if (isChecklist && contentText.isBlank()) {
+                                        contentText = "[ ] "
+                                    }
+                                    expandedMenu = NotesToolbarMenu.NONE
+                                }) {
+                                    Icon(
+                                        imageVector = if (isChecklist) Icons.Filled.Checklist else Icons.Outlined.Checklist,
+                                        contentDescription = "Checklist Toggle",
+                                        tint = if (isChecklist) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
+                                    )
+                                }
 
-                        IconButton(onClick = {
-                            if (isRecording) {
-                                stopRecording()
-                            } else {
-                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                    startRecording()
-                                } else {
-                                    recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                // Attach Image
+                                IconButton(onClick = {
+                                    imageLauncher.launch("image/*")
+                                    expandedMenu = NotesToolbarMenu.NONE
+                                }) {
+                                    Icon(
+                                        imageVector = if (imageUrl != null) Icons.Filled.Image else Icons.Outlined.Image,
+                                        contentDescription = "Attach Image",
+                                        tint = if (imageUrl != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
+                                    )
+                                }
+
+                                // Record Audio
+                                IconButton(onClick = {
+                                    expandedMenu = NotesToolbarMenu.NONE
+                                    if (isRecording) {
+                                        stopRecording()
+                                    } else {
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                            startRecording()
+                                        } else {
+                                            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrl != null) Icons.Filled.Mic else Icons.Outlined.Mic),
+                                        contentDescription = if (isRecording) "Stop Recording" else "Record Audio",
+                                        tint = if (isRecording) MaterialTheme.colorScheme.error else (if (audioUrl != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f))
+                                    )
                                 }
                             }
-                        }) {
-                            Icon(
-                                imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrl != null) Icons.Filled.Mic else Icons.Outlined.Mic),
-                                contentDescription = if (isRecording) "Stop Recording" else "Record Audio",
-                                tint = if (isRecording) MaterialTheme.colorScheme.error else (if (audioUrl != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f))
-                            )
                         }
-
-                        Box {
-                            IconButton(onClick = { showReminderMenu = true }) {
-                                Icon(
-                                    imageVector = if (reminderAt != null) Icons.Filled.NotificationsActive else Icons.Outlined.NotificationAdd,
-                                    contentDescription = "Reminder",
-                                    tint = if (reminderAt != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
-                                )
-                            }
-                            DropdownMenu(expanded = showReminderMenu, onDismissRequest = { showReminderMenu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Later today (3 hrs)") },
-                                    onClick = {
-                                        reminderAt = System.currentTimeMillis() + 3 * 60 * 60 * 1000L
-                                        showReminderMenu = false
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.Schedule, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Tomorrow morning (9 AM)") },
-                                    onClick = {
-                                        val cal = Calendar.getInstance().apply {
-                                            add(Calendar.DAY_OF_YEAR, 1)
-                                            set(Calendar.HOUR_OF_DAY, 9)
-                                            set(Calendar.MINUTE, 0)
-                                            set(Calendar.SECOND, 0)
+                        NotesToolbarMenu.NONE -> {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(onClick = { expandedMenu = NotesToolbarMenu.ATTACHMENTS }) {
+                                        Icon(Icons.Filled.AddBox, contentDescription = "Add Attachments", tint = onCardColor.copy(alpha = 0.8f))
+                                    }
+                                    IconButton(onClick = { showColorPicker = !showColorPicker }) {
+                                        Icon(Icons.Outlined.Palette, contentDescription = "Color Picker", tint = onCardColor.copy(alpha = 0.8f))
+                                    }
+                                    if (!isChecklist) {
+                                        IconButton(onClick = { expandedMenu = NotesToolbarMenu.FORMATTING }) {
+                                            Icon(Icons.Filled.TextFields, contentDescription = "Formatting Tools", tint = onCardColor.copy(alpha = 0.8f))
                                         }
-                                        reminderAt = cal.timeInMillis
-                                        showReminderMenu = false
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.WbSunny, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Pick date & time…") },
-                                    onClick = {
-                                        showReminderMenu = false
-                                        pickReminderDateTime()
-                                    },
-                                    leadingIcon = { Icon(Icons.Filled.EditCalendar, contentDescription = null) }
-                                )
-                                if (reminderAt != null) {
-                                    DropdownMenuItem(
-                                        text = { Text("Remove reminder") },
-                                        onClick = {
-                                            reminderAt = null
-                                            showReminderMenu = false
-                                        },
-                                        leadingIcon = { Icon(Icons.Filled.NotificationsOff, contentDescription = null) }
-                                    )
+                                    }
+                                }
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (showUndoRedo) {
+                                        IconButton(
+                                            onClick = {
+                                                if (undoStack.isNotEmpty()) {
+                                                    val prev = undoStack.removeLast()
+                                                    redoStack.add(contentValue)
+                                                    contentValue = prev
+                                                    if (isChecklist) {
+                                                        contentText = prev.text
+                                                    }
+                                                }
+                                            },
+                                            enabled = undoStack.isNotEmpty()
+                                        ) {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.Undo,
+                                                contentDescription = "Undo",
+                                                tint = onCardColor.copy(alpha = if (undoStack.isNotEmpty()) 0.85f else 0.3f)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                if (redoStack.isNotEmpty()) {
+                                                    val next = redoStack.removeLast()
+                                                    undoStack.add(contentValue)
+                                                    contentValue = next
+                                                    if (isChecklist) {
+                                                        contentText = next.text
+                                                    }
+                                                }
+                                            },
+                                            enabled = redoStack.isNotEmpty()
+                                        ) {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.Redo,
+                                                contentDescription = "Redo",
+                                                tint = onCardColor.copy(alpha = if (redoStack.isNotEmpty()) 0.85f else 0.3f)
+                                            )
+                                        }
+                                    }
+
+                                    var showOverflow by remember { mutableStateOf(false) }
+                                    Box {
+                                        IconButton(onClick = { showOverflow = true }) {
+                                            Icon(Icons.Filled.MoreVert, contentDescription = "More Options", tint = onCardColor.copy(alpha = 0.8f))
+                                        }
+                                        DropdownMenu(
+                                            expanded = showOverflow,
+                                            onDismissRequest = { showOverflow = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Share") },
+                                                onClick = {
+                                                    showOverflow = false
+                                                    shareNote()
+                                                },
+                                                leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) }
+                                            )
+                                            if (note != null) {
+                                                DropdownMenuItem(
+                                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                                    onClick = {
+                                                        showOverflow = false
+                                                        onDelete(note.id)
+                                                        onDismiss()
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Make a Copy") },
+                                                    onClick = {
+                                                        showOverflow = false
+                                                        onCopy()
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) }
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -823,38 +1027,69 @@ fun GeneralNotesEditor(
                 }
             }
 
-            Card(
-                modifier = Modifier.fillMaxWidth().wrapContentHeight(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = onCardColor.copy(alpha = 0.15f)
-                )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                TextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    textStyle = MaterialTheme.typography.headlineSmall.copy(
+                        color = onCardColor,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    placeholder = {
+                        Text(
+                            "Title",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = onCardColor.copy(alpha = 0.4f)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedTextColor = onCardColor
+                    )
+                )
+
+                if (!isChecklist) {
                     TextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        textStyle = MaterialTheme.typography.headlineSmall.copy(
-                            color = onCardColor,
-                            fontWeight = FontWeight.Bold
-                        ),
+                        value = contentValue,
+                        onValueChange = { raw ->
+                            val processed = handleSmartNewline(contentValue, raw)
+                            // Coalesce keystrokes into word-level undo steps.
+                            val prev = contentValue
+                            val isBoundary = processed.text.length < prev.text.length ||
+                                (processed.text.length - prev.text.length) > 1 ||
+                                processed.text.lastOrNull()?.isWhitespace() == true
+                            if (isBoundary && prev.text != processed.text) {
+                                undoStack.add(prev)
+                                if (undoStack.size > 200) undoStack.removeAt(0)
+                                redoStack.clear()
+                            }
+                            contentValue = processed
+                            contentText = processed.text
+                        },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = onCardColor),
                         placeholder = {
                             Text(
-                                "Title",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
+                                "Note",
+                                style = MaterialTheme.typography.bodyLarge,
                                 color = onCardColor.copy(alpha = 0.4f)
                             )
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 200.dp),
+                        visualTransformation = RichTextVisualTransformation(onCardColor),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
@@ -864,130 +1099,98 @@ fun GeneralNotesEditor(
                             focusedTextColor = onCardColor
                         )
                     )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(onCardColor.copy(alpha = 0.15f))
-                    )
-
-                    if (!isChecklist) {
-                        TextField(
-                            value = contentValue,
-                            onValueChange = { raw ->
-                                val processed = handleSmartNewline(contentValue, raw)
-                                // Coalesce keystrokes into word-level undo steps.
-                                val prev = contentValue
-                                val isBoundary = processed.text.length < prev.text.length ||
-                                    (processed.text.length - prev.text.length) > 1 ||
-                                    processed.text.lastOrNull()?.isWhitespace() == true
-                                if (isBoundary && prev.text != processed.text) {
-                                    undoStack.add(prev)
-                                    if (undoStack.size > 200) undoStack.removeAt(0)
-                                    redoStack.clear()
-                                }
-                                contentValue = processed
-                                contentText = processed.text
-                            },
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = onCardColor),
-                            placeholder = {
-                                Text(
-                                    "Note",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = onCardColor.copy(alpha = 0.4f)
+                } else {
+                    val coroutineScope = rememberCoroutineScope()
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items.forEachIndexed { idx, (checked, tfv) ->
+                            val focusRequester = focusRequesters.getOrPut(idx) { FocusRequester() }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { isChecked ->
+                                        items[idx] = isChecked to tfv
+                                        updateChecklistString()
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = MaterialTheme.colorScheme.primary,
+                                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                                    )
                                 )
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = 200.dp),
-                            visualTransformation = RichTextVisualTransformation(onCardColor),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                focusedTextColor = onCardColor
-                            )
-                        )
-                    } else {
-                        val items = remember(contentText) {
-                            val list = contentText.split("\n").filter { it.isNotBlank() }.map { line ->
-                                val checked = line.startsWith("[x]")
-                                val text = line.removePrefix("[ ] ").removePrefix("[x] ")
-                                checked to text
-                            }.toMutableStateList()
-                            if (list.isEmpty()) {
-                                list.add(false to "")
-                            }
-                            list
-                        }
-
-                        fun updateChecklistString() {
-                            contentText = items.joinToString("\n") { (checked, text) ->
-                                if (checked) "[x] $text" else "[ ] $text"
-                            }
-                        }
-
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items.forEachIndexed { idx, (checked, text) ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Checkbox(
-                                        checked = checked,
-                                        onCheckedChange = { isChecked ->
-                                            items[idx] = isChecked to text
-                                            updateChecklistString()
-                                        },
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = MaterialTheme.colorScheme.primary,
-                                            checkmarkColor = MaterialTheme.colorScheme.onPrimary
-                                        )
-                                    )
-                                    BasicTextField(
-                                        value = text,
-                                        onValueChange = { newText ->
-                                            items[idx] = checked to newText
-                                            updateChecklistString()
-                                        },
-                                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                            color = onCardColor,
-                                            textDecoration = if (checked) TextDecoration.LineThrough else null
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    IconButton(
-                                        onClick = {
+                                BasicTextField(
+                                    value = tfv,
+                                    onValueChange = { newTfv ->
+                                        items[idx] = checked to newTfv
+                                        updateChecklistString()
+                                    },
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        color = onCardColor,
+                                        textDecoration = if (checked) TextDecoration.LineThrough else null
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .focusRequester(focusRequester)
+                                        .onPreviewKeyEvent { keyEvent ->
+                                            if (keyEvent.key == Key.Enter && keyEvent.type == KeyEventType.KeyDown) {
+                                                val cursor = tfv.selection.start
+                                                val textBefore = tfv.text.substring(0, cursor)
+                                                val textAfter = tfv.text.substring(cursor)
+                                                
+                                                items[idx] = checked to tfv.copy(text = textBefore, selection = TextRange(textBefore.length))
+                                                val newItem = false to TextFieldValue(textAfter, TextRange(0))
+                                                items.add(idx + 1, newItem)
+                                                updateChecklistString()
+                                                
+                                                coroutineScope.launch {
+                                                    delay(50)
+                                                    focusRequesters[idx + 1]?.requestFocus()
+                                                }
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                )
+                                IconButton(
+                                    onClick = {
+                                        if (items.size > 1) {
                                             items.removeAt(idx)
                                             updateChecklistString()
-                                        },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Filled.Close, contentDescription = "Remove", tint = onCardColor.copy(alpha = 0.5f))
-                                    }
+                                        } else {
+                                            items[0] = false to TextFieldValue("")
+                                            updateChecklistString()
+                                        }
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Remove", tint = onCardColor.copy(alpha = 0.5f))
                                 }
                             }
+                        }
 
-                            TextButton(
-                                onClick = {
-                                    items.add(false to "")
-                                    updateChecklistString()
-                                },
-                                colors = ButtonDefaults.textButtonColors(contentColor = onCardColor)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(Icons.Filled.Add, contentDescription = "Add Item")
-                                    Text("Add list item")
+                        TextButton(
+                            onClick = {
+                                items.add(false to TextFieldValue(""))
+                                updateChecklistString()
+                                val nextIdx = items.lastIndex
+                                coroutineScope.launch {
+                                    delay(50)
+                                    focusRequesters[nextIdx]?.requestFocus()
                                 }
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = onCardColor)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = "Add Item")
+                                Text("Add list item")
                             }
                         }
                     }
@@ -1024,11 +1227,11 @@ object RichTextFormatter {
     private data class StyleSpan(val start: Int, val endExclusive: Int, val style: SpanStyle)
 
     private val inlineMarkers: List<Pair<Regex, (String) -> SpanStyle>> = listOf(
-        Regex("\\*\\*(.+?)\\*\\*") to { _: String -> SpanStyle(fontWeight = FontWeight.Bold) },
-        Regex("__(.+?)__") to { _: String -> SpanStyle(textDecoration = TextDecoration.Underline) },
-        Regex("~~(.+?)~~") to { _: String -> SpanStyle(textDecoration = TextDecoration.LineThrough) },
-        Regex("`(.+?)`") to { _: String -> SpanStyle(fontFamily = FontFamily.Monospace) },
-        Regex("\\*(.+?)\\*") to { _: String -> SpanStyle(fontStyle = FontStyle.Italic) }
+        Regex("\\*\\*(.*?)\\*\\*") to { _: String -> SpanStyle(fontWeight = FontWeight.Bold) },
+        Regex("__(.*?)__") to { _: String -> SpanStyle(textDecoration = TextDecoration.Underline) },
+        Regex("~~(.*?)~~") to { _: String -> SpanStyle(textDecoration = TextDecoration.LineThrough) },
+        Regex("`(.*?)`") to { _: String -> SpanStyle(fontFamily = FontFamily.Monospace) },
+        Regex("\\*(.*?)\\*") to { _: String -> SpanStyle(fontStyle = FontStyle.Italic) }
     )
 
     private val markerLengths = listOf(2, 2, 2, 1, 1)

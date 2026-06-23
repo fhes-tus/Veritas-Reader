@@ -104,6 +104,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import com.veritas.reader.ui.screens.KeepScreenAwake
+import com.veritas.reader.ui.screens.monitorReadingActivity
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -145,6 +147,8 @@ internal fun ActualDocumentView(
     var rotationDegrees by remember(document.id) { mutableIntStateOf(0) }
     var topBarVisible by remember { mutableStateOf(true) }
     var bottomBarVisible by remember { mutableStateOf(true) }
+    var interactionTrigger by remember { mutableStateOf(0L) }
+    KeepScreenAwake(enabled = true, interactionTrigger = interactionTrigger)
 
     val isPdf = remember(document) {
         if (document.originalMimeType.contains("pdf", ignoreCase = true) ||
@@ -306,6 +310,7 @@ internal fun ActualDocumentView(
         modifier = Modifier
             .fillMaxSize()
             .background(if (isThemeDark) androidx.compose.ui.graphics.Color(0xFF1C1C1E) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+            .monitorReadingActivity { interactionTrigger = System.currentTimeMillis() }
     ) {
         // 1. Full-screen rendering canvas
         BoxWithConstraints(

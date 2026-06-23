@@ -879,17 +879,34 @@ object DocumentExtractor {
         parser.setInput(StringReader(xml))
         val output = StringBuilder()
         var event = parser.eventType
+        var inInstrText = false
         while (event != XmlPullParser.END_DOCUMENT) {
-            val name = parser.name.orEmpty().substringAfter(':')
+            val name = parser.name.orEmpty().substringAfter(':').lowercase(Locale.getDefault())
             when (event) {
-                XmlPullParser.START_TAG -> when (name.lowercase(Locale.getDefault())) {
-                    "tab" -> output.append('\t')
-                    "br" -> output.append('\n')
+                XmlPullParser.START_TAG -> {
+                    if (name == "instrtext") {
+                        inInstrText = true
+                    } else if (!inInstrText) {
+                        when (name) {
+                            "tab" -> output.append('\t')
+                            "br" -> output.append('\n')
+                        }
+                    }
                 }
-                XmlPullParser.TEXT -> output.append(parser.text.orEmpty())
-                XmlPullParser.END_TAG -> when (name.lowercase(Locale.getDefault())) {
-                    "p", "tr", "h1", "h2", "h3", "h4", "h5", "h6" -> output.append("\n\n")
-                    "tc", "td", "th" -> output.append('\t')
+                XmlPullParser.TEXT -> {
+                    if (!inInstrText) {
+                        output.append(parser.text.orEmpty())
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    if (name == "instrtext") {
+                        inInstrText = false
+                    } else if (!inInstrText) {
+                        when (name) {
+                            "p", "tr", "h1", "h2", "h3", "h4", "h5", "h6" -> output.append("\n\n")
+                            "tc", "td", "th" -> output.append('\t')
+                        }
+                    }
                 }
             }
             event = parser.next()

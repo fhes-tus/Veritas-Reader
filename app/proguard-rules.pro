@@ -59,3 +59,13 @@
 -keep class androidx.work.** { *; }
 -dontwarn androidx.work.**
 
+# 11. Jetpack Glance Keep Rules
+-keep class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver { *; }
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget { *; }
+-keep class * implements androidx.glance.appwidget.action.ActionCallback { *; }
+-keep class * implements androidx.glance.action.ActionCallback { *; }
+-keep class com.veritas.reader.**WidgetReceiver { *; }
+-keep class com.veritas.reader.VeritasPlayerWidgetProvider { *; }
+-keep class com.veritas.reader.**Callback { *; }
+-keep class com.veritas.reader.**Receiver { *; }
+-keep class com.veritas.reader.**Provider { *; }

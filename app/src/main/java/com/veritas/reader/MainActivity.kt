@@ -28,6 +28,14 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Article
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -38,6 +46,13 @@ import androidx.activity.viewModels
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -150,6 +165,7 @@ import com.veritas.reader.ui.screens.ReaderScreenState
 import com.veritas.reader.ui.screens.ReaderSettingsDialog
 import com.veritas.reader.ui.screens.ReadingListsDialog
 import com.veritas.reader.ui.screens.SettingsHubDialog
+import com.veritas.reader.ui.screens.UserManualDialog
 import com.veritas.reader.ui.screens.SleepTimerDialog
 import com.veritas.reader.ui.screens.UpdateAvailableDialog
 import com.veritas.reader.ui.screens.VoiceStudioDialog
@@ -173,7 +189,7 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: ReaderViewModel by viewModels()
+    internal val viewModel: ReaderViewModel by viewModels()
 
     var onHardwarePlayPause: (() -> Unit)? = null
     var onHardwareNext: (() -> Unit)? = null
@@ -182,6 +198,32 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        val widgetAction = intent.getStringExtra(EXTRA_WIDGET_ACTION)
+        val noteId = intent.getStringExtra(EXTRA_NOTE_ID)
+        val documentId = intent.getStringExtra(EXTRA_DOCUMENT_ID)
+
+        if (widgetAction == ACTION_CONTINUE_READING && !documentId.isNullOrBlank()) {
+            PlaybackStateStore.activeDocumentId = documentId
+        }
+
+        if (widgetAction != null) {
+            viewModel.updateState { state ->
+                state.copy(
+                    pendingWidgetAction = widgetAction,
+                    pendingWidgetDocId = documentId,
+                    pendingWidgetNoteId = noteId,
+                    pendingImportOnStart = widgetAction == ACTION_IMPORT_DOCUMENTS
+                )
+            }
+        }
+
+        intent.action = null
+        intent.data = null
+        intent.removeExtra(Intent.EXTRA_TEXT)
+        intent.removeExtra(Intent.EXTRA_STREAM)
+        intent.removeExtra(EXTRA_WIDGET_ACTION)
+        intent.removeExtra(EXTRA_NOTE_ID)
+        intent.removeExtra(EXTRA_DOCUMENT_ID)
     }
 
     override fun onStart() {
@@ -240,6 +282,9 @@ class MainActivity : ComponentActivity() {
 
         val incomingAction = intent?.action
         val openVoiceStudioOnStart = intent?.getBooleanExtra(EXTRA_OPEN_VOICE_STUDIO, false) == true
+        val widgetAction = intent?.getStringExtra(EXTRA_WIDGET_ACTION)
+        val noteId = intent?.getStringExtra(EXTRA_NOTE_ID)
+        val documentId = intent?.getStringExtra(EXTRA_DOCUMENT_ID)
         val sharedText = intent?.takeIf { incomingAction == Intent.ACTION_SEND }
             ?.getStringExtra(Intent.EXTRA_TEXT)
             .orEmpty()
@@ -260,12 +305,31 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Handle continue reading action from widgets
+        if (widgetAction == ACTION_CONTINUE_READING && !documentId.isNullOrBlank()) {
+            PlaybackStateStore.activeDocumentId = documentId
+        }
+
+        if (widgetAction != null) {
+            viewModel.updateState { state ->
+                state.copy(
+                    pendingWidgetAction = widgetAction,
+                    pendingWidgetDocId = documentId,
+                    pendingWidgetNoteId = noteId,
+                    pendingImportOnStart = widgetAction == ACTION_IMPORT_DOCUMENTS
+                )
+            }
+        }
+
         // Invalidate and clear system intent action and data to prevent loop on config change / restart
         intent?.let {
             it.action = null
             it.data = null
             it.removeExtra(Intent.EXTRA_TEXT)
             it.removeExtra(Intent.EXTRA_STREAM)
+            it.removeExtra(EXTRA_WIDGET_ACTION)
+            it.removeExtra(EXTRA_NOTE_ID)
+            it.removeExtra(EXTRA_DOCUMENT_ID)
         }
 
         setContent {
@@ -273,7 +337,9 @@ class MainActivity : ComponentActivity() {
                 VeritasReaderApp(
                     initialSharedText = sharedText,
                     initialSharedUri = sharedUri,
-                    openVoiceStudioOnStart = openVoiceStudioOnStart
+                    openVoiceStudioOnStart = openVoiceStudioOnStart,
+                    widgetAction = widgetAction,
+                    noteId = noteId
                 )
             }
         }
@@ -281,6 +347,23 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_VOICE_STUDIO = "com.veritas.reader.extra.OPEN_VOICE_STUDIO"
+        const val EXTRA_WIDGET_ACTION = "com.veritas.reader.extra.WIDGET_ACTION"
+        const val EXTRA_NOTE_ID = "com.veritas.reader.extra.NOTE_ID"
+        const val EXTRA_DOCUMENT_ID = "com.veritas.reader.extra.DOCUMENT_ID"
+        const val ACTION_NEW_NOTE = "new_note"
+        const val ACTION_NEW_READING_NOTE = "new_reading_note"
+        const val ACTION_SHOW_NOTES = "show_notes"
+        const val ACTION_ACTIVE_READING = "active_reading"
+        const val ACTION_NEW_STUDY_NOTE = "new_study_note"
+        const val ACTION_VOICE_NOTE = "voice_note"
+        const val ACTION_EDIT_NOTE = "edit_note"
+        const val ACTION_CONTINUE_READING = "continue_reading"
+        const val ACTION_SHOW_STUDY_DASHBOARD = "show_study_dashboard"
+        const val ACTION_NEW_CHECKLIST_NOTE = "new_checklist_note"
+        const val ACTION_NEW_REMINDER_NOTE = "new_reminder_note"
+        const val ACTION_NEW_IMAGE_NOTE = "new_image_note"
+        const val ACTION_OPEN_LIBRARY = "open_library"
+        const val ACTION_IMPORT_DOCUMENTS = "import_documents"
     }
 }
 
@@ -289,6 +372,8 @@ private const val MAIN_ACTIVITY_TAG = "MainActivity"
 object VeritasThemeState {
     var themeId by mutableStateOf(VeritasThemeCatalog.DEFAULT_ID)
     var themePackId by mutableStateOf(VeritasThemePackCatalog.DEFAULT_ID)
+    var activeDocumentId by mutableStateOf<String?>(null)
+    var adaptiveCover by mutableStateOf(false)
 }
 
 @Composable
@@ -467,7 +552,18 @@ enum class VeritasBrowserTab(val label: String, val emoji: String) {
     DOC("DOCX", "📘"),
     HTML("WEB", "🌐"),
     TXT("TXT", "📝"),
-    OCR("OCR", "📷")
+    OCR("OCR", "📷");
+
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+        get() = when (this) {
+            ALL -> Icons.Outlined.Folder
+            BOOKS -> Icons.Outlined.Book
+            PDF -> Icons.Outlined.PictureAsPdf
+            DOC -> Icons.Outlined.Description
+            HTML -> Icons.Outlined.Language
+            TXT -> Icons.Outlined.Article
+            OCR -> Icons.Outlined.PhotoCamera
+        }
 }
 
 enum class VeritasBrowserSort(val label: String) {
@@ -921,7 +1017,9 @@ private fun readableImportMimeTypes(): Array<String> = arrayOf(
 private fun VeritasReaderApp(
     initialSharedText: String,
     initialSharedUri: Uri?,
-    openVoiceStudioOnStart: Boolean
+    openVoiceStudioOnStart: Boolean,
+    widgetAction: String? = null,
+    noteId: String? = null
 ) {
     val context = LocalContext.current
     val viewModel: ReaderViewModel = viewModel()
@@ -991,9 +1089,17 @@ private fun VeritasReaderApp(
         }
     }
 
-    LaunchedEffect(uiState.readerSettings.themeId, uiState.readerSettings.themePackId) {
+    val activeDocId = uiState.activeDocument?.id
+    LaunchedEffect(
+        uiState.readerSettings.themeId,
+        uiState.readerSettings.themePackId,
+        uiState.readerSettings.adaptiveCover,
+        activeDocId
+    ) {
         VeritasThemeState.themeId = uiState.readerSettings.themeId
         VeritasThemeState.themePackId = uiState.readerSettings.themePackId
+        VeritasThemeState.adaptiveCover = uiState.readerSettings.adaptiveCover
+        VeritasThemeState.activeDocumentId = activeDocId
     }
 
     LaunchedEffect(Unit) {
@@ -1008,6 +1114,80 @@ private fun VeritasReaderApp(
                 viewModel.updateState { it.copy(showVoiceStudio = true) }
             }
             viewModel.updateState { it.copy(handledInitialShare = true) }
+        }
+    }
+
+    LaunchedEffect(uiState.pendingWidgetAction) {
+        val action = uiState.pendingWidgetAction
+        val docId = uiState.pendingWidgetDocId
+        val noteId = uiState.pendingWidgetNoteId
+
+        if (action != null) {
+            when (action) {
+                MainActivity.ACTION_NEW_NOTE -> {
+                    viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null) }
+                }
+                MainActivity.ACTION_SHOW_NOTES -> {
+                    viewModel.returnToLibrary()
+                }
+                MainActivity.ACTION_NEW_CHECKLIST_NOTE -> {
+                    viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null, noteEditorChecklistOnStart = true) }
+                }
+                MainActivity.ACTION_NEW_REMINDER_NOTE -> {
+                    viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null, noteEditorReminderOnStart = true) }
+                }
+                MainActivity.ACTION_NEW_IMAGE_NOTE -> {
+                    viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null, noteEditorImageOnStart = true) }
+                }
+                MainActivity.ACTION_OPEN_LIBRARY -> {
+                    viewModel.returnToLibrary()
+                }
+                MainActivity.ACTION_IMPORT_DOCUMENTS -> {
+                    viewModel.returnToLibrary()
+                    viewModel.openFileBrowser()
+                }
+                MainActivity.ACTION_ACTIVE_READING,
+                MainActivity.ACTION_CONTINUE_READING -> {
+                    val activeDocId = uiState.activeDocument?.id
+                    val docToOpen: SavedDocument? = if (activeDocId != null) {
+                        uiState.documents.firstOrNull { it.id == activeDocId }
+                    } else {
+                        val lastHistory = uiState.readingHistory.maxByOrNull { it.openedAt }
+                        val found: SavedDocument? = if (lastHistory != null) {
+                            uiState.documents.firstOrNull { it.id == lastHistory.documentId }
+                        } else {
+                            uiState.documents.maxByOrNull { it.updatedAt }
+                        }
+                        found
+                    }
+                    if (docToOpen != null) {
+                        PlaybackStateStore.readerMode = ReaderMode.TEXT
+                        viewModel.openSavedDocument(docToOpen)
+                    }
+                }
+                MainActivity.ACTION_NEW_READING_NOTE -> {
+                    if (uiState.activeDocument != null) {
+                        viewModel.updateState { it.copy(showDocumentNotes = true) }
+                    } else {
+                        viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null) }
+                    }
+                }
+                MainActivity.ACTION_NEW_STUDY_NOTE -> {
+                    viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null) }
+                }
+                MainActivity.ACTION_VOICE_NOTE -> {
+                    viewModel.updateState { it.copy(showVoiceStudio = true) }
+                }
+                MainActivity.ACTION_EDIT_NOTE -> {
+                    noteId?.let { nid ->
+                        val note = documentRepository.loadGeneralNotes().firstOrNull { it.id == nid }
+                        if (note != null) {
+                            viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = note) }
+                        }
+                    }
+                }
+            }
+            viewModel.updateState { it.copy(pendingWidgetAction = null, pendingWidgetDocId = null, pendingWidgetNoteId = null, pendingImportOnStart = false) }
         }
     }
 
@@ -1072,10 +1252,24 @@ private fun VeritasReaderApp(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            if (uiState.activeDocument == null) {
-                LibraryScreen(
-                    uiState = uiState,
+            @OptIn(ExperimentalSharedTransitionApi::class)
+            SharedTransitionLayout {
+                AnimatedContent(
+                    targetState = uiState.activeDocument,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
+                    },
+                    contentKey = { it?.id },
+                    label = "reader_transition"
+                ) { activeDoc ->
+                    if (activeDoc == null) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            LibraryScreen(
+                                uiState = uiState,
+                                sharedTransitionScope = this@SharedTransitionLayout,
+                                animatedVisibilityScope = this@AnimatedContent,
                     onDraftTextChange = { text -> viewModel.updateState { it.copy(draftText = text) } },
+                    widgetAction = uiState.pendingWidgetAction ?: widgetAction,
                     onCreateFromDraft = {
                         if (WebArticleExtractor.looksLikeUrl(uiState.draftText)) viewModel.importWebArticle(
                             uiState.draftText
@@ -1148,6 +1342,7 @@ private fun VeritasReaderApp(
                     onEditGeneralNote = { note -> viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = note) } },
                     onRemoveVocabularyWord = { docId, word -> viewModel.removeVocabularyWord(docId, word) },
                     onClearReadingHistory = { viewModel.clearReadingHistory() },
+                    onRemoveReadingHistoryEntry = viewModel::removeReadingHistoryEntry,
                     onToggleGeneralNotePin = viewModel::toggleGeneralNotePin,
                     onChangeGeneralNoteColor = viewModel::changeGeneralNoteColor,
                     onDeleteGeneralNote = viewModel::deleteGeneralNote
@@ -1170,8 +1365,9 @@ private fun VeritasReaderApp(
                             .onGloballyPositioned { OnboardingController.updateBounds("quest_checklist", it) }
                     )
                 }
-            } else {
-                val activeDocument = uiState.activeDocument ?: return@Box
+            }
+        } else {
+            val activeDocument = activeDoc ?: return@AnimatedContent
                 val activeMetadata = activeDocument.id?.let { activeId ->
                     uiState.documents.firstOrNull { it.id == activeId }
                 }
@@ -1288,13 +1484,15 @@ private fun VeritasReaderApp(
                             sleepTimerEndsAtMillis = PlaybackStateStore.sleepTimerEndsAtMillis,
                             sleepTimerAction = PlaybackStateStore.sleepTimerAction,
                             readingListCount = uiState.readingListCatalog.activeLists.size,
-                            activeDocumentReadingListCount = uiState.activeDocument?.id?.let { activeId ->
+                            activeDocumentReadingListCount = activeDocument.id?.let { activeId ->
                                 uiState.readingListCatalog.listsContaining(activeId)
                                     .count { !it.archived }
                             } ?: 0,
                             voices = uiState.ttsVoices,
                             readerMode = PlaybackStateStore.readerMode
                         ),
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@AnimatedContent,
                         listState = rememberLazyListState(),
                         hasCanvas = activeMetadata?.originalFileName?.isNotBlank() == true || activeDocument.chunks.any {
                             it.trim().startsWith("[CANVAS")
@@ -1495,6 +1693,8 @@ private fun VeritasReaderApp(
                 }
             }
         }
+    }
+}
 
         if (uiState.recordMode || uiState.recordAwaitingDecision) {
             FloatingRecordOverlay(
@@ -1537,7 +1737,85 @@ private fun VeritasReaderApp(
                 onOpenPdfTools = { viewModel.updateState { it.copy(showPdfImportTools = true) } },
                 onOpenFileBrowser = { viewModel.openFileBrowser() },
                 onOpenSleepTimer = { viewModel.updateState { it.copy(showSleepTimerDialog = true) } },
-                onOpenReadingLists = { viewModel.updateState { it.copy(showReadingLists = true) } }
+                onOpenReadingLists = { viewModel.updateState { it.copy(showReadingLists = true) } },
+                onOpenUserManual = { viewModel.updateState { it.copy(showUserManual = true) } }
+            )
+        }
+
+        var userManualTipTitle by remember { mutableStateOf("") }
+        var userManualTipText by remember { mutableStateOf<String?>(null) }
+
+        if (userManualTipText != null) {
+            AlertDialog(
+                onDismissRequest = { userManualTipText = null },
+                title = {
+                    Text(
+                        text = userManualTipTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = userManualTipText!!,
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 20.sp
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { userManualTipText = null }
+                    ) {
+                        Text("Got it")
+                    }
+                }
+            )
+        }
+
+        if (uiState.showUserManual) {
+            UserManualDialog(
+                onDismiss = { viewModel.updateState { it.copy(showUserManual = false) } },
+                onNavigateToSetting = { setting ->
+                    when (setting) {
+                        "reader_settings" -> viewModel.updateState { it.copy(showReaderSettings = true) }
+                        "voice_studio" -> viewModel.updateState { it.copy(showVoiceStudio = true) }
+                        "narration_studio" -> viewModel.updateState { it.copy(showNarrationStudio = true) }
+                        "pronunciation" -> viewModel.updateState { it.copy(showPronunciationRules = true) }
+                        "sleep_timer" -> viewModel.updateState { it.copy(showSleepTimerDialog = true) }
+                        "pdf_tools" -> viewModel.updateState { it.copy(showPdfImportTools = true) }
+                        "history" -> viewModel.updateState { it.copy(showReadingHistory = true) }
+                        "reading_lists" -> viewModel.updateState { it.copy(showReadingLists = true) }
+                        "sync_center" -> viewModel.updateState { it.copy(showSyncCenter = true) }
+                        "ai_center" -> viewModel.updateState { it.copy(showAiCenter = true) }
+                        "ask_ai" -> viewModel.updateState { it.copy(showAskAiSettings = true) }
+                        "file_browser" -> viewModel.openFileBrowser()
+                        "backup_tools" -> viewModel.updateState { it.copy(showBackupTools = true) }
+                        "library_options" -> {
+                            userManualTipTitle = "Document Actions"
+                            userManualTipText = "Tap the three-dot overflow button on any book card in your library to edit metadata, rename files, assign categories, add to custom lists, reset progress, or delete files from storage."
+                        }
+                        "bulk_edit" -> {
+                            userManualTipTitle = "Batch Organization"
+                            userManualTipText = "Long-press any document card in your Library to enter multi-select mode. You can then tap other cards to select them and perform bulk actions like category assignment or batch deletion from the top toolbar."
+                        }
+                        "file_browser_filters" -> {
+                            userManualTipTitle = "Browser Sorting & Filters"
+                            userManualTipText = "Tap the options menu (three dots) at the top-right of the integrated File Browser to change sorting (name, date, size), filter by file type, or toggle hidden files and folders."
+                        }
+                        "text_selection" -> {
+                            userManualTipTitle = "Interactive Text Selection"
+                            userManualTipText = "Double-tap or long-press on any word or sentence in the reader screen to highlight it. Use the selection handles to expand the text range, and access options like copying, notes, dictionary definitions, and TTS narration controls."
+                        }
+                        "reader_tools" -> {
+                            userManualTipTitle = "Reader Tools Menu"
+                            userManualTipText = "Tap the top-right tool menu button (three dots) inside the Reader Screen to access bookmarks, text search inside the book, theme settings, and notes export actions."
+                        }
+                        "study_general" -> {
+                            userManualTipTitle = "Study Hub"
+                            userManualTipText = "Open the Study screen from the main navigation bar to browse your accumulated vocabularies, highlights, custom bookmarks, and reading history logs in one consolidated workspace."
+                        }
+                    }
+                }
             )
         }
 
@@ -1677,6 +1955,13 @@ private fun VeritasReaderApp(
                     viewModel.saveReaderSettings(
                         uiState.readerSettings.copy(
                             autoPlayQueue = !uiState.readerSettings.autoPlayQueue
+                        )
+                    )
+                },
+                onToggleAdaptiveCover = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(
+                            adaptiveCover = !uiState.readerSettings.adaptiveCover
                         )
                     )
                 }
@@ -1924,10 +2209,15 @@ private fun VeritasReaderApp(
         if (uiState.showGeneralNotesEditor) {
             GeneralNotesEditor(
                 note = uiState.generalNoteEditorTarget,
-                onSave = { title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt ->
-                    viewModel.saveGeneralNote(title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt)
+                onSave = { title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt, closeEditor ->
+                    viewModel.saveGeneralNote(title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt, closeEditor)
                 },
                 onDelete = { noteId -> viewModel.deleteGeneralNote(noteId) },
+                onCopy = {
+                    uiState.generalNoteEditorTarget?.let { target ->
+                        viewModel.duplicateGeneralNote(target)
+                    }
+                },
                 onDismiss = { viewModel.updateState { it.copy(showGeneralNotesEditor = false, generalNoteEditorTarget = null) } }
             )
         }
@@ -2298,6 +2588,7 @@ private fun VeritasReaderApp(
         }
 
         if (uiState.showTutorial) {
+            var isTransitioningStep by remember { mutableStateOf(false) }
             val activeStep = OnboardingController.activeStep
             LaunchedEffect(uiState.showTutorial, uiState.hasCompletedOnboarding) {
                 if (uiState.showTutorial && !uiState.hasCompletedOnboarding && OnboardingController.activeStep == null) {
@@ -2327,111 +2618,126 @@ private fun VeritasReaderApp(
                     step = activeStep,
                     userName = uiState.userName,
                     onUserNameChanged = { viewModel.updateUserNameInMemory(it) },
+                    isTransitioning = isTransitioningStep,
                     onNext = {
-                        coroutineScope.launch {
-                            TutorialSpeaker.stop() // stop current reading before moving to next step
-                            val nextStep = when (activeStep) {
-                                OnboardingStep.WELCOME -> OnboardingStep.NAME_INPUT
-                                OnboardingStep.NAME_INPUT -> {
-                                    viewModel.saveUserName(uiState.userName)
-                                    OnboardingStep.FAB_SPOTLIGHT
-                                }
-                                OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
-                                OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
-                                OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
-                                OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
-                                OnboardingStep.DOCUMENT_SPOTLIGHT -> {
-                                    val targetDoc = uiState.documents.firstOrNull()
-                                    if (targetDoc != null) {
-                                        viewModel.openSavedDocument(targetDoc)
-                                        // Wait for reader screen to load and render the mode toggle
-                                        var elapsed = 0
-                                        while (viewModel.uiState.value.activeDocument == null && elapsed < 40) {
-                                            delay(50)
-                                            elapsed++
+                        if (!isTransitioningStep) {
+                            coroutineScope.launch {
+                                isTransitioningStep = true
+                                try {
+                                    TutorialSpeaker.stop() // stop current reading before moving to next step
+                                    val nextStep = when (activeStep) {
+                                        OnboardingStep.WELCOME -> OnboardingStep.NAME_INPUT
+                                        OnboardingStep.NAME_INPUT -> {
+                                            viewModel.saveUserName(uiState.userName)
+                                            OnboardingStep.FAB_SPOTLIGHT
                                         }
-                                        elapsed = 0
-                                        while (!OnboardingController.componentBounds.containsKey("reader_mode_toggle") && elapsed < 40) {
-                                            delay(50)
-                                            elapsed++
+                                        OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
+                                        OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
+                                        OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
+                                        OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
+                                        OnboardingStep.DOCUMENT_SPOTLIGHT -> {
+                                            val targetDoc = uiState.documents.firstOrNull()
+                                            if (targetDoc != null) {
+                                                viewModel.openSavedDocument(targetDoc)
+                                                // Wait for reader screen to load and render the mode toggle
+                                                var elapsed = 0
+                                                while (viewModel.uiState.value.activeDocument == null && elapsed < 40) {
+                                                    delay(50)
+                                                    elapsed++
+                                                }
+                                                elapsed = 0
+                                                while (!OnboardingController.componentBounds.containsKey("reader_mode_toggle") && elapsed < 40) {
+                                                    delay(50)
+                                                    elapsed++
+                                                }
+                                                OnboardingStep.MODE_TOGGLE_SPOTLIGHT
+                                            } else {
+                                                OnboardingStep.CONGRATULATIONS
+                                            }
                                         }
-                                        OnboardingStep.MODE_TOGGLE_SPOTLIGHT
+                                        OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> OnboardingStep.PLAYER_PANEL_SPOTLIGHT
+                                        OnboardingStep.PLAYER_PANEL_SPOTLIGHT -> OnboardingStep.READER_TEXT_SPOTLIGHT
+                                        OnboardingStep.READER_TEXT_SPOTLIGHT -> {
+                                            viewModel.returnToLibrary()
+                                            // Wait for library screen to load
+                                            var elapsed = 0
+                                            while (viewModel.uiState.value.activeDocument != null && elapsed < 40) {
+                                                delay(50)
+                                                elapsed++
+                                            }
+                                            OnboardingStep.CONGRATULATIONS
+                                        }
+                                        OnboardingStep.CONGRATULATIONS -> null
+                                    }
+                                    if (nextStep == null) {
+                                        OnboardingController.activeStep = null
+                                        viewModel.completeQuestTour()
                                     } else {
-                                        OnboardingStep.CONGRATULATIONS
+                                        OnboardingController.activeStep = nextStep
                                     }
+                                } finally {
+                                    isTransitioningStep = false
                                 }
-                                OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> OnboardingStep.PLAYER_PANEL_SPOTLIGHT
-                                OnboardingStep.PLAYER_PANEL_SPOTLIGHT -> OnboardingStep.READER_TEXT_SPOTLIGHT
-                                OnboardingStep.READER_TEXT_SPOTLIGHT -> {
-                                    viewModel.returnToLibrary()
-                                    // Wait for library screen to load
-                                    var elapsed = 0
-                                    while (viewModel.uiState.value.activeDocument != null && elapsed < 40) {
-                                        delay(50)
-                                        elapsed++
-                                    }
-                                    OnboardingStep.CONGRATULATIONS
-                                }
-                                OnboardingStep.CONGRATULATIONS -> null
-                            }
-                            if (nextStep == null) {
-                                OnboardingController.activeStep = null
-                                viewModel.completeQuestTour()
-                            } else {
-                                OnboardingController.activeStep = nextStep
                             }
                         }
                     },
                     onBack = {
-                        coroutineScope.launch {
-                            TutorialSpeaker.stop() // stop current reading before moving to prev step
-                            val prevStep = when (activeStep) {
-                                OnboardingStep.WELCOME -> null
-                                OnboardingStep.NAME_INPUT -> OnboardingStep.WELCOME
-                                OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.NAME_INPUT
-                                OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.FAB_SPOTLIGHT
-                                OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
-                                OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
-                                OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
-                                OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> {
-                                    viewModel.returnToLibrary()
-                                    // Wait for library screen to load and render the document card
-                                    var elapsed = 0
-                                    while (viewModel.uiState.value.activeDocument != null && elapsed < 40) {
-                                        delay(50)
-                                        elapsed++
-                                    }
-                                    elapsed = 0
-                                    while (!OnboardingController.componentBounds.containsKey("document_card_0") && elapsed < 40) {
-                                        delay(50)
-                                        elapsed++
-                                    }
-                                    OnboardingStep.DOCUMENT_SPOTLIGHT
-                                }
-                                OnboardingStep.PLAYER_PANEL_SPOTLIGHT -> OnboardingStep.MODE_TOGGLE_SPOTLIGHT
-                                OnboardingStep.READER_TEXT_SPOTLIGHT -> OnboardingStep.PLAYER_PANEL_SPOTLIGHT
-                                OnboardingStep.CONGRATULATIONS -> {
-                                    val targetDoc = uiState.documents.firstOrNull()
-                                    if (targetDoc != null) {
-                                        viewModel.openSavedDocument(targetDoc)
-                                        // Wait for reader screen to load and render the reader text view
-                                        var elapsed = 0
-                                        while (viewModel.uiState.value.activeDocument == null && elapsed < 40) {
-                                            delay(50)
-                                            elapsed++
+                        if (!isTransitioningStep) {
+                            coroutineScope.launch {
+                                isTransitioningStep = true
+                                try {
+                                    TutorialSpeaker.stop() // stop current reading before moving to prev step
+                                    val prevStep = when (activeStep) {
+                                        OnboardingStep.WELCOME -> null
+                                        OnboardingStep.NAME_INPUT -> OnboardingStep.WELCOME
+                                        OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.NAME_INPUT
+                                        OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.FAB_SPOTLIGHT
+                                        OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
+                                        OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
+                                        OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
+                                        OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> {
+                                            viewModel.returnToLibrary()
+                                            // Wait for library screen to load and render the document card
+                                            var elapsed = 0
+                                            while (viewModel.uiState.value.activeDocument != null && elapsed < 40) {
+                                                delay(50)
+                                                elapsed++
+                                            }
+                                            elapsed = 0
+                                            while (!OnboardingController.componentBounds.containsKey("document_card_0") && elapsed < 40) {
+                                                delay(50)
+                                                elapsed++
+                                            }
+                                            OnboardingStep.DOCUMENT_SPOTLIGHT
                                         }
-                                        elapsed = 0
-                                        while (!OnboardingController.componentBounds.containsKey("reader_text_view") && elapsed < 40) {
-                                            delay(50)
-                                            elapsed++
+                                        OnboardingStep.PLAYER_PANEL_SPOTLIGHT -> OnboardingStep.MODE_TOGGLE_SPOTLIGHT
+                                        OnboardingStep.READER_TEXT_SPOTLIGHT -> OnboardingStep.PLAYER_PANEL_SPOTLIGHT
+                                        OnboardingStep.CONGRATULATIONS -> {
+                                            val targetDoc = uiState.documents.firstOrNull()
+                                            if (targetDoc != null) {
+                                                viewModel.openSavedDocument(targetDoc)
+                                                // Wait for reader screen to load and render the reader text view
+                                                var elapsed = 0
+                                                while (viewModel.uiState.value.activeDocument == null && elapsed < 40) {
+                                                    delay(50)
+                                                    elapsed++
+                                                }
+                                                elapsed = 0
+                                                while (!OnboardingController.componentBounds.containsKey("reader_text_view") && elapsed < 40) {
+                                                    delay(50)
+                                                    elapsed++
+                                                }
+                                                OnboardingStep.READER_TEXT_SPOTLIGHT
+                                            } else {
+                                                OnboardingStep.DOCUMENT_SPOTLIGHT
+                                            }
                                         }
-                                        OnboardingStep.READER_TEXT_SPOTLIGHT
-                                    } else {
-                                        OnboardingStep.DOCUMENT_SPOTLIGHT
                                     }
+                                    OnboardingController.activeStep = prevStep
+                                } finally {
+                                    isTransitioningStep = false
                                 }
                             }
-                            OnboardingController.activeStep = prevStep
                         }
                     },
                     onDismiss = {
@@ -2872,9 +3178,15 @@ private fun FileBrowserDialog(
                                         containerColor = MaterialTheme.colorScheme.primary,
                                         contentColor = MaterialTheme.colorScheme.onPrimary
                                     ),
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Text("${tab.emoji} ${tab.label} $count")
+                                    Icon(
+                                        imageVector = tab.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("${tab.label} $count")
                                 }
                             } else {
                                 OutlinedButton(
@@ -2884,9 +3196,16 @@ private fun FileBrowserDialog(
                                     colors = ButtonDefaults.outlinedButtonColors(
                                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                                     ),
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Text("${tab.emoji} ${tab.label} $count")
+                                    Icon(
+                                        imageVector = tab.icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("${tab.label} $count")
                                 }
                             }
                         }
@@ -3282,17 +3601,17 @@ private fun ImportProgressOverlay(title: String) {
     }
 }
 
-private fun getFileColorAndIcon(file: VeritasBrowserFile): Triple<String, Color, Color> {
+private fun getFileColorAndIcon(file: VeritasBrowserFile): Triple<androidx.compose.ui.graphics.vector.ImageVector, Color, Color> {
     if (file.isDirectory) {
-        return Triple("📁", Color(0xFFF2994A), Color(0xFFFFF7F0))
+        return Triple(Icons.Outlined.Folder, Color(0xFFF2994A), Color(0xFFFFF7F0))
     }
     return when (file.type) {
-        VeritasBrowserTab.PDF -> Triple("📄", Color(0xFFE24B4A), Color(0xFFFFF0F0))
-        VeritasBrowserTab.DOC -> Triple("📘", Color(0xFF7C6FFF), Color(0xFFF0F3FF))
-        VeritasBrowserTab.BOOKS -> Triple("📕", Color(0xFF1D9E75), Color(0xFFF0FAF5))
-        VeritasBrowserTab.HTML -> Triple("🌐", Color(0xFF2F80ED), Color(0xFFEBF3FF))
-        VeritasBrowserTab.TXT -> Triple("📝", Color(0xFF888888), Color(0xFFF5F5F5))
-        else -> Triple("📄", Color(0xFF888888), Color(0xFFF5F5F5))
+        VeritasBrowserTab.PDF -> Triple(Icons.Outlined.PictureAsPdf, Color(0xFFE24B4A), Color(0xFFFFF0F0))
+        VeritasBrowserTab.DOC -> Triple(Icons.Outlined.Description, Color(0xFF7C6FFF), Color(0xFFF0F3FF))
+        VeritasBrowserTab.BOOKS -> Triple(Icons.Outlined.Book, Color(0xFF1D9E75), Color(0xFFF0FAF5))
+        VeritasBrowserTab.HTML -> Triple(Icons.Outlined.Language, Color(0xFF2F80ED), Color(0xFFEBF3FF))
+        VeritasBrowserTab.TXT -> Triple(Icons.Outlined.Article, Color(0xFF888888), Color(0xFFF5F5F5))
+        else -> Triple(Icons.Outlined.Article, Color(0xFF888888), Color(0xFFF5F5F5))
     }
 }
 
@@ -3336,7 +3655,7 @@ private fun FileBrowserFileRow(
     val showDetails = viewMode == LibraryViewMode.DETAILS || viewMode == LibraryViewMode.LIST
     val shape = if (viewMode == LibraryViewMode.SMALL || viewMode == LibraryViewMode.LIST) MaterialTheme.shapes.medium else MaterialTheme.shapes.large
 
-    val (emoji, tint, bg) = getFileColorAndIcon(file)
+    val (icon, tint, bg) = getFileColorAndIcon(file)
 
     Card(
         modifier = Modifier
@@ -3387,10 +3706,11 @@ private fun FileBrowserFileRow(
                     .background(bg, MaterialTheme.shapes.small),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = emoji,
-                    style = if (viewMode == LibraryViewMode.SMALL) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleLarge,
-                    color = tint
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(if (viewMode == LibraryViewMode.SMALL) 20.dp else 24.dp),
+                    tint = tint
                 )
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -3460,7 +3780,7 @@ private fun FileBrowserFileTileCard(
     val action = if (file.isDirectory) onOpenDirectory else onImport
     val haptic = LocalHapticFeedback.current
 
-    val (emoji, tint, bg) = getFileColorAndIcon(file)
+    val (icon, tint, bg) = getFileColorAndIcon(file)
 
     Card(
         modifier = modifier
@@ -3500,10 +3820,11 @@ private fun FileBrowserFileTileCard(
                         .background(bg, RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = emoji,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = tint
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = tint
                     )
                 }
                 if (selectionMode && isSelected != null && onSelectedChange != null && !file.isDirectory) {
@@ -6241,8 +6562,53 @@ fun AnnotationPill(icon: androidx.compose.ui.graphics.vector.ImageVector, conten
 }
 
 
+private fun blendColors(color1: Color, color2: Color, ratio: Float): Color {
+    val r = color1.red * (1f - ratio) + color2.red * ratio
+    val g = color1.green * (1f - ratio) + color2.green * ratio
+    val b = color1.blue * (1f - ratio) + color2.blue * ratio
+    return Color(r, g, b, 1f)
+}
+
+private fun adaptColorScheme(base: ColorScheme, palette: androidx.palette.graphics.Palette, isLight: Boolean): ColorScheme {
+    val dominantColor = Color(palette.getDominantColor(base.primary.toArgb()))
+    val vibrantColor = Color(palette.getVibrantColor(base.primary.toArgb()))
+    val darkVibrant = Color(palette.getDarkVibrantColor(base.primary.toArgb()))
+    val lightVibrant = Color(palette.getLightVibrantColor(base.primary.toArgb()))
+    val muted = Color(palette.getMutedColor(base.secondary.toArgb()))
+
+    return if (!isLight) {
+        val bgTint = blendColors(dominantColor, base.background, 0.88f)
+        val surfTint = blendColors(dominantColor, base.surface, 0.88f)
+        val surfVarTint = blendColors(dominantColor, base.surfaceVariant, 0.88f)
+        
+        base.copy(
+            primary = if (vibrantColor != base.primary) vibrantColor else lightVibrant,
+            primaryContainer = blendColors(dominantColor, base.primaryContainer, 0.7f),
+            secondary = if (muted != base.secondary) muted else dominantColor,
+            secondaryContainer = blendColors(dominantColor, base.secondaryContainer, 0.8f),
+            background = bgTint,
+            surface = surfTint,
+            surfaceVariant = surfVarTint
+        )
+    } else {
+        val bgTint = blendColors(dominantColor, base.background, 0.93f)
+        val surfTint = blendColors(dominantColor, base.surface, 0.95f)
+        val surfVarTint = blendColors(dominantColor, base.surfaceVariant, 0.93f)
+        
+        base.copy(
+            primary = if (vibrantColor != base.primary) vibrantColor else dominantColor,
+            primaryContainer = blendColors(dominantColor, base.primaryContainer, 0.85f),
+            secondary = if (muted != base.secondary) muted else dominantColor,
+            secondaryContainer = blendColors(dominantColor, base.secondaryContainer, 0.9f),
+            background = bgTint,
+            surface = surfTint,
+            surfaceVariant = surfVarTint
+        )
+    }
+}
+
 @Composable
-private fun VeritasTheme(content: @Composable () -> Unit) {
+internal fun VeritasTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val selectedTheme = VeritasThemeCatalog.normalizeThemeId(VeritasThemeState.themeId)
     val selectedPack = VeritasThemePackCatalog.normalizePackId(VeritasThemeState.themePackId)
@@ -6253,8 +6619,43 @@ private fun VeritasTheme(content: @Composable () -> Unit) {
         selectedTheme
     }
 
+    val isLight = when (resolvedTheme) {
+        "light", "white_high_contrast", "bw_gradient_light", "github_light" -> true
+        else -> false
+    }
+
+    val activeDocId = VeritasThemeState.activeDocumentId
+    val adaptiveCover = VeritasThemeState.adaptiveCover
+    var coverPalette by remember(activeDocId) { mutableStateOf<androidx.palette.graphics.Palette?>(null) }
+    
+    LaunchedEffect(activeDocId, adaptiveCover) {
+        if (adaptiveCover && activeDocId != null) {
+            val palette = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val file = CoverExtractor.coverFile(context, activeDocId)
+                if (file != null && file.exists()) {
+                    runCatching {
+                        val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                        if (bmp != null) androidx.palette.graphics.Palette.from(bmp).generate() else null
+                    }.getOrNull()
+                } else null
+            }
+            coverPalette = palette
+        } else {
+            coverPalette = null
+        }
+    }
+
+    val baseColorScheme = veritasColorScheme(resolvedTheme, context)
+    val palette = coverPalette
+    
+    val blendedColorScheme = if (adaptiveCover && palette != null) {
+        adaptColorScheme(baseColorScheme, palette, isLight)
+    } else {
+        baseColorScheme
+    }
+
     val colorScheme = veritasPackColorScheme(
-        base = veritasColorScheme(resolvedTheme, context),
+        base = blendedColorScheme,
         packId = selectedPack
     )
 

@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.withSaveLayer
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -171,11 +172,61 @@ fun OnboardingSpotlightOverlay(
     onUserNameChanged: (String) -> Unit,
     onNext: () -> Unit,
     onBack: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isTransitioning: Boolean = false
 ) {
     val targetBounds = OnboardingController.componentBounds[step.targetKey ?: ""]
-    val hasTarget = step.targetKey != null && targetBounds != null
     
+    var lastNonNullBounds by remember { mutableStateOf<Rect?>(null) }
+    LaunchedEffect(targetBounds) {
+        if (targetBounds != null) {
+            lastNonNullBounds = targetBounds
+        }
+    }
+
+    val baseBounds = targetBounds ?: lastNonNullBounds
+    val hasTarget = step.targetKey != null && baseBounds != null
+    
+    // Animate the cutout alpha to fade out during step transitions
+    val cutoutAlpha by animateFloatAsState(
+        targetValue = if (isTransitioning) 0f else 1f,
+        animationSpec = tween(durationMillis = 250),
+        label = "cutoutAlpha"
+    )
+
+    // Animate the cutout coordinates to slide smoothly between locations
+    val animatedLeft = animateFloatAsState(
+        targetValue = if (hasTarget) baseBounds!!.left else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "left"
+    )
+    val animatedTop = animateFloatAsState(
+        targetValue = if (hasTarget) baseBounds!!.top else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "top"
+    )
+    val animatedRight = animateFloatAsState(
+        targetValue = if (hasTarget) baseBounds!!.right else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "right"
+    )
+    val animatedBottom = animateFloatAsState(
+        targetValue = if (hasTarget) baseBounds!!.bottom else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "bottom"
+    )
+
+    val animBounds = if (hasTarget) {
+        Rect(
+            left = animatedLeft.value,
+            top = animatedTop.value,
+            right = animatedRight.value,
+            bottom = animatedBottom.value
+        )
+    } else {
+        null
+    }
+
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -221,8 +272,8 @@ fun OnboardingSpotlightOverlay(
                     // Dark dimming overlay
                     drawRect(color = Color.Black.copy(alpha = 0.76f))
 
-                    if (hasTarget) {
-                        val rect = targetBounds.inflate(paddingPx)
+                    if (animBounds != null) {
+                        val rect = animBounds.inflate(paddingPx)
                         
                         // Clear the shape where the view lies
                         drawRoundRect(
@@ -232,14 +283,24 @@ fun OnboardingSpotlightOverlay(
                             cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
                             blendMode = BlendMode.Clear
                         )
+
+                        // Fade the cutout to dark when transitioning
+                        if (cutoutAlpha < 1f) {
+                            drawRoundRect(
+                                color = Color.Black.copy(alpha = (1f - cutoutAlpha) * 0.76f),
+                                topLeft = rect.topLeft,
+                                size = rect.size,
+                                cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
+                            )
+                        }
                     }
                 }
             }
         }
 
         // Draw glowing neon stroke overlay on top of canvas for visual feedback
-        if (hasTarget) {
-            val baseRect = targetBounds.inflate(paddingPx)
+        if (animBounds != null) {
+            val baseRect = animBounds.inflate(paddingPx)
             val glowWidth = baseRect.width * pulseScale
             val glowHeight = baseRect.height * pulseScale
             val dx = (glowWidth - baseRect.width) / 2
@@ -255,6 +316,7 @@ fun OnboardingSpotlightOverlay(
                         width = with(density) { glowWidth.toDp() },
                         height = with(density) { glowHeight.toDp() }
                     )
+                    .graphicsLayer { alpha = cutoutAlpha }
                     .border(
                         width = 2.5.dp,
                         brush = Brush.sweepGradient(
@@ -270,8 +332,8 @@ fun OnboardingSpotlightOverlay(
         }
 
         // Display explanation card
-        val isCardBelow = if (hasTarget) {
-            targetBounds.center.y < screenHeightPx / 2
+        val isCardBelow = if (animBounds != null) {
+            animBounds.center.y < screenHeightPx / 2
         } else {
             true // centered default fallback
         }
@@ -283,12 +345,12 @@ fun OnboardingSpotlightOverlay(
                 .navigationBarsPadding(),
             contentAlignment = Alignment.TopCenter
         ) {
-            val targetYOffset = if (hasTarget) {
+            val targetYOffset = if (animBounds != null) {
                 if (isCardBelow) {
-                    val bottomPx = targetBounds.bottom + cardSpacingPx
+                    val bottomPx = animBounds.bottom + cardSpacingPx
                     with(density) { bottomPx.toDp() }
                 } else {
-                    val topPx = targetBounds.top - cardHeightEstPx
+                    val topPx = animBounds.top - cardHeightEstPx
                     with(density) { topPx.coerceAtLeast(minTopMarginPx).toDp() }
                 }
             } else {
@@ -307,6 +369,7 @@ fun OnboardingSpotlightOverlay(
                 modifier = Modifier
                     .padding(horizontal = 24.dp)
                     .offset(y = yOffset)
+                    .graphicsLayer { alpha = cutoutAlpha }
             ) {
                 OnboardingInfoCard(
                     step = step,
@@ -315,7 +378,8 @@ fun OnboardingSpotlightOverlay(
                     onNext = onNext,
                     onBack = onBack,
                     onDismiss = onDismiss,
-                    showLiveTip = step.targetKey != null && targetBounds == null
+                    showLiveTip = step.targetKey != null && targetBounds == null,
+                    isTransitioning = isTransitioning
                 )
             }
         }
@@ -330,7 +394,8 @@ fun OnboardingInfoCard(
     onNext: () -> Unit,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
-    showLiveTip: Boolean
+    showLiveTip: Boolean,
+    isTransitioning: Boolean = false
 ) {
     Card(
         modifier = Modifier
@@ -448,7 +513,10 @@ fun OnboardingInfoCard(
             ) {
                 // Back button
                 if (step != OnboardingStep.WELCOME) {
-                    TextButton(onClick = onBack) {
+                    TextButton(
+                        onClick = onBack,
+                        enabled = !isTransitioning
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -464,6 +532,7 @@ fun OnboardingInfoCard(
                 // Next / Finish button
                 Button(
                     onClick = onNext,
+                    enabled = !isTransitioning,
                     shape = RoundedCornerShape(50)
                 ) {
                     val label = if (step == OnboardingStep.CONGRATULATIONS) "Finish" else "Next"

@@ -60,6 +60,13 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -99,6 +106,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -109,6 +118,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.veritas.reader.AiAssistantOption
 import com.veritas.reader.AnnotationPill
@@ -232,7 +242,9 @@ fun ReaderScreen(
     onEditExtractedSelection: (ReaderTextSelection) -> Unit,
     onPlayQueue: () -> Unit,
     onVoiceSelected: (TtsVoiceOption) -> Unit,
-    onReaderModeChange: (ReaderMode) -> Unit
+    onReaderModeChange: (ReaderMode) -> Unit,
+    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
     val document = state.document
     val currentIndex = state.currentIndex
@@ -273,6 +285,8 @@ fun ReaderScreen(
     // that otherwise leave its keys unchanged (bookmarking, switching reader modes), which
     // previously left the page locked at the top of the section.
     var scrollTick by remember(document.id) { mutableStateOf(0) }
+    var interactionTrigger by remember { mutableStateOf(0L) }
+    KeepScreenAwake(enabled = (state.readerMode == ReaderMode.TEXT), interactionTrigger = interactionTrigger)
 
     val readerModel = remember(document.rawText, document.pageCount, document.chunks.size) {
         ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
@@ -314,7 +328,8 @@ fun ReaderScreen(
 
     Column(modifier = Modifier
         .fillMaxSize()
-        .background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme))) {
+        .background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme))
+        .monitorReadingActivity { interactionTrigger = System.currentTimeMillis() }) {
         Column(
             modifier = Modifier
                 .statusBarsPadding()
@@ -347,9 +362,13 @@ fun ReaderScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                PaddingValues(horizontal = 3.dp, vertical = 2.dp)
                 IconButton(
-                    onClick = { showSearch = !showSearch }
+                    onClick = {
+                        showSearch = !showSearch
+                        if (!showSearch) {
+                            onSearchQueryChange("")
+                        }
+                    }
                 ) { Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface) }
                 IconButton(
                     onClick = onOpenDocumentNotes
@@ -373,7 +392,12 @@ fun ReaderScreen(
                         isQueued = isQueued,
                         queueCount = queueCount,
                         askAiSettings = askAiSettings,
-                        onToggleSearch = { showSearch = !showSearch },
+                        onToggleSearch = {
+                            showSearch = !showSearch
+                            if (!showSearch) {
+                                onSearchQueryChange("")
+                            }
+                        },
                         onToggleBookmarks = { showBookmarks = !showBookmarks },
                         onOpenDocumentNotes = onOpenDocumentNotes,
                         onOpenCanvas = onOpenCanvas,
@@ -445,7 +469,60 @@ fun ReaderScreen(
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
-                    item { Spacer(modifier = Modifier.height(6.dp)) }
+                    item {
+                        val context = LocalContext.current
+                        val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id.orEmpty()) }
+                        val coverBitmap = remember(coverFile) {
+                            coverFile?.takeIf { it.exists() }?.let { file ->
+                                runCatching { android.graphics.BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+                            }
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(120.dp)
+                                    .height(160.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .then(
+                                        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                                            with(sharedTransitionScope) {
+                                                Modifier.sharedElement(
+                                                    sharedContentState = rememberSharedContentState(key = "cover_${document.id}"),
+                                                    animatedVisibilityScope = animatedVisibilityScope
+                                                )
+                                            }
+                                        } else Modifier
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (coverBitmap != null) {
+                                    androidx.compose.foundation.Image(
+                                        bitmap = coverBitmap.asImageBitmap(),
+                                        contentDescription = "Cover",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                } else {
+                                    Text("📖", fontSize = 48.sp)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = document.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
                     item(key = "part-${currentPart?.index ?: 0}") {
                         val part = currentPart
                         if (part == null) {
@@ -728,6 +805,10 @@ fun ReaderScreen(
                         onQueryChange = onSearchQueryChange,
                         onPrevious = onPreviousSearchMatch,
                         onNext = onNextSearchMatch,
+                        onClose = {
+                            showSearch = false
+                            onSearchQueryChange("")
+                        },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(12.dp)
@@ -1640,39 +1721,106 @@ private fun SearchPanel(
     onQueryChange: (String) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
     Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        modifier = modifier
+            .fillMaxWidth()
+            .imePadding(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
-        Column(
+        Row(
             modifier = Modifier
-                .padding(14.dp)
-                .imePadding(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            IconButton(
+                onClick = {
+                    keyboardController?.hide()
+                    onClose()
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close search",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(MaterialTheme.shapes.small)
-                    .background(MaterialTheme.colorScheme.surface),
-                label = { Text("Search in this document") },
-                placeholder = { Text("Find a word, phrase, formula, or name…") },
-                singleLine = true
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+                placeholder = {
+                    Text(
+                        "Search in document...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    disabledBorderColor = Color.Transparent,
+                    errorBorderColor = Color.Transparent,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(24.dp),
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        Text(
+                            text = if (matchCount > 0) "$currentMatch/$matchCount" else "0/0",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                }
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (query.isBlank()) "Type to search sentences" else "$matchCount match${if (matchCount == 1) "" else "es"}${if (matchCount > 0) " • $currentMatch of $matchCount" else ""}",
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedButton(onClick = onPrevious, enabled = matchCount > 0) { Text("Prev") }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = onNext, enabled = matchCount > 0) { Text("Next") }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(
+                    onClick = onPrevious,
+                    enabled = matchCount > 0
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Previous match",
+                        tint = if (matchCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    )
+                }
+
+                IconButton(
+                    onClick = onNext,
+                    enabled = matchCount > 0
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Next match",
+                        tint = if (matchCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    )
+                }
             }
         }
     }

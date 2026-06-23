@@ -56,7 +56,8 @@ fun SettingsHubDialog(
     onOpenPdfTools: () -> Unit,
     onOpenFileBrowser: () -> Unit,
     onOpenSleepTimer: () -> Unit,
-    onOpenReadingLists: () -> Unit
+    onOpenReadingLists: () -> Unit,
+    onOpenUserManual: () -> Unit
 ) {
     val documentCount = uiState.documents.size
     val hasActiveDocument = uiState.activeDocument != null
@@ -99,7 +100,8 @@ fun SettingsHubDialog(
 
 
                 SettingsHubSectionTitle("Appearance")
-                SettingsHubRow("Reader appearance", "Theme packs, colour themes, text size, spacing, section labels", "Aa", onOpenReaderSettings)
+                SettingsHubRow("Display theme", "Theme packs, colour themes, text size, spacing, section labels", "🎨", onOpenReaderSettings)
+                SettingsHubRow("User manual", "Interactive guide to Veritas Reader features & tips", "📖", onOpenUserManual)
                 SettingsHubRow("Tutorial", "Learn Veritas through guided actions", "i", onOpenTutorial)
 
                 SettingsHubSectionTitle("Voice & Audio")
@@ -441,7 +443,8 @@ fun ReaderSettingsDialog(
     onThemeChange: (String) -> Unit,
     onThemePackChange: (String) -> Unit,
     onToggleSectionNumbers: () -> Unit,
-    onToggleAutoPlayQueue: () -> Unit
+    onToggleAutoPlayQueue: () -> Unit,
+    onToggleAdaptiveCover: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -491,6 +494,13 @@ fun ReaderSettingsDialog(
                         Text("Continue into the next queued item.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = settings.autoPlayQueue, onCheckedChange = { onToggleAutoPlayQueue() })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Adaptive cover theme", fontWeight = FontWeight.SemiBold)
+                        Text("Blend active book cover colors into selected theme.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = settings.adaptiveCover, onCheckedChange = { onToggleAdaptiveCover() })
                 }
             }
         }

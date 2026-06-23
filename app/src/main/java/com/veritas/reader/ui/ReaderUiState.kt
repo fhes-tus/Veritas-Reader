@@ -21,7 +21,11 @@ data class ReaderUiState(
     val generalNotes: List<GeneralNote> = emptyList(),
     val showGeneralNotesEditor: Boolean = false,
     val generalNoteEditorTarget: GeneralNote? = null,
+    val noteEditorChecklistOnStart: Boolean = false,
+    val noteEditorReminderOnStart: Boolean = false,
+    val noteEditorImageOnStart: Boolean = false,
     val queuedDocuments: List<SavedDocument> = emptyList(),
+    val flashcards: List<FlashcardProgress> = emptyList(),
     val draftText: String = "",
     val activeDocument: ReaderDocument? = null,
     val deleteTarget: SavedDocument? = null,
@@ -67,6 +71,7 @@ data class ReaderUiState(
     val showBackupTools: Boolean = false,
     val showPdfImportTools: Boolean = false,
     val showSettingsHub: Boolean = false,
+    val showUserManual: Boolean = false,
     val showSyncCenter: Boolean = false,
     val showAiCenter: Boolean = false,
     val showAppHealth: Boolean = false,
@@ -123,5 +128,9 @@ data class ReaderUiState(
     val showUpdateDialog: Boolean = false,
     val updateVersionName: String = "",
     val updateUrl: String = "",
-    val updateChangelog: String = ""
+    val updateChangelog: String = "",
+    val pendingWidgetAction: String? = null,
+    val pendingWidgetDocId: String? = null,
+    val pendingWidgetNoteId: String? = null,
+    val pendingImportOnStart: Boolean = false
 )

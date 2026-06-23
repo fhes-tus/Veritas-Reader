@@ -26,6 +26,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -92,6 +93,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val annotationCount = repository.loadAnnotationCount()
             val fileBrowserRoots = VeritasFileBrowserScanner.persistedRoots(application)
             val generalNotes = repository.loadGeneralNotes()
+            val flashcards = repository.loadAllFlashcards()
             val userName = repository.loadUserName()
             val hasCompletedOnboarding = repository.hasSeenOnboardingTutorial()
             val hasImportedOrOpenedDocument = repository.hasImportedOrOpenedDocument()
@@ -139,6 +141,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     allAnnotations = allAnnotations,
                     documentNotes = documentNotes,
                     documentTitles = documentTitles,
+                    flashcards = flashcards,
                     annotationCount = annotationCount,
                     fileBrowserRoots = fileBrowserRoots,
                     fileBrowserAllFilesGranted = hasAllFilesAccess(),
@@ -645,6 +648,82 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun importFlashcards(documentId: String, cards: List<Flashcard>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadAllFlashcards().toMutableList()
+            cards.forEach { card ->
+                val id = java.util.UUID.randomUUID().toString()
+                existing.add(
+                    FlashcardProgress(
+                        id = id,
+                        documentId = documentId,
+                        front = card.front,
+                        back = card.back,
+                        nextReviewTime = System.currentTimeMillis() // Ready to review immediately
+                    )
+                )
+            }
+            repository.saveAllFlashcards(existing)
+            val updated = repository.loadAllFlashcards()
+            _uiState.update { it.copy(flashcards = updated) }
+        }
+    }
+
+    fun gradeFlashcard(cardId: String, score: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadAllFlashcards().toMutableList()
+            val index = existing.indexOfFirst { it.id == cardId }
+            if (index != -1) {
+                val card = existing[index]
+                val q = when (score) {
+                    1 -> 1 // Again
+                    2 -> 2 // Hard
+                    3 -> 4 // Good
+                    4 -> 5 // Easy
+                    else -> 3
+                }
+
+                val newRepetitions: Int
+                val newIntervalDays: Int
+                var newEaseFactor: Float = card.easeFactor + (0.1f - (5 - q) * (0.08f + (5 - q) * 0.02f))
+                if (newEaseFactor < 1.3f) newEaseFactor = 1.3f
+
+                if (q < 3) {
+                     newRepetitions = 0
+                     newIntervalDays = 1
+                } else {
+                     newRepetitions = card.repetitions + 1
+                     newIntervalDays = when (newRepetitions) {
+                         1 -> 1
+                         2 -> 6
+                         else -> (card.intervalDays * newEaseFactor).roundToInt().coerceAtLeast(1)
+                     }
+                }
+
+                val nextReview = System.currentTimeMillis() + (newIntervalDays * 24L * 60L * 60L * 1000L)
+                val updatedCard = card.copy(
+                    repetitions = newRepetitions,
+                    intervalDays = newIntervalDays,
+                    nextReviewTime = nextReview,
+                    easeFactor = newEaseFactor
+                )
+                existing[index] = updatedCard
+                repository.saveAllFlashcards(existing)
+                val updated = repository.loadAllFlashcards()
+                _uiState.update { it.copy(flashcards = updated) }
+            }
+        }
+    }
+
+    fun deleteFlashcard(cardId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val remaining = repository.loadAllFlashcards().filterNot { it.id == cardId }
+            repository.saveAllFlashcards(remaining)
+            val updated = repository.loadAllFlashcards()
+            _uiState.update { it.copy(flashcards = updated) }
+        }
+    }
+
     fun deleteDocument(document: SavedDocument) {
         viewModelScope.launch(Dispatchers.IO) {
             val docs = repository.deleteDocument(document.id)
@@ -752,16 +831,27 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun removeReadingHistoryEntry(documentId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val history = repository.removeReadingHistoryEntry(documentId)
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(readingHistory = history) }
+            }
+        }
+    }
+
     fun persistProgress(index: Int) {
         val doc = uiState.value.activeDocument ?: return
         val docId = doc.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val docs = repository.updateProgress(docId, index, doc.chunks.size)
-            val tracker = docs.firstOrNull { it.id == docId }
-                ?.let { repository.recordDocumentProgress(it) }
+            val updatedDoc = docs.firstOrNull { it.id == docId }
+            val tracker = updatedDoc?.let { repository.recordDocumentProgress(it) }
                 ?: repository.loadReaderTrackerSnapshot()
+            val history = updatedDoc?.let { repository.addReadingHistory(it, index) }
+                ?: repository.loadReadingHistory()
             withContext(Dispatchers.Main) {
-                _uiState.update { it.copy(documents = docs, readerTrackerSnapshot = tracker) }
+                _uiState.update { it.copy(documents = docs, readerTrackerSnapshot = tracker, readingHistory = history) }
             }
         }
     }
@@ -823,6 +913,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 ?: (if (PlaybackStateStore.activeDocumentId == latestMetadata.id) PlaybackStateStore.currentIndex else latestMetadata.currentIndex)
             repository.markImportedOrOpenedDocument()
             val tracker = repository.recordDocumentRead(latestMetadata.id, latestMetadata.title)
+            val history = repository.addReadingHistory(latestMetadata, targetIndex)
             withContext(Dispatchers.Main) {
                 _uiState.update {
                     it.copy(
@@ -836,6 +927,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         showCanvasView = false,
                         hasImportedOrOpenedDocument = true,
                         readerTrackerSnapshot = tracker,
+                        readingHistory = history,
                         isOpeningDocument = false
                     )
                 }
@@ -2192,7 +2284,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         isChecklist: Boolean = false,
         imageUrl: String? = null,
         audioUrl: String? = null,
-        reminderAt: Long? = null
+        reminderAt: Long? = null,
+        closeEditor: Boolean = true
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.loadGeneralNotes().toMutableList()
@@ -2240,6 +2333,36 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val updated = repository.loadGeneralNotes()
             withContext(Dispatchers.Main) {
                 _uiState.update {
+                    if (closeEditor) {
+                        it.copy(
+                            generalNotes = updated,
+                            showGeneralNotesEditor = false,
+                            generalNoteEditorTarget = null
+                        )
+                    } else {
+                        it.copy(
+                            generalNotes = updated,
+                            generalNoteEditorTarget = savedNote
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun duplicateGeneralNote(note: GeneralNote) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadGeneralNotes().toMutableList()
+            val newNote = note.copy(
+                id = java.util.UUID.randomUUID().toString(),
+                title = if (note.title.endsWith(" (Copy)")) note.title else note.title + " (Copy)",
+                updatedAt = System.currentTimeMillis()
+            )
+            existing.add(0, newNote)
+            repository.saveGeneralNotes(existing)
+            val updated = repository.loadGeneralNotes()
+            withContext(Dispatchers.Main) {
+                _uiState.update {
                     it.copy(
                         generalNotes = updated,
                         showGeneralNotesEditor = false,
@@ -2247,6 +2370,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     )
                 }
             }
+        }
+    }
+
+    fun clearNoteEditorFlags() {
+        _uiState.update {
+            it.copy(
+                noteEditorChecklistOnStart = false,
+                noteEditorReminderOnStart = false,
+                noteEditorImageOnStart = false
+            )
         }
     }
 

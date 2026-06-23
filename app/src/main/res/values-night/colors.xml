@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_frosted_background">#D91E1E2E</color>
+    <color name="widget_border">#20FFFFFF</color>
+    <color name="widget_text_primary">#FFCDD6F4</color>
+    <color name="widget_text_muted">#FFA6ADC8</color>
+    <color name="widget_card_background">#FF313244</color>
+    <color name="widget_background">#FF181825</color>
+    <color name="widget_play_button_accent">#FFFFCCA3</color>
+    <color name="widget_play_icon_color">#FF1E1E2E</color>
+    <color name="widget_primary_accent">#FFB39DDB</color>
+</resources>

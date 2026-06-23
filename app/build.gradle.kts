@@ -46,8 +46,8 @@ android {
         applicationId = "com.veritas.reader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.0.1"
+        versionCode = 26
+        versionName = "1.0.1.1"
 
         ndk {
             abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a"))
@@ -71,6 +71,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("androidx.glance:glance-appwidget:1.1.0")
     implementation(platform("androidx.compose:compose-bom:2026.05.00"))
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
@@ -81,6 +82,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.media3:media3-session:1.10.1")
     implementation("androidx.pdf:pdf-viewer-fragment:1.0.0-alpha18")

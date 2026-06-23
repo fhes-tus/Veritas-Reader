@@ -2,6 +2,11 @@
     <string name="app_name">Veritas Reader</string>
     <string name="widget_player_description">Veritas playback controls</string>
     <string name="widget_cover_description">Veritas current reading cover</string>
+    <string name="widget_quick_note_description">Veritas quick note list</string>
+    <string name="widget_pinned_note_description">Veritas selected pinned note</string>
+    <string name="widget_quick_capture_description">Veritas quick capture actions</string>
+    <string name="widget_reading_progress_description">Veritas reading progress status</string>
+    <string name="widget_study_dashboard_description">Veritas study stats dashboard</string>
     <string name="widget_ready">Ready</string>
     <string name="widget_previous">‹</string>
     <string name="widget_play">▶</string>
