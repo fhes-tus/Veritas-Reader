@@ -689,7 +689,7 @@ fun main() {
                             templates = uiState.aiPromptTemplates,
                             history = uiState.aiPromptHistory,
                             onDismiss = { viewModel.updateState { it.copy(showAiStudyTools = false) } },
-                            onSendToAiApp = { type, customInstruction, scope ->
+                            onSendToAiApp = { type, customInstruction, scope, range ->
                                 val prompt = AiPromptLauncher.buildPrompt(
                                     title = document.title,
                                     chunks = document.chunks,
@@ -700,12 +700,12 @@ fun main() {
                                 )
                                 AiPromptLauncher.launch(
                                     context = application,
-                                    title = document.title,
-                                    chunks = document.chunks,
+                                    document = document,
                                     currentIndex = PlaybackStateStore.currentIndex,
                                     type = type,
                                     customInstruction = customInstruction,
                                     scope = scope,
+                                    customPageRange = range,
                                     settings = uiState.askAiSettings
                                 )
                                 viewModel.recordAiPrompt(document.title, type.label, scope.label, prompt)

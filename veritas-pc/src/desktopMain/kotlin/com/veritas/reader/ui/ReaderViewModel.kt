@@ -1261,9 +1261,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
         val text = uiState.value.noteDraft
         viewModelScope.launch(Dispatchers.IO) {
+            val annots = repository.loadAllAnnotations()
+            val existingGroup = indexes.mapNotNull { idx ->
+                annots.firstOrNull { it.documentId == docId && it.chunkIndex == idx && it.type == AnnotationType.NOTE }?.selectionGroupId
+            }.firstOrNull { !it.isNullOrBlank() }
+            val groupId = existingGroup ?: if (indexes.size >= 2) "note-group-${java.util.UUID.randomUUID()}" else null
+            
             var lastUpdated: List<ReaderAnnotation> = emptyList()
             indexes.forEach { idx ->
-                lastUpdated = repository.upsertAnnotation(docId, idx, AnnotationType.NOTE, text)
+                lastUpdated = repository.upsertAnnotation(docId, idx, AnnotationType.NOTE, text, selectionGroupId = groupId)
             }
             val allAnnotations = repository.loadAllAnnotations()
             val documentNotes = repository.loadAllDocumentNotes()
@@ -1289,10 +1295,23 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             uiState.value.noteTargetIndex?.let(::listOf).orEmpty()
         }
         viewModelScope.launch(Dispatchers.IO) {
-            var lastUpdated: List<ReaderAnnotation> = emptyList()
+            val annots = repository.loadAllAnnotations()
+            val toRemove = mutableSetOf<String>()
             indexes.forEach { idx ->
-                lastUpdated = repository.removeAnnotation(docId, idx, AnnotationType.NOTE)
+                val target = annots.firstOrNull { it.documentId == docId && it.chunkIndex == idx && it.type == AnnotationType.NOTE }
+                if (target != null) {
+                    if (!target.selectionGroupId.isNullOrBlank()) {
+                        val groupKeys = annots.filter { it.documentId == docId && it.selectionGroupId == target.selectionGroupId }.map { it.stableKey }
+                        toRemove.addAll(groupKeys)
+                    } else {
+                        toRemove.add(target.stableKey)
+                    }
+                }
             }
+            if (toRemove.isNotEmpty()) {
+                repository.removeAnnotations(toRemove)
+            }
+            val lastUpdated = repository.loadAnnotations(docId)
             val allAnnotations = repository.loadAllAnnotations()
             val documentNotes = repository.loadAllDocumentNotes()
             withContext(Dispatchers.Main) {

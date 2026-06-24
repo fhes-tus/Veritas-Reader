@@ -161,3 +161,27 @@ fun parseVocabularyNoteContent(content: String): List<VocabularyEntry> {
     }
 }
 
+enum class ShareScope {
+    SELECTED_TEXT,
+    CURRENT_SENTENCE,
+    CURRENT_SECTION,
+    CUSTOM_PAGE_RANGE,
+    ENTIRE_DOCUMENT
+}
+
+fun getBookAndAuthor(title: String): Pair<String, String> {
+    val idx = title.lastIndexOf(" - ")
+    if (idx != -1) {
+        val book = title.substring(0, idx).trim()
+        val author = title.substring(idx + 3).trim()
+        return Pair(book, author)
+    }
+    val idxBy = title.lastIndexOf(" by ", ignoreCase = true)
+    if (idxBy != -1) {
+        val book = title.substring(0, idxBy).trim()
+        val author = title.substring(idxBy + 4).trim()
+        return Pair(book, author)
+    }
+    return Pair(title, "")
+}
+

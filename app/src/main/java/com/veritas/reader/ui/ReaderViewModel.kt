@@ -1301,10 +1301,64 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun addBookmarkGroup(indexes: List<Int>, colorHex: String) {
+        val docId = uiState.value.activeDocument?.id ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val groupId = java.util.UUID.randomUUID().toString()
+            val existing = repository.loadAllAnnotations().toMutableList()
+            val keysToRemove = indexes.map { "$docId:$it:${AnnotationType.BOOKMARK.name}" }.toSet()
+            val filtered = existing.filterNot { it.stableKey in keysToRemove }.toMutableList()
+            
+            indexes.forEach { idx ->
+                filtered.add(
+                    ReaderAnnotation(
+                        documentId = docId,
+                        chunkIndex = idx,
+                        type = AnnotationType.BOOKMARK,
+                        note = "",
+                        createdAt = now,
+                        updatedAt = now,
+                        highlightColor = colorHex,
+                        selectionGroupId = groupId
+                    )
+                )
+            }
+            
+            repository.saveAllAnnotations(filtered)
+            val updated = repository.loadAnnotations(docId)
+            val allAnnotations = repository.loadAllAnnotations()
+            val documentNotes = repository.loadAllDocumentNotes()
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        annotations = updated,
+                        allAnnotations = allAnnotations,
+                        documentNotes = documentNotes,
+                        annotationCount = allAnnotations.size + documentNotes.size
+                    )
+                }
+                completeQuestBookmark()
+            }
+        }
+    }
+
     fun toggleBookmark(index: Int = PlaybackStateStore.currentIndex) {
         val docId = uiState.value.activeDocument?.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = repository.toggleAnnotation(docId, index, AnnotationType.BOOKMARK)
+            val annots = repository.loadAllAnnotations()
+            val target = annots.firstOrNull { it.documentId == docId && it.chunkIndex == index && it.type == AnnotationType.BOOKMARK }
+            val updated = if (target != null) {
+                if (!target.selectionGroupId.isNullOrBlank()) {
+                    val toRemove = annots.filter { it.documentId == docId && it.selectionGroupId == target.selectionGroupId }.map { it.stableKey }.toSet()
+                    repository.removeAnnotations(toRemove)
+                } else {
+                    repository.removeAnnotation(docId, index, AnnotationType.BOOKMARK)
+                }
+                repository.loadAnnotations(docId)
+            } else {
+                repository.upsertAnnotation(docId, index, AnnotationType.BOOKMARK, highlightColor = "#FFE082")
+            }
             val allAnnotations = repository.loadAllAnnotations()
             val documentNotes = repository.loadAllDocumentNotes()
             withContext(Dispatchers.Main) {
@@ -1340,9 +1394,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
         val text = uiState.value.noteDraft
         viewModelScope.launch(Dispatchers.IO) {
+            val annots = repository.loadAllAnnotations()
+            val existingGroup = indexes.mapNotNull { idx ->
+                annots.firstOrNull { it.documentId == docId && it.chunkIndex == idx && it.type == AnnotationType.NOTE }?.selectionGroupId
+            }.firstOrNull { !it.isNullOrBlank() }
+            val groupId = existingGroup ?: if (indexes.size >= 2) "note-group-${java.util.UUID.randomUUID()}" else null
+            
             var lastUpdated: List<ReaderAnnotation> = emptyList()
             indexes.forEach { idx ->
-                lastUpdated = repository.upsertAnnotation(docId, idx, AnnotationType.NOTE, text)
+                lastUpdated = repository.upsertAnnotation(docId, idx, AnnotationType.NOTE, text, selectionGroupId = groupId)
             }
             val allAnnotations = repository.loadAllAnnotations()
             val documentNotes = repository.loadAllDocumentNotes()
@@ -1368,10 +1428,23 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             uiState.value.noteTargetIndex?.let(::listOf).orEmpty()
         }
         viewModelScope.launch(Dispatchers.IO) {
-            var lastUpdated: List<ReaderAnnotation> = emptyList()
+            val annots = repository.loadAllAnnotations()
+            val toRemove = mutableSetOf<String>()
             indexes.forEach { idx ->
-                lastUpdated = repository.removeAnnotation(docId, idx, AnnotationType.NOTE)
+                val target = annots.firstOrNull { it.documentId == docId && it.chunkIndex == idx && it.type == AnnotationType.NOTE }
+                if (target != null) {
+                    if (!target.selectionGroupId.isNullOrBlank()) {
+                        val groupKeys = annots.filter { it.documentId == docId && it.selectionGroupId == target.selectionGroupId }.map { it.stableKey }
+                        toRemove.addAll(groupKeys)
+                    } else {
+                        toRemove.add(target.stableKey)
+                    }
+                }
             }
+            if (toRemove.isNotEmpty()) {
+                repository.removeAnnotations(toRemove)
+            }
+            val lastUpdated = repository.loadAnnotations(docId)
             val allAnnotations = repository.loadAllAnnotations()
             val documentNotes = repository.loadAllDocumentNotes()
             withContext(Dispatchers.Main) {

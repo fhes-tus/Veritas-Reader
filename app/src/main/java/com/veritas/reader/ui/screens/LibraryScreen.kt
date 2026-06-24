@@ -93,6 +93,11 @@ import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.*
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.animation.animateContentSize
+import java.util.UUID
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -257,6 +262,30 @@ fun LibraryScreen(
     var showBatchCollectionDialog by remember { mutableStateOf(false) }
     var batchCollectionDraft by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
+    val repository = remember(context) { DocumentRepository(context) }
+    var loadedDocSentences by remember { mutableStateOf(emptyMap<String, List<String>>()) }
+    val docIdsWithAnnotations = remember(uiState.allAnnotations) {
+        uiState.allAnnotations.map { it.documentId }.toSet()
+    }
+    LaunchedEffect(docIdsWithAnnotations, uiState.documents) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val neededIds = docIdsWithAnnotations.filter { it !in loadedDocSentences }
+            if (neededIds.isNotEmpty()) {
+                val newMap = neededIds.associateWith { docId ->
+                    val docMetadata = uiState.documents.firstOrNull { it.id == docId }
+                    if (docMetadata != null) {
+                        val text = repository.readText(docMetadata)
+                        TextChunker.chunk(text)
+                    } else {
+                        emptyList()
+                    }
+                }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    loadedDocSentences = loadedDocSentences + newMap
+                }
+            }
+        }
+    }
     val libraryPrefs = remember { context.getSharedPreferences("veritas_library_settings", Context.MODE_PRIVATE) }
     var libraryViewMode by remember {
         mutableStateOf(
@@ -411,6 +440,13 @@ fun LibraryScreen(
 
     val bookmarksOnly = remember(filteredAnnotatedDocuments) {
         filteredAnnotatedDocuments.filter { markedDoc -> markedDoc.annotations.any { it.type == AnnotationType.BOOKMARK } }
+    }
+    val allBookmarkGroups = remember(bookmarksOnly, uiState.allAnnotations) {
+        bookmarksOnly.flatMap { markedDocument ->
+            val doc = markedDocument.document
+            val docBookmarks = markedDocument.annotations.filter { it.type == AnnotationType.BOOKMARK }
+            groupBookmarks(doc, docBookmarks)
+        }
     }
     val notesOnly = remember(filteredAnnotatedDocuments) {
         filteredAnnotatedDocuments.filter { markedDoc -> markedDoc.annotations.any { it.type == AnnotationType.NOTE } || markedDoc.documentNote.isNotBlank() }
@@ -1430,26 +1466,20 @@ fun LibraryScreen(
                     } else {
                         bookmarksOnly.forEach { markedDocument ->
                             val doc = markedDocument.document
-                            item(key = "marks-bookmarks-${doc.id}") {
-                                AnnotationDocumentCard(
-                                    document = doc,
-                                    annotations = markedDocument.annotations.filter { it.type == AnnotationType.BOOKMARK },
-                                    documentNote = "",
-                                    selectedKeys = selectedAnnotationKeys,
-                                    selectionMode = annotationSelectionMode,
-                                    onToggleDocumentNoteSelected = {},
-                                    onLongPressDocumentNote = {},
-                                    onToggleSelected = { annotation ->
-                                        selectedAnnotationKeys = if (annotation.stableKey in selectedAnnotationKeys) {
-                                            selectedAnnotationKeys - annotation.stableKey
-                                        } else {
-                                            selectedAnnotationKeys + annotation.stableKey
-                                        }
-                                    },
-                                    onLongPressAnnotation = { annotation -> selectedAnnotationKeys = selectedAnnotationKeys + annotation.stableKey },
-                                    onOpenDocumentNote = {},
-                                    onOpenAt = { index -> onOpenDocumentAt(doc, index) }
-                                )
+                            val docBookmarks = markedDocument.annotations.filter { it.type == AnnotationType.BOOKMARK }
+                            val groups = groupBookmarks(doc, docBookmarks)
+                            if (groups.isNotEmpty()) {
+                                item(key = "marks-bookmarks-${doc.id}") {
+                                    BookmarkDocumentCard(
+                                        document = doc,
+                                        groups = groups,
+                                        sentenceTextLookup = { chunkIndex ->
+                                            loadedDocSentences[doc.id]?.getOrNull(chunkIndex)
+                                        },
+                                        onOpenAt = { index -> onOpenDocumentAt(doc, index) },
+                                        onDeleteAnnotations = onDeleteAnnotations
+                                    )
+                                }
                             }
                         }
                     }
@@ -1495,7 +1525,11 @@ fun LibraryScreen(
                                     },
                                     onLongPressAnnotation = { annotation -> selectedAnnotationKeys = selectedAnnotationKeys + annotation.stableKey },
                                     onOpenDocumentNote = { onOpenDocumentAt(doc, doc.currentIndex.coerceAtLeast(0)) },
-                                    onOpenAt = { index -> onOpenDocumentAt(doc, index) }
+                                    onOpenAt = { index -> onOpenDocumentAt(doc, index) },
+                                    sentenceTextLookup = { chunkIndex ->
+                                        loadedDocSentences[doc.id]?.getOrNull(chunkIndex)
+                                    },
+                                    onDeleteAnnotations = onDeleteAnnotations
                                 )
                             }
                         }
@@ -4179,15 +4213,18 @@ private fun AnnotationDocumentCard(
     onToggleSelected: (ReaderAnnotation) -> Unit,
     onLongPressAnnotation: (ReaderAnnotation) -> Unit,
     onOpenDocumentNote: () -> Unit,
-    onOpenAt: (Int) -> Unit
+    onOpenAt: (Int) -> Unit,
+    sentenceTextLookup: (Int) -> String?,
+    onDeleteAnnotations: (Set<String>) -> Unit
 ) {
     val hasDocumentNote = documentNote.isNotBlank()
     val documentNoteKey = documentNoteStableKey(document.id)
     val selectedDocumentNote = documentNoteKey in selectedKeys
-    val bookmarkAnnotations = remember(annotations) { annotations.filter { it.type == AnnotationType.BOOKMARK } }
     val noteAnnotations = remember(annotations) { annotations.filter { it.type == AnnotationType.NOTE } }
     
     var expanded by rememberSaveable(document.id) { mutableStateOf(false) }
+    var expandedNoteKeys by remember { mutableStateOf(setOf<String>()) }
+    val context = LocalContext.current
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -4208,9 +4245,8 @@ private fun AnnotationDocumentCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val cardIcon = if (bookmarkAnnotations.isNotEmpty()) Icons.Outlined.Bookmark else Icons.Outlined.EditNote
                 Icon(
-                    imageVector = cardIcon,
+                    imageVector = Icons.Outlined.EditNote,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
@@ -4224,7 +4260,7 @@ private fun AnnotationDocumentCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${bookmarkAnnotations.size} bookmark${if (bookmarkAnnotations.size == 1) "" else "s"} • ${noteAnnotations.size + if (hasDocumentNote) 1 else 0} note${if (noteAnnotations.size + (if (hasDocumentNote) 1 else 0) == 1) "" else "s"}",
+                        text = "${noteAnnotations.size + if (hasDocumentNote) 1 else 0} note${if (noteAnnotations.size + (if (hasDocumentNote) 1 else 0) == 1) "" else "s"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -4301,130 +4337,20 @@ private fun AnnotationDocumentCard(
                                 }
                             }
                         }
-                        noteAnnotations.take(10).forEach { annotation ->
-                            val selected = annotation.stableKey in selectedKeys
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .pointerInput(selectionMode, selected, annotation.stableKey) {
-                                        detectTapGestures(
-                                            onLongPress = { onLongPressAnnotation(annotation) },
-                                            onTap = {
-                                                if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex)
-                                            }
-                                        )
-                                    }
-                                    .padding(vertical = 6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(if (selected) Color(0xFFE2F0D9) else Color(0xFFFFF7F0), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (selected) Icons.Filled.Check else Icons.AutoMirrored.Filled.List,
-                                        contentDescription = null,
-                                        tint = if (selected) Color(0xFF137333) else Color(0xFFF2994A),
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                        
+                        val noteGroups = remember(noteAnnotations) { groupNotes(document, noteAnnotations) }
+                        
+                        noteGroups.forEach { noteGroup ->
+                            val keys = noteGroup.annotations.map { it.stableKey }.toSet()
+                            NoteGroupCard(
+                                group = noteGroup,
+                                sentenceTextLookup = sentenceTextLookup,
+                                onOpenAt = onOpenAt,
+                                onDeleteGroup = {
+                                    onDeleteAnnotations(keys)
                                 }
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("Sentence ${annotation.chunkIndex + 1}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                    if (annotation.note.isNotBlank()) {
-                                        Text(annotation.note, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
-                                        .clickable { if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex) }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = if (selectionMode) (if (selected) "Selected" else "Select") else "Open",
-                                        color = MaterialTheme.colorScheme.primary,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                        if (noteAnnotations.size > 10) {
-                            Text("+ ${noteAnnotations.size - 10} more notes", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    if (bookmarkAnnotations.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Bookmarks",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        bookmarkAnnotations.take(10).forEach { annotation ->
-                            val selected = annotation.stableKey in selectedKeys
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .pointerInput(selectionMode, selected, annotation.stableKey) {
-                                        detectTapGestures(
-                                            onLongPress = { onLongPressAnnotation(annotation) },
-                                            onTap = {
-                                                if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex)
-                                            }
-                                        )
-                                    }
-                                    .padding(vertical = 6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(if (selected) Color(0xFFE2F0D9) else Color(0xFFF0F3FF), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (selected) Icons.Filled.Check else Icons.Filled.Star,
-                                        contentDescription = null,
-                                        tint = if (selected) Color(0xFF137333) else Color(0xFF7C6FFF),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("Sentence ${annotation.chunkIndex + 1}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                    if (annotation.note.isNotBlank()) {
-                                        Text(annotation.note, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
-                                        .clickable { if (selectionMode) onToggleSelected(annotation) else onOpenAt(annotation.chunkIndex) }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = if (selectionMode) (if (selected) "Selected" else "Select") else "Open",
-                                        color = MaterialTheme.colorScheme.primary,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                        if (bookmarkAnnotations.size > 10) {
-                            Text("+ ${bookmarkAnnotations.size - 10} more bookmarks", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
                         }
                     }
                 }
@@ -5552,4 +5478,642 @@ private fun FlashcardReviewDialog(
         )
     }
 }
+
+data class BookmarkGroup(
+    val id: String,
+    val document: SavedDocument,
+    val annotations: List<ReaderAnnotation>,
+    val highlightColor: String?,
+    val startSentence: Int,
+    val endSentence: Int
+)
+
+fun groupBookmarks(
+    document: SavedDocument,
+    annotations: List<ReaderAnnotation>
+): List<BookmarkGroup> {
+    val sorted = annotations.sortedBy { it.chunkIndex }
+    val groups = mutableListOf<BookmarkGroup>()
+    
+    val withGroup = sorted.filter { !it.selectionGroupId.isNullOrBlank() }
+    val withoutGroup = sorted.filter { it.selectionGroupId.isNullOrBlank() }
+    
+    val groupedById = withGroup.groupBy { it.selectionGroupId }
+    groupedById.forEach { (groupId, groupAnnots) ->
+        val sortedAnnots = groupAnnots.sortedBy { it.chunkIndex }
+        val start = sortedAnnots.first().chunkIndex
+        val end = sortedAnnots.last().chunkIndex
+        val color = sortedAnnots.first().highlightColor ?: "#FFE082"
+        groups.add(
+            BookmarkGroup(
+                id = groupId ?: UUID.randomUUID().toString(),
+                document = document,
+                annotations = sortedAnnots,
+                highlightColor = color,
+                startSentence = start,
+                endSentence = end
+            )
+        )
+    }
+    
+    if (withoutGroup.isNotEmpty()) {
+        var currentRun = mutableListOf<ReaderAnnotation>()
+        for (ann in withoutGroup) {
+            if (currentRun.isEmpty()) {
+                currentRun.add(ann)
+            } else {
+                val lastAnn = currentRun.last()
+                if (ann.chunkIndex == lastAnn.chunkIndex + 1 && ann.highlightColor == lastAnn.highlightColor) {
+                    currentRun.add(ann)
+                } else {
+                    val start = currentRun.first().chunkIndex
+                    val end = currentRun.last().chunkIndex
+                    val color = currentRun.first().highlightColor ?: "#FFE082"
+                    groups.add(
+                        BookmarkGroup(
+                            id = "legacy-${document.id}-$start-$end",
+                            document = document,
+                            annotations = currentRun,
+                            highlightColor = color,
+                            startSentence = start,
+                            endSentence = end
+                        )
+                    )
+                    currentRun = mutableListOf(ann)
+                }
+            }
+        }
+        if (currentRun.isNotEmpty()) {
+            val start = currentRun.first().chunkIndex
+            val end = currentRun.last().chunkIndex
+            val color = currentRun.first().highlightColor ?: "#FFE082"
+            groups.add(
+                BookmarkGroup(
+                    id = "legacy-${document.id}-$start-$end",
+                    document = document,
+                    annotations = currentRun,
+                    highlightColor = color,
+                    startSentence = start,
+                    endSentence = end
+                )
+            )
+        }
+    }
+    
+    return groups.sortedBy { it.startSentence }
+}
+
+data class NoteGroup(
+    val id: String,
+    val document: SavedDocument,
+    val annotations: List<ReaderAnnotation>,
+    val noteText: String,
+    val highlightColor: String?,
+    val startSentence: Int,
+    val endSentence: Int
+)
+
+fun groupNotes(
+    document: SavedDocument,
+    annotations: List<ReaderAnnotation>
+): List<NoteGroup> {
+    val sorted = annotations.sortedBy { it.chunkIndex }
+    val groups = mutableListOf<NoteGroup>()
+    
+    val withGroup = sorted.filter { !it.selectionGroupId.isNullOrBlank() }
+    val withoutGroup = sorted.filter { it.selectionGroupId.isNullOrBlank() }
+    
+    val groupedById = withGroup.groupBy { it.selectionGroupId }
+    groupedById.forEach { (groupId, groupAnnots) ->
+        val sortedAnnots = groupAnnots.sortedBy { it.chunkIndex }
+        val start = sortedAnnots.first().chunkIndex
+        val end = sortedAnnots.last().chunkIndex
+        val text = sortedAnnots.first().note
+        val color = sortedAnnots.first().highlightColor
+        groups.add(
+            NoteGroup(
+                id = groupId ?: java.util.UUID.randomUUID().toString(),
+                document = document,
+                annotations = sortedAnnots,
+                noteText = text,
+                highlightColor = color,
+                startSentence = start,
+                endSentence = end
+            )
+        )
+    }
+    
+    withoutGroup.forEach { ann ->
+        groups.add(
+            NoteGroup(
+                id = "single-${document.id}-${ann.chunkIndex}",
+                document = document,
+                annotations = listOf(ann),
+                noteText = ann.note,
+                highlightColor = ann.highlightColor,
+                startSentence = ann.chunkIndex,
+                endSentence = ann.chunkIndex
+            )
+        )
+    }
+    
+    return groups.sortedBy { it.startSentence }
+}
+
+@Composable
+private fun BookmarkDocumentCard(
+    document: SavedDocument,
+    groups: List<BookmarkGroup>,
+    sentenceTextLookup: (Int) -> String?,
+    onOpenAt: (Int) -> Unit,
+    onDeleteAnnotations: (Set<String>) -> Unit
+) {
+    var expanded by rememberSaveable(document.id) { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = VeritasPackStyle.cardShape(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Bookmark,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        text = document.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${groups.size} bookmark${if (groups.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (expanded) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(horizontal = 14.dp))
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    groups.forEach { group ->
+                        BookmarkGroupCard(
+                            group = group,
+                            sentenceTextLookup = sentenceTextLookup,
+                            onOpenAt = onOpenAt,
+                            onDeleteGroup = {
+                                onDeleteAnnotations(group.annotations.map { it.stableKey }.toSet())
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookmarkGroupCard(
+    group: BookmarkGroup,
+    sentenceTextLookup: (Int) -> String?,
+    onOpenAt: (Int) -> Unit,
+    onDeleteGroup: () -> Unit
+) {
+    val context = LocalContext.current
+    var expanded by rememberSaveable(group.id) { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    
+    val bookTitle = group.document.title
+    val (cleanTitle, authorName) = remember(bookTitle) { getBookAndAuthor(bookTitle) }
+    
+    val collapsedText = remember(group, sentenceTextLookup) {
+        val firstAnn = group.annotations.firstOrNull()
+        val firstText = firstAnn?.let { sentenceTextLookup(it.chunkIndex) }
+        if (firstText.isNullOrBlank()) {
+            if (group.startSentence == group.endSentence) "Sentence ${group.startSentence + 1}"
+            else "Sentences ${group.startSentence + 1}–${group.endSentence + 1}"
+        } else {
+            if (firstText.length > 60) firstText.take(57) + "..." else firstText
+        }
+    }
+    
+    val highlightColor = remember(group.highlightColor) {
+        runCatching { Color(android.graphics.Color.parseColor(group.highlightColor)) }
+            .getOrDefault(Color(0xFFFFE082))
+    }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .animateContentSize(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(color = highlightColor, shape = CircleShape)
+                )
+                
+                Spacer(modifier = Modifier.width(10.dp))
+                
+                Text(
+                    text = collapsedText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            if (expanded) {
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                val sentencesText = remember(group.annotations, sentenceTextLookup) {
+                    group.annotations.map { ann ->
+                        sentenceTextLookup(ann.chunkIndex) ?: ""
+                    }
+                }
+                
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    group.annotations.forEachIndexed { idx, ann ->
+                        val text = sentencesText.getOrNull(idx)?.ifBlank { null } ?: "Loading sentence text..."
+                        
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(4.dp)
+                                    .height(36.dp)
+                                    .background(color = highlightColor, shape = RoundedCornerShape(2.dp))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(6.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .clickable { onOpenAt(group.startSentence) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Open in document ↗",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = "Actions",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = {
+                                        showMenu = false
+                                        val fullText = sentencesText.joinToString(" ")
+                                        shareBookmarkAsImage(
+                                            context = context,
+                                            bookTitle = cleanTitle,
+                                            authorName = authorName,
+                                            highlightedText = fullText,
+                                            highlightColorHex = group.highlightColor ?: "#FFE082"
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Copy") },
+                                    onClick = {
+                                        showMenu = false
+                                        val fullText = sentencesText.joinToString(" ")
+                                        copyTextToClipboard(context, "Bookmark Text", fullText)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        showMenu = false
+                                        onDeleteGroup()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteGroupCard(
+    group: NoteGroup,
+    sentenceTextLookup: (Int) -> String?,
+    onOpenAt: (Int) -> Unit,
+    onDeleteGroup: () -> Unit
+) {
+    val context = LocalContext.current
+    var expanded by rememberSaveable(group.id) { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    
+    val bookTitle = group.document.title
+    val (cleanTitle, authorName) = remember(bookTitle) { getBookAndAuthor(bookTitle) }
+    
+    val collapsedText = remember(group, sentenceTextLookup) {
+        val firstAnn = group.annotations.firstOrNull()
+        val firstText = firstAnn?.let { sentenceTextLookup(it.chunkIndex) }
+        if (firstText.isNullOrBlank()) {
+            if (group.startSentence == group.endSentence) "Sentence ${group.startSentence + 1}"
+            else "Sentences ${group.startSentence + 1}–${group.endSentence + 1}"
+        } else {
+            if (firstText.length > 60) firstText.take(57) + "..." else firstText
+        }
+    }
+    
+    val highlightColor = remember(group.highlightColor) {
+        runCatching { Color(android.graphics.Color.parseColor(group.highlightColor)) }
+            .getOrDefault(Color(0xFFFFE082))
+    }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .animateContentSize(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(color = highlightColor, shape = CircleShape)
+                )
+                
+                Spacer(modifier = Modifier.width(10.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = collapsedText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (group.noteText.isNotBlank()) {
+                        Text(
+                            text = group.noteText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                
+                Icon(
+                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            if (expanded) {
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                val sentencesText = remember(group.annotations, sentenceTextLookup) {
+                    group.annotations.map { ann ->
+                        sentenceTextLookup(ann.chunkIndex) ?: ""
+                    }
+                }
+                
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    group.annotations.forEachIndexed { idx, ann ->
+                        val text = sentencesText.getOrNull(idx)?.ifBlank { null } ?: "Loading sentence text..."
+                        
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(4.dp)
+                                    .height(36.dp)
+                                    .background(color = highlightColor, shape = RoundedCornerShape(2.dp))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    
+                    if (group.noteText.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.EditNote,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Note",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = group.noteText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(6.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .clickable { onOpenAt(group.startSentence) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Open in document ↗",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = "Actions",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = {
+                                        showMenu = false
+                                        val fullText = sentencesText.joinToString(" ") + "\n\nNote: " + group.noteText
+                                        shareBookmarkAsImage(
+                                            context = context,
+                                            bookTitle = cleanTitle,
+                                            authorName = authorName,
+                                            highlightedText = fullText,
+                                            highlightColorHex = group.highlightColor ?: "#FFE082"
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Copy") },
+                                    onClick = {
+                                        showMenu = false
+                                        val fullText = sentencesText.joinToString(" ") + "\n\nNote: " + group.noteText
+                                        copyTextToClipboard(context, "Note & Context Text", fullText)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        showMenu = false
+                                        onDeleteGroup()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 

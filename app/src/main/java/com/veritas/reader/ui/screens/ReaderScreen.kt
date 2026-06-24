@@ -49,8 +49,11 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -120,6 +123,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import com.veritas.reader.ShareScope
 import com.veritas.reader.AiAssistantOption
 import com.veritas.reader.AnnotationPill
 import com.veritas.reader.AnnotationType
@@ -193,6 +199,7 @@ data class ReaderScreenState(
     val readerMode: ReaderMode
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(
     state: ReaderScreenState,
@@ -243,6 +250,10 @@ fun ReaderScreen(
     onPlayQueue: () -> Unit,
     onVoiceSelected: (TtsVoiceOption) -> Unit,
     onReaderModeChange: (ReaderMode) -> Unit,
+    onAddBookmarkGroup: (List<Int>, String) -> Unit = { _, _ -> },
+    onShareToAi: (ShareScope, ReaderTextSelection?, IntRange?, Boolean) -> Unit = { _, _, _, _ -> },
+    showShareToAi: Boolean = false,
+    onDismissShareToAi: () -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
@@ -281,11 +292,22 @@ fun ReaderScreen(
     var selectedTextSelection by remember(document.id) { mutableStateOf<ReaderTextSelection?>(null) }
     var selectedTextView by remember(document.id) { mutableStateOf<TextView?>(null) }
     var feedbackSentenceIndex by remember(document.id) { mutableStateOf<Int?>(null) }
+    var colorPaletteTargetIndexes by remember { mutableStateOf<List<Int>?>(null) }
+    var showShareToAiSheet by remember { mutableStateOf(false) }
+    var shareToAiSelection by remember { mutableStateOf<ReaderTextSelection?>(null) }
+    var shareToAiNoPrompt by remember { mutableStateOf(false) }
     // Bumped to force the auto-scroll effect to re-anchor the active sentence after events
     // that otherwise leave its keys unchanged (bookmarking, switching reader modes), which
     // previously left the page locked at the top of the section.
     var scrollTick by remember(document.id) { mutableStateOf(0) }
     var interactionTrigger by remember { mutableStateOf(0L) }
+    LaunchedEffect(showShareToAi) {
+        if (showShareToAi) {
+            shareToAiSelection = null
+            shareToAiNoPrompt = true
+            showShareToAiSheet = true
+        }
+    }
     KeepScreenAwake(enabled = (state.readerMode == ReaderMode.TEXT), interactionTrigger = interactionTrigger)
 
     val readerModel = remember(document.rawText, document.pageCount, document.chunks.size) {
@@ -410,6 +432,11 @@ fun ReaderScreen(
                         onOpenReadingLists = onOpenReadingLists,
                         onOpenReadingHistory = onOpenReadingHistory,
                         onAskCurrentSection = onAskCurrentSection,
+                        onOpenAskAi = { noPrompt ->
+                            shareToAiSelection = null
+                            shareToAiNoPrompt = noPrompt
+                            showShareToAiSheet = true
+                        },
                         onSelectAskAiAssistant = onSelectAskAiAssistant,
                         onOpenTextEditor = onOpenTextEditor,
                         onStartRecord = onStartRecord,
@@ -585,10 +612,17 @@ fun ReaderScreen(
                                     activeLineOffset()?.let { listState.animateScrollToItem(partListItemIndex, it) }
                                 }
                             }
-                            val bookmarkedSentenceIndexes = annotations
-                                .filter { it.type == AnnotationType.BOOKMARK }
-                                .map { it.chunkIndex }
-                                .toSet()
+                            val bookmarkedSentenceIndexes = remember(annotations) {
+                                annotations
+                                    .filter { it.type == AnnotationType.BOOKMARK }
+                                    .map { it.chunkIndex }
+                                    .toSet()
+                            }
+                            val bookmarkedSentences = remember(annotations) {
+                                annotations
+                                    .filter { it.type == AnnotationType.BOOKMARK }
+                                    .associate { it.chunkIndex to (it.highlightColor ?: "#FFE082") }
+                            }
                             val bookmarked =
                                 annotations.any { it.type == AnnotationType.BOOKMARK && it.chunkIndex in part.sentenceStartIndex until part.sentenceEndIndexExclusive }
                             val note =
@@ -598,7 +632,7 @@ fun ReaderScreen(
                                 currentIndex,
                                 isPlaying,
                                 feedbackSentenceIndex,
-                                bookmarkedSentenceIndexes,
+                                bookmarkedSentences,
                                 searchMatches,
                                 searchCursor,
                                 activeSentenceColor,
@@ -611,11 +645,11 @@ fun ReaderScreen(
                                     part = part,
                                     activeSentenceIndex = currentIndex,
                                     feedbackSentenceIndex = feedbackSentenceIndex,
-                                    highlightedSentenceIndexes = bookmarkedSentenceIndexes,
+                                    highlightedSentences = bookmarkedSentences,
                                     searchMatches = searchMatches,
                                     searchCursor = searchCursor,
                                     activeSentenceColor = activeSentenceColor,
-                                    highlightColor = highlightColor,
+                                    defaultHighlightColor = highlightColor,
                                     feedbackColor = feedbackColor,
                                     searchMatchColor = searchMatchColor,
                                     activeSearchMatchColor = activeSearchMatchColor
@@ -694,11 +728,19 @@ fun ReaderScreen(
                                                         onToggleBookmark(idx)
                                                         showBookmarks = true
                                                     },
+                                                    onHighlightSelection = { selection ->
+                                                        colorPaletteTargetIndexes = selection.sentenceIndexes
+                                                    },
                                                     onEditNotes = onEditNotes,
                                                     onTranslateSelection = onTranslateSelection,
                                                     onCopySelection = onCopySelection,
                                                     onGoogleSelection = onGoogleSelection,
                                                     onShareSelection = onShareSelection,
+                                                    onShareSelectionToAi = { selection ->
+                                                        shareToAiSelection = selection
+                                                        shareToAiNoPrompt = false
+                                                        showShareToAiSheet = true
+                                                    },
                                                     onEditSpeechSelection = onEditSpeechSelection,
                                                     onEditExtractedSelection = onEditExtractedSelection,
                                                     onAskAiSelection = onAskAiSelection,
@@ -860,7 +902,13 @@ fun ReaderScreen(
             onPrevious = onPrevious,
             onDismiss = { onReaderModeChange(ReaderMode.TEXT) },
             isBookmarked = isBookmarked,
-            onToggleBookmark = { onToggleBookmark(currentIndex) },
+            onToggleBookmark = {
+                if (isBookmarked) {
+                    onToggleBookmark(currentIndex)
+                } else {
+                    colorPaletteTargetIndexes = listOf(currentIndex)
+                }
+            },
             rate = state.rate,
             onRateChange = onRateChange,
             readerMode = state.readerMode,
@@ -885,6 +933,217 @@ fun ReaderScreen(
                 onSentenceClick(index)
             },
             onDismiss = { showOutline = false }
+        )
+    }
+
+    if (colorPaletteTargetIndexes != null) {
+        val colorSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { colorPaletteTargetIndexes = null },
+            sheetState = colorSheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Highlight Passage",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Select a highlight color:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val colors = listOf(
+                        "#FFE082" to "Yellow",
+                        "#A5D6A7" to "Green",
+                        "#90CAF9" to "Blue",
+                        "#F48FB1" to "Pink",
+                        "#B39DDB" to "Purple",
+                        "#FFCC80" to "Orange"
+                    )
+                    colors.forEach { (hex, name) ->
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(Color(android.graphics.Color.parseColor(hex)), CircleShape)
+                                .border(2.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), CircleShape)
+                                .clickable {
+                                    colorPaletteTargetIndexes?.let { indexes ->
+                                        onAddBookmarkGroup(indexes, hex)
+                                    }
+                                    colorPaletteTargetIndexes = null
+                                }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+
+    val currentPage = remember(readerModel.sentences, currentIndex) {
+        readerModel.sentences.getOrNull(currentIndex)?.pageNumber ?: 1
+    }
+
+    if (showShareToAiSheet) {
+        val selectionVal = shareToAiSelection
+        var selectedScope by remember { mutableStateOf<ShareScope>(if (selectionVal != null) ShareScope.SELECTED_TEXT else ShareScope.CURRENT_SECTION) }
+        var startPageStr by remember { mutableStateOf(currentPage.toString()) }
+        var endPageStr by remember { mutableStateOf(currentPage.toString()) }
+        
+        AlertDialog(
+            onDismissRequest = { 
+                showShareToAiSheet = false
+                onDismissShareToAi()
+            },
+            title = {
+                Text(
+                    text = "Ask AI",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Select how much of the document content you'd like to share as a Markdown file (.md):",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    
+                    if (selectionVal != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedScope = ShareScope.SELECTED_TEXT }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = (selectedScope == ShareScope.SELECTED_TEXT),
+                                onClick = { selectedScope = ShareScope.SELECTED_TEXT }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Selected Text (${selectionVal.sentenceIndexes.size} sentences)", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    
+                    val partLabel = currentPart?.let { "Section ${it.index + 1} (Pages ${it.pageRange.startPage}-${it.pageRange.endPage})" } ?: "Current Section"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedScope = ShareScope.CURRENT_SECTION }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        RadioButton(
+                            selected = (selectedScope == ShareScope.CURRENT_SECTION),
+                            onClick = { selectedScope = ShareScope.CURRENT_SECTION }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(partLabel, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedScope = ShareScope.CUSTOM_PAGE_RANGE }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        RadioButton(
+                            selected = (selectedScope == ShareScope.CUSTOM_PAGE_RANGE),
+                            onClick = { selectedScope = ShareScope.CUSTOM_PAGE_RANGE }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Custom Page Range", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    
+                    if (selectedScope == ShareScope.CUSTOM_PAGE_RANGE) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(start = 32.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = startPageStr,
+                                onValueChange = { startPageStr = it.filter { char -> char.isDigit() } },
+                                label = { Text("From") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = endPageStr,
+                                onValueChange = { endPageStr = it.filter { char -> char.isDigit() } },
+                                label = { Text("To") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                    }
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedScope = ShareScope.ENTIRE_DOCUMENT }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        RadioButton(
+                            selected = (selectedScope == ShareScope.ENTIRE_DOCUMENT),
+                            onClick = { selectedScope = ShareScope.ENTIRE_DOCUMENT }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Entire Document (${document.pageCount} pages)", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val start = startPageStr.toIntOrNull() ?: 1
+                        val end = endPageStr.toIntOrNull() ?: 1
+                        val range = if (selectedScope == ShareScope.CUSTOM_PAGE_RANGE) {
+                            val min = minOf(start, end).coerceIn(1, document.pageCount)
+                            val max = maxOf(start, end).coerceIn(1, document.pageCount)
+                            min..max
+                        } else {
+                            null
+                        }
+                        
+                        onShareToAi(selectedScope, shareToAiSelection, range, shareToAiNoPrompt)
+                        showShareToAiSheet = false
+                        onDismissShareToAi()
+                    }
+                ) {
+                    Text("Share", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    showShareToAiSheet = false
+                    onDismissShareToAi()
+                }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -927,6 +1186,7 @@ private fun ReaderToolsMenu(
     onOpenReadingLists: () -> Unit,
     onOpenReadingHistory: () -> Unit,
     onAskCurrentSection: () -> Unit,
+    onOpenAskAi: (Boolean) -> Unit,
     onSelectAskAiAssistant: (AiAssistantOption, String) -> Unit,
     onOpenTextEditor: () -> Unit,
     onStartRecord: () -> Unit,
@@ -1062,13 +1322,26 @@ private fun ReaderToolsMenu(
         }
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.AI_APP_HANDOFF),
+            label = "🤖 Ask AI",
+            onClick = {
+                choose {
+                    onOpenAskAi(false)
+                }
+            }
+        )
+        FeatureDropdownMenuItem(
+            feature = readerFeature(VeritasFeatureId.AI_APP_HANDOFF),
             label = "🆘 AI Ask current part",
             onClick = { choose(onAskCurrentSection) }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.OFFLINE_STUDY_TOOLS),
             label = "🤖 AI Study tools",
-            onClick = { choose(onOpenStudyTools) }
+            onClick = {
+                choose {
+                    onOpenStudyTools()
+                }
+            }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.TRANSLATION_HANDOFF),
@@ -1340,11 +1613,11 @@ private fun buildReaderPartSpannable(
     part: ReaderPart,
     activeSentenceIndex: Int?,
     feedbackSentenceIndex: Int?,
-    highlightedSentenceIndexes: Set<Int>,
+    highlightedSentences: Map<Int, String>,
     searchMatches: List<Int>,
     searchCursor: Int,
     activeSentenceColor: Int,
-    highlightColor: Int,
+    defaultHighlightColor: Int,
     feedbackColor: Int,
     searchMatchColor: Int,
     activeSearchMatchColor: Int
@@ -1369,8 +1642,12 @@ private fun buildReaderPartSpannable(
                 addBackground(range.start, range.endExclusive, searchMatchColor)
             }
         }
-        if (range.sentenceIndex in highlightedSentenceIndexes) {
-            addBackground(range.start, range.endExclusive, highlightColor)
+        val hexColor = highlightedSentences[range.sentenceIndex]
+        if (hexColor != null) {
+            val parsedColor = runCatching { android.graphics.Color.parseColor(hexColor) }
+                .getOrDefault(defaultHighlightColor)
+            val colorWithAlpha = (parsedColor and 0x00FFFFFF) or (0x66 shl 24)
+            addBackground(range.start, range.endExclusive, colorWithAlpha)
         }
         if (range.sentenceIndex == feedbackSentenceIndex) {
             addBackground(range.start, range.endExclusive, feedbackColor)
@@ -1400,11 +1677,13 @@ private fun readerSelectionActionModeCallback(
     onSelectionChanged: (ReaderTextSelection?) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onToggleBookmark: (Int) -> Unit,
+    onHighlightSelection: (ReaderTextSelection) -> Unit,
     onEditNotes: (List<Int>) -> Unit,
     onTranslateSelection: (String) -> Unit,
     onCopySelection: (String) -> Unit,
     onGoogleSelection: (String) -> Unit,
     onShareSelection: (String) -> Unit,
+    onShareSelectionToAi: (ReaderTextSelection) -> Unit,
     onEditSpeechSelection: (String) -> Unit,
     onEditExtractedSelection: (ReaderTextSelection) -> Unit,
     onAskAiSelection: (String) -> Unit,
@@ -1504,16 +1783,7 @@ private fun readerSelectionActionModeCallback(
                 }
 
                 READER_SELECTION_NOTE -> onEditNotes(selection.sentenceIndexes)
-                READER_SELECTION_BOOKMARK -> {
-                    val anyUnbookmarked =
-                        selection.sentenceIndexes.any { it !in bookmarkedSentenceIndexes }
-                    if (anyUnbookmarked) {
-                        selection.sentenceIndexes.filter { it !in bookmarkedSentenceIndexes }
-                            .forEach(onToggleBookmark)
-                    } else {
-                        selection.sentenceIndexes.forEach(onToggleBookmark)
-                    }
-                }
+                READER_SELECTION_BOOKMARK -> onHighlightSelection(selection)
 
                 READER_SELECTION_COPY -> onCopySelection(selection.text)
                 READER_SELECTION_SEARCH -> onSearchQueryChange(selection.text.take(80))
@@ -1522,7 +1792,7 @@ private fun readerSelectionActionModeCallback(
                 READER_SELECTION_EDIT_TEXT -> onEditExtractedSelection(selection)
                 READER_SELECTION_EDIT_SPEECH -> onEditSpeechSelection(selection.text)
                 READER_SELECTION_READ_ALOUD -> onReadSelection(selection.text)
-                READER_SELECTION_ASK_AI -> onAskAiSelection(selection.text)
+                READER_SELECTION_ASK_AI -> onShareSelectionToAi(selection)
                 else -> return false
             }
             finish(mode)

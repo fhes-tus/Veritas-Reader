@@ -1608,27 +1608,13 @@ private fun VeritasReaderApp(
                         onOpenReadingHistory = { viewModel.updateState { it.copy(showReadingHistory = true) } },
                         onAskCurrentSection = {
                             uiState.activeDocument?.let { document ->
-                                AiPromptLauncher.launch(
+                                shareToAi(
                                     context = context,
-                                    title = document.title,
-                                    chunks = document.chunks,
-                                    currentIndex = PlaybackStateStore.currentIndex,
-                                    type = AiPromptType.EXPLAIN_SECTION,
-                                    scope = AiPromptScope.CURRENT_SECTION,
+                                    document = document,
+                                    scope = ShareScope.CURRENT_SECTION,
+                                    selection = null,
+                                    customPageRange = null,
                                     settings = uiState.askAiSettings
-                                )
-                                val prompt = AiPromptLauncher.buildPrompt(
-                                    title = document.title,
-                                    chunks = document.chunks,
-                                    currentIndex = PlaybackStateStore.currentIndex,
-                                    type = AiPromptType.EXPLAIN_SECTION,
-                                    scope = AiPromptScope.CURRENT_SECTION
-                                )
-                                viewModel.recordAiPrompt(
-                                    document.title,
-                                    AiPromptType.EXPLAIN_SECTION.label,
-                                    AiPromptScope.CURRENT_SECTION.label,
-                                    prompt
                                 )
                             }
                         },
@@ -1687,6 +1673,27 @@ private fun VeritasReaderApp(
                                     localeTag = voice.localeTag
                                 )
                             )
+                        },
+                        onAddBookmarkGroup = { indexes, colorHex ->
+                            viewModel.addBookmarkGroup(indexes, colorHex)
+                        },
+                        onShareToAi = { scope, selection, range, noPrompt ->
+                            uiState.activeDocument?.let { doc ->
+                                val mappedSelection = selection?.let {
+                                    ReaderTextSelection(
+                                        partIndex = it.partIndex,
+                                        start = it.start,
+                                        endExclusive = it.endExclusive,
+                                        text = it.text,
+                                        sentenceIndexes = it.sentenceIndexes
+                                    )
+                                }
+                                shareToAi(context, doc, scope, mappedSelection, range, uiState.askAiSettings, noPrompt)
+                            }
+                        },
+                        showShareToAi = false,
+                        onDismissShareToAi = {
+                            viewModel.updateState { it.copy(showAiStudyTools = false) }
                         },
                         onReaderModeChange = { PlaybackStateStore.readerMode = it }
                     )
@@ -2069,7 +2076,7 @@ private fun VeritasReaderApp(
                     templates = uiState.aiPromptTemplates,
                     history = uiState.aiPromptHistory,
                     onDismiss = { viewModel.updateState { it.copy(showAiStudyTools = false) } },
-                    onSendToAiApp = { type, customInstruction, scope ->
+                    onSendToAiApp = { type, customInstruction, scope, range ->
                         val prompt = AiPromptLauncher.buildPrompt(
                             title = document.title,
                             chunks = document.chunks,
@@ -2080,13 +2087,14 @@ private fun VeritasReaderApp(
                         )
                         AiPromptLauncher.launch(
                             context = context,
-                            title = document.title,
-                            chunks = document.chunks,
+                            document = document,
                             currentIndex = PlaybackStateStore.currentIndex,
                             type = type,
                             customInstruction = customInstruction,
                             scope = scope,
-                            settings = uiState.askAiSettings
+                            customPageRange = range,
+                            settings = uiState.askAiSettings,
+                            noPrompt = true
                         )
                         viewModel.recordAiPrompt(document.title, type.label, scope.label, prompt)
                     },
@@ -4878,13 +4886,176 @@ private fun ExportAudioStatusDialog(
 }
 
 @Composable
+private fun ScopeSelector(
+    selectedScope: AiPromptScope,
+    onScopeSelected: (AiPromptScope) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Scope", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AiPromptScope.values().forEach { scope ->
+                val isSelected = selectedScope == scope
+                val label = when (scope) {
+                    AiPromptScope.CURRENT_SENTENCE -> "Sentence"
+                    AiPromptScope.CURRENT_SECTION -> "Section"
+                    AiPromptScope.CUSTOM_PAGE_RANGE -> "Page range"
+                    AiPromptScope.WHOLE_DOCUMENT -> "Whole doc"
+                }
+                if (isSelected) {
+                    Button(
+                        onClick = { onScopeSelected(scope) },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.heightIn(min = 32.dp)
+                    ) {
+                        Text(label, fontSize = 12.sp)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { onScopeSelected(scope) },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.heightIn(min = 32.dp)
+                    ) {
+                        Text(label, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PageRangeInputs(
+    startVal: String,
+    onStartChange: (String) -> Unit,
+    endVal: String,
+    onEndChange: (String) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OutlinedTextField(
+            value = startVal,
+            onValueChange = { onStartChange(it.filter { char -> char.isDigit() }) },
+            label = { Text("From Page", fontSize = 12.sp) },
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium
+        )
+        OutlinedTextField(
+            value = endVal,
+            onValueChange = { onEndChange(it.filter { char -> char.isDigit() }) },
+            label = { Text("To Page", fontSize = 12.sp) },
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+
+@Composable
+private fun TaskExpandableCard(
+    title: String,
+    taskKey: String,
+    expandedTask: String?,
+    onToggleExpand: (String?) -> Unit,
+    prompt: String,
+    onPromptChange: (String) -> Unit,
+    showScopeSelector: Boolean = false,
+    selectedScope: AiPromptScope = AiPromptScope.WHOLE_DOCUMENT,
+    onScopeSelected: (AiPromptScope) -> Unit = {},
+    startPage: String = "",
+    onStartPageChange: (String) -> Unit = {},
+    endPage: String = "",
+    onEndPageChange: (String) -> Unit = {},
+    onSend: () -> Unit
+) {
+    val isExpanded = expandedTask == taskKey
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggleExpand(if (isExpanded) null else taskKey) },
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isExpanded)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+            else
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        border = if (isExpanded) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = if (isExpanded) "▲" else "▼",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+            }
+
+            if (isExpanded) {
+                if (showScopeSelector) {
+                    ScopeSelector(
+                        selectedScope = selectedScope,
+                        onScopeSelected = onScopeSelected
+                    )
+                }
+
+                if (selectedScope == AiPromptScope.CUSTOM_PAGE_RANGE || (!showScopeSelector && taskKey == "long_doc")) {
+                    PageRangeInputs(
+                        startVal = startPage,
+                        onStartChange = onStartPageChange,
+                        endVal = endPage,
+                        onEndChange = onEndPageChange
+                    )
+                }
+
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = onPromptChange,
+                    label = { Text("Custom Prompt (instructions)", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 5,
+                    textStyle = MaterialTheme.typography.bodyMedium
+                )
+
+                Button(
+                    onClick = onSend,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Send to AI App")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AiAppStudyDialog(
     document: ReaderDocument,
     currentIndex: Int,
     templates: List<AiPromptTemplate>,
     history: List<AiPromptHistoryEntry>,
     onDismiss: () -> Unit,
-    onSendToAiApp: (AiPromptType, String, AiPromptScope) -> Unit,
+    onSendToAiApp: (AiPromptType, String, AiPromptScope, IntRange?) -> Unit,
     onSaveTemplate: (String, String) -> Unit,
     onDeleteTemplate: (String) -> Unit,
     onClearHistory: () -> Unit,
@@ -4896,6 +5067,36 @@ private fun AiAppStudyDialog(
     var templateTitle by remember { mutableStateOf("Custom study prompt") }
     var aiResultDraft by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Tasks") }
+
+    val expandedTask = remember { mutableStateOf<String?>(null) }
+
+    val summarizeWholeDocPrompt = remember { mutableStateOf("Summarize the whole document clearly. Give a short overview first, then the main points, then any important conclusions or action items.") }
+    val longDocSummaryPrompt = remember { mutableStateOf("This is part of a long-document workflow. Summarize this section or page range only, give 3-6 key points, define difficult terms, and end with a short note saying what the user should send next.") }
+    val extractKeypointsPrompt = remember { mutableStateOf("Extract the key points from this document. Group related ideas together and keep the wording clear for revision.") }
+    val explainSentencePrompt = remember { mutableStateOf("Explain the current section in simple language. Identify the main idea, difficult terms, and why the section matters in the document.") }
+    val studyNotesPrompt = remember { mutableStateOf("Turn this document into organized study notes. Use headings, bullet points, definitions, examples, likely exam areas, and a short final revision checklist.") }
+    val simplifyPrompt = remember { mutableStateOf("Rewrite and explain the document in simpler language without removing important meaning. Define difficult words and give short examples where useful.") }
+    val quizPrompt = remember { mutableStateOf("Create an exam-style revision quiz from this document. Include multiple choice questions, short answer questions, and answers with explanations.") }
+    val flashcardsPrompt = remember { mutableStateOf("Create flashcards from this document. Use a question on the front and a concise answer on the back. Focus on definitions, processes, comparisons, and important facts.") }
+
+    val extractKeypointsScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
+    val studyNotesScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
+    val simplifyScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
+    val quizScope = remember { mutableStateOf(AiPromptScope.CUSTOM_PAGE_RANGE) }
+    val flashcardsScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
+
+    val longDocStartPage = remember { mutableStateOf("") }
+    val longDocEndPage = remember { mutableStateOf("") }
+    val extractKeypointsStartPage = remember { mutableStateOf("") }
+    val extractKeypointsEndPage = remember { mutableStateOf("") }
+    val studyNotesStartPage = remember { mutableStateOf("") }
+    val studyNotesEndPage = remember { mutableStateOf("") }
+    val simplifyStartPage = remember { mutableStateOf("") }
+    val simplifyEndPage = remember { mutableStateOf("") }
+    val quizStartPage = remember { mutableStateOf("") }
+    val quizEndPage = remember { mutableStateOf("") }
+    val flashcardsStartPage = remember { mutableStateOf("") }
+    val flashcardsEndPage = remember { mutableStateOf("") }
     val safeIndex =
         if (document.chunks.isEmpty()) 0 else currentIndex.coerceIn(0, document.chunks.lastIndex)
     val estimatedTextLength = document.chunks.sumOf { it.length }
@@ -4953,104 +5154,209 @@ private fun AiAppStudyDialog(
 
                 when (selectedTab) {
                     "Tasks" -> {
-                        Button(
-                            onClick = {
+                        TaskExpandableCard(
+                            title = "Summarize whole document",
+                            taskKey = "summarize_whole_doc",
+                            expandedTask = expandedTask.value,
+                            onToggleExpand = { expandedTask.value = it },
+                            prompt = summarizeWholeDocPrompt.value,
+                            onPromptChange = { summarizeWholeDocPrompt.value = it },
+                            onSend = {
                                 onSendToAiApp(
                                     AiPromptType.SUMMARY,
-                                    "",
-                                    AiPromptScope.CURRENT_SECTION
+                                    summarizeWholeDocPrompt.value,
+                                    AiPromptScope.WHOLE_DOCUMENT,
+                                    null
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Summarize current sentence") }
+                            }
+                        )
 
-                        OutlinedButton(
-                            onClick = {
-                                onSendToAiApp(
-                                    AiPromptType.SUMMARY,
-                                    "",
-                                    AiPromptScope.WHOLE_DOCUMENT
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Summarize whole document") }
-
-                        OutlinedButton(
-                            onClick = {
+                        TaskExpandableCard(
+                            title = "Long document: page-to-page summary",
+                            taskKey = "long_doc",
+                            expandedTask = expandedTask.value,
+                            onToggleExpand = { expandedTask.value = it },
+                            prompt = longDocSummaryPrompt.value,
+                            onPromptChange = { longDocSummaryPrompt.value = it },
+                            startPage = longDocStartPage.value,
+                            onStartPageChange = { longDocStartPage.value = it },
+                            endPage = longDocEndPage.value,
+                            onEndPageChange = { longDocEndPage.value = it },
+                            onSend = {
+                                val start = longDocStartPage.value.toIntOrNull() ?: 1
+                                val end = longDocEndPage.value.toIntOrNull() ?: 1
+                                val min = minOf(start, end).coerceIn(1, document.pageCount)
+                                val max = maxOf(start, end).coerceIn(1, document.pageCount)
                                 onSendToAiApp(
                                     AiPromptType.SECTION_BY_SECTION,
-                                    "",
-                                    AiPromptScope.CURRENT_SECTION
+                                    longDocSummaryPrompt.value,
+                                    AiPromptScope.CUSTOM_PAGE_RANGE,
+                                    min..max
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Long document: summarize this sentence") }
+                            }
+                        )
 
-                        OutlinedButton(
-                            onClick = {
+                        TaskExpandableCard(
+                            title = "Extract key points",
+                            taskKey = "extract_keypoints",
+                            expandedTask = expandedTask.value,
+                            onToggleExpand = { expandedTask.value = it },
+                            prompt = extractKeypointsPrompt.value,
+                            onPromptChange = { extractKeypointsPrompt.value = it },
+                            showScopeSelector = true,
+                            selectedScope = extractKeypointsScope.value,
+                            onScopeSelected = { extractKeypointsScope.value = it },
+                            startPage = extractKeypointsStartPage.value,
+                            onStartPageChange = { extractKeypointsStartPage.value = it },
+                            endPage = extractKeypointsEndPage.value,
+                            onEndPageChange = { extractKeypointsEndPage.value = it },
+                            onSend = {
+                                val range = if (extractKeypointsScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                    val start = extractKeypointsStartPage.value.toIntOrNull() ?: 1
+                                    val end = extractKeypointsEndPage.value.toIntOrNull() ?: 1
+                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
+                                } else null
                                 onSendToAiApp(
                                     AiPromptType.KEY_POINTS,
-                                    "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    extractKeypointsPrompt.value,
+                                    extractKeypointsScope.value,
+                                    range
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Extract key points") }
+                            }
+                        )
 
-                        OutlinedButton(
-                            onClick = {
+                        TaskExpandableCard(
+                            title = "Explain current sentence",
+                            taskKey = "explain_sentence",
+                            expandedTask = expandedTask.value,
+                            onToggleExpand = { expandedTask.value = it },
+                            prompt = explainSentencePrompt.value,
+                            onPromptChange = { explainSentencePrompt.value = it },
+                            onSend = {
                                 onSendToAiApp(
                                     AiPromptType.EXPLAIN_SECTION,
-                                    "",
-                                    AiPromptScope.CURRENT_SECTION
+                                    explainSentencePrompt.value,
+                                    AiPromptScope.CURRENT_SENTENCE,
+                                    null
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Explain current sentence") }
+                            }
+                        )
 
-                        OutlinedButton(
-                            onClick = {
+                        TaskExpandableCard(
+                            title = "Create study notes",
+                            taskKey = "study_notes",
+                            expandedTask = expandedTask.value,
+                            onToggleExpand = { expandedTask.value = it },
+                            prompt = studyNotesPrompt.value,
+                            onPromptChange = { studyNotesPrompt.value = it },
+                            showScopeSelector = true,
+                            selectedScope = studyNotesScope.value,
+                            onScopeSelected = { studyNotesScope.value = it },
+                            startPage = studyNotesStartPage.value,
+                            onStartPageChange = { studyNotesStartPage.value = it },
+                            endPage = studyNotesEndPage.value,
+                            onEndPageChange = { studyNotesEndPage.value = it },
+                            onSend = {
+                                val range = if (studyNotesScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                    val start = studyNotesStartPage.value.toIntOrNull() ?: 1
+                                    val end = studyNotesEndPage.value.toIntOrNull() ?: 1
+                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
+                                } else null
                                 onSendToAiApp(
                                     AiPromptType.STUDY_NOTES,
-                                    "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    studyNotesPrompt.value,
+                                    studyNotesScope.value,
+                                    range
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Create study notes") }
+                            }
+                        )
 
-                        OutlinedButton(
-                            onClick = {
+                        TaskExpandableCard(
+                            title = "Simplify difficult text",
+                            taskKey = "simplify_text",
+                            expandedTask = expandedTask.value,
+                            onToggleExpand = { expandedTask.value = it },
+                            prompt = simplifyPrompt.value,
+                            onPromptChange = { simplifyPrompt.value = it },
+                            showScopeSelector = true,
+                            selectedScope = simplifyScope.value,
+                            onScopeSelected = { simplifyScope.value = it },
+                            startPage = simplifyStartPage.value,
+                            onStartPageChange = { simplifyStartPage.value = it },
+                            endPage = simplifyEndPage.value,
+                            onEndPageChange = { simplifyEndPage.value = it },
+                            onSend = {
+                                val range = if (simplifyScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                    val start = simplifyStartPage.value.toIntOrNull() ?: 1
+                                    val end = simplifyEndPage.value.toIntOrNull() ?: 1
+                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
+                                } else null
                                 onSendToAiApp(
                                     AiPromptType.SIMPLIFY,
-                                    "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    simplifyPrompt.value,
+                                    simplifyScope.value,
+                                    range
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Simplify difficult text") }
+                            }
+                        )
 
-                        OutlinedButton(
-                            onClick = {
+                        TaskExpandableCard(
+                            title = "Create page-to-page quiz",
+                            taskKey = "quiz",
+                            expandedTask = expandedTask.value,
+                            onToggleExpand = { expandedTask.value = it },
+                            prompt = quizPrompt.value,
+                            onPromptChange = { quizPrompt.value = it },
+                            showScopeSelector = true,
+                            selectedScope = quizScope.value,
+                            onScopeSelected = { quizScope.value = it },
+                            startPage = quizStartPage.value,
+                            onStartPageChange = { quizStartPage.value = it },
+                            endPage = quizEndPage.value,
+                            onEndPageChange = { quizEndPage.value = it },
+                            onSend = {
+                                val range = if (quizScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                    val start = quizStartPage.value.toIntOrNull() ?: 1
+                                    val end = quizEndPage.value.toIntOrNull() ?: 1
+                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
+                                } else null
                                 onSendToAiApp(
                                     AiPromptType.QUIZ,
-                                    "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    quizPrompt.value,
+                                    quizScope.value,
+                                    range
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Create revision quiz") }
+                            }
+                        )
 
-                        OutlinedButton(
-                            onClick = {
+                        TaskExpandableCard(
+                            title = "Create flashcards",
+                            taskKey = "flashcards",
+                            expandedTask = expandedTask.value,
+                            onToggleExpand = { expandedTask.value = it },
+                            prompt = flashcardsPrompt.value,
+                            onPromptChange = { flashcardsPrompt.value = it },
+                            showScopeSelector = true,
+                            selectedScope = flashcardsScope.value,
+                            onScopeSelected = { flashcardsScope.value = it },
+                            startPage = flashcardsStartPage.value,
+                            onStartPageChange = { flashcardsStartPage.value = it },
+                            endPage = flashcardsEndPage.value,
+                            onEndPageChange = { flashcardsEndPage.value = it },
+                            onSend = {
+                                val range = if (flashcardsScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                    val start = flashcardsStartPage.value.toIntOrNull() ?: 1
+                                    val end = flashcardsEndPage.value.toIntOrNull() ?: 1
+                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
+                                } else null
                                 onSendToAiApp(
                                     AiPromptType.FLASHCARDS,
-                                    "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    flashcardsPrompt.value,
+                                    flashcardsScope.value,
+                                    range
                                 )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Create flashcards") }
+                            }
+                        )
 
                         TextButton(
                             onClick = onOpenOfflineStudyTools,
@@ -5086,7 +5392,8 @@ private fun AiAppStudyDialog(
                                     onSendToAiApp(
                                         AiPromptType.CUSTOM,
                                         customPrompt,
-                                        AiPromptScope.WHOLE_DOCUMENT
+                                        AiPromptScope.WHOLE_DOCUMENT,
+                                        null
                                     )
                                 },
                                 enabled = customPrompt.isNotBlank(),
@@ -5126,7 +5433,8 @@ private fun AiAppStudyDialog(
                                                 onSendToAiApp(
                                                     AiPromptType.CUSTOM,
                                                     template.instruction,
-                                                    AiPromptScope.WHOLE_DOCUMENT
+                                                    AiPromptScope.WHOLE_DOCUMENT,
+                                                    null
                                                 )
                                             }) { Text("Use") }
                                             TextButton(onClick = {

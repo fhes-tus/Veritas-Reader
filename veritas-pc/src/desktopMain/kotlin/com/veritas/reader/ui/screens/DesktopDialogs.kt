@@ -1298,7 +1298,7 @@ fun AiAppStudyDialog(
     templates: List<AiPromptTemplate>,
     history: List<AiPromptHistoryEntry>,
     onDismiss: () -> Unit,
-    onSendToAiApp: (AiPromptType, String, AiPromptScope) -> Unit,
+    onSendToAiApp: (AiPromptType, String, AiPromptScope, IntRange?) -> Unit,
     onSaveTemplate: (String, String) -> Unit,
     onDeleteTemplate: (String) -> Unit,
     onClearHistory: () -> Unit,
@@ -1310,6 +1310,12 @@ fun AiAppStudyDialog(
     var templateTitle by remember { mutableStateOf("Custom study prompt") }
     var aiResultDraft by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Tasks") }
+    var showLongDocPageRange by remember { mutableStateOf(false) }
+    var longDocStartPage by remember { mutableStateOf("") }
+    var longDocEndPage by remember { mutableStateOf("") }
+    var showQuizPageRange by remember { mutableStateOf(false) }
+    var quizStartPage by remember { mutableStateOf("") }
+    var quizEndPage by remember { mutableStateOf("") }
     val safeIndex =
         if (document.chunks.isEmpty()) 0 else currentIndex.coerceIn(0, document.chunks.lastIndex)
     val estimatedTextLength = document.chunks.sumOf { it.length }
@@ -1372,7 +1378,8 @@ fun AiAppStudyDialog(
                                 onSendToAiApp(
                                     AiPromptType.SUMMARY,
                                     "",
-                                    AiPromptScope.CURRENT_SECTION
+                                    AiPromptScope.CURRENT_SECTION,
+                                    null
                                 )
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1383,7 +1390,8 @@ fun AiAppStudyDialog(
                                 onSendToAiApp(
                                     AiPromptType.SUMMARY,
                                     "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    AiPromptScope.WHOLE_DOCUMENT,
+                                    null
                                 )
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1391,21 +1399,64 @@ fun AiAppStudyDialog(
 
                         OutlinedButton(
                             onClick = {
-                                onSendToAiApp(
-                                    AiPromptType.SECTION_BY_SECTION,
-                                    "",
-                                    AiPromptScope.CURRENT_SECTION
-                                )
+                                showLongDocPageRange = !showLongDocPageRange
                             },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Long document: summarize this sentence") }
+                        ) { Text("Long document: page-to-page summary") }
+
+                        if (showLongDocPageRange) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = longDocStartPage,
+                                        onValueChange = { longDocStartPage = it.filter { char -> char.isDigit() } },
+                                        label = { Text("From") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = longDocEndPage,
+                                        onValueChange = { longDocEndPage = it.filter { char -> char.isDigit() } },
+                                        label = { Text("To") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        val start = longDocStartPage.toIntOrNull() ?: 1
+                                        val end = longDocEndPage.toIntOrNull() ?: 1
+                                        val min = minOf(start, end).coerceIn(1, document.pageCount)
+                                        val max = maxOf(start, end).coerceIn(1, document.pageCount)
+                                        onSendToAiApp(
+                                            AiPromptType.SECTION_BY_SECTION,
+                                            "",
+                                            AiPromptScope.CUSTOM_PAGE_RANGE,
+                                            min..max
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Send Pages ${longDocStartPage.ifBlank { "1" }}-${longDocEndPage.ifBlank { document.pageCount.toString() }} to AI")
+                                }
+                            }
+                        }
 
                         OutlinedButton(
                             onClick = {
                                 onSendToAiApp(
                                     AiPromptType.KEY_POINTS,
                                     "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    AiPromptScope.WHOLE_DOCUMENT,
+                                    null
                                 )
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1416,7 +1467,8 @@ fun AiAppStudyDialog(
                                 onSendToAiApp(
                                     AiPromptType.EXPLAIN_SECTION,
                                     "",
-                                    AiPromptScope.CURRENT_SECTION
+                                    AiPromptScope.CURRENT_SECTION,
+                                    null
                                 )
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1427,7 +1479,8 @@ fun AiAppStudyDialog(
                                 onSendToAiApp(
                                     AiPromptType.STUDY_NOTES,
                                     "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    AiPromptScope.WHOLE_DOCUMENT,
+                                    null
                                 )
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1438,7 +1491,8 @@ fun AiAppStudyDialog(
                                 onSendToAiApp(
                                     AiPromptType.SIMPLIFY,
                                     "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    AiPromptScope.WHOLE_DOCUMENT,
+                                    null
                                 )
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1446,21 +1500,64 @@ fun AiAppStudyDialog(
 
                         OutlinedButton(
                             onClick = {
-                                onSendToAiApp(
-                                    AiPromptType.QUIZ,
-                                    "",
-                                    AiPromptScope.WHOLE_DOCUMENT
-                                )
+                                showQuizPageRange = !showQuizPageRange
                             },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Create revision quiz") }
+                        ) { Text("Create page-to-page quiz") }
+
+                        if (showQuizPageRange) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = quizStartPage,
+                                        onValueChange = { quizStartPage = it.filter { char -> char.isDigit() } },
+                                        label = { Text("From") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = quizEndPage,
+                                        onValueChange = { quizEndPage = it.filter { char -> char.isDigit() } },
+                                        label = { Text("To") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        val start = quizStartPage.toIntOrNull() ?: 1
+                                        val end = quizEndPage.toIntOrNull() ?: 1
+                                        val min = minOf(start, end).coerceIn(1, document.pageCount)
+                                        val max = maxOf(start, end).coerceIn(1, document.pageCount)
+                                        onSendToAiApp(
+                                            AiPromptType.QUIZ,
+                                            "",
+                                            AiPromptScope.CUSTOM_PAGE_RANGE,
+                                            min..max
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Generate Quiz for Pages ${quizStartPage.ifBlank { "1" }}-${quizEndPage.ifBlank { document.pageCount.toString() }}")
+                                }
+                            }
+                        }
 
                         OutlinedButton(
                             onClick = {
                                 onSendToAiApp(
                                     AiPromptType.FLASHCARDS,
                                     "",
-                                    AiPromptScope.WHOLE_DOCUMENT
+                                    AiPromptScope.WHOLE_DOCUMENT,
+                                    null
                                 )
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -1500,7 +1597,8 @@ fun AiAppStudyDialog(
                                     onSendToAiApp(
                                         AiPromptType.CUSTOM,
                                         customPrompt,
-                                        AiPromptScope.WHOLE_DOCUMENT
+                                        AiPromptScope.WHOLE_DOCUMENT,
+                                        null
                                     )
                                 },
                                 enabled = customPrompt.isNotBlank(),
@@ -1540,7 +1638,8 @@ fun AiAppStudyDialog(
                                                 onSendToAiApp(
                                                     AiPromptType.CUSTOM,
                                                     template.instruction,
-                                                    AiPromptScope.WHOLE_DOCUMENT
+                                                    AiPromptScope.WHOLE_DOCUMENT,
+                                                    null
                                                 )
                                             }) { Text("Use") }
                                             TextButton(onClick = {

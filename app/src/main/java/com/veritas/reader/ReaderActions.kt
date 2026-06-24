@@ -14,6 +14,19 @@ import androidx.core.net.toUri
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.LinearGradient
+import android.graphics.Shader
+import android.graphics.Typeface
+import android.text.TextPaint
+import android.text.StaticLayout
+import android.text.Layout
+import android.text.TextUtils
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.FileOutputStream
 
 fun sendPlaybackIntent(
     context: Context,
@@ -257,4 +270,368 @@ fun buildDocumentNotesExport(
             }
         }
     }.trim()
+}
+
+fun shareBookmarkAsImage(
+    context: Context,
+    bookTitle: String,
+    authorName: String,
+    highlightedText: String,
+    highlightColorHex: String
+) {
+    val width = 1080
+    val height = 1350
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    
+    val paint = Paint()
+    val bgGrad = LinearGradient(
+        0f, 0f, 0f, height.toFloat(),
+        intArrayOf(0xFFF9FBFC.toInt(), 0xFFE9EDF5.toInt()),
+        null,
+        Shader.TileMode.CLAMP
+    )
+    paint.shader = bgGrad
+    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+    paint.shader = null
+    
+    val textPaint = TextPaint().apply {
+        color = 0xFF1E293B.toInt()
+        textSize = 42f
+        isAntiAlias = true
+        typeface = Typeface.create("serif", Typeface.NORMAL)
+    }
+    
+    val textPaddingLeft = 110f
+    val textWidth = width - textPaddingLeft - 100f
+    
+    var currentTextSize = 42f
+    var staticLayout: StaticLayout
+    var textHeight: Float
+    do {
+        textPaint.textSize = currentTextSize
+        staticLayout = StaticLayout.Builder.obtain(
+            highlightedText,
+            0,
+            highlightedText.length,
+            textPaint,
+            textWidth.toInt()
+        )
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setLineSpacing(10f, 1.2f)
+            .build()
+        textHeight = staticLayout.height.toFloat()
+        
+        if (textHeight <= 700f || currentTextSize <= 26f) {
+            break
+        }
+        currentTextSize -= 2f
+    } while (currentTextSize >= 26f)
+
+    if (textHeight > 700f) {
+        val maxLines = (700f / (currentTextSize * 1.2f + 10f)).toInt()
+        staticLayout = StaticLayout.Builder.obtain(
+            highlightedText,
+            0,
+            highlightedText.length,
+            textPaint,
+            textWidth.toInt()
+        )
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setLineSpacing(10f, 1.2f)
+            .setMaxLines(maxLines)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .build()
+        textHeight = staticLayout.height.toFloat()
+    }
+
+    val startY = if (textHeight < 700f) 300f + (700f - textHeight) / 2f else 300f
+
+    val quoteColor = runCatching { android.graphics.Color.parseColor(highlightColorHex) }.getOrDefault(0xFFFFE082.toInt())
+    val quoteScale = currentTextSize / 42f
+    val quotePaint = Paint().apply {
+        color = quoteColor
+        alpha = 70
+        textSize = 250f * quoteScale
+        typeface = Typeface.create("serif", Typeface.BOLD)
+        isAntiAlias = true
+    }
+    canvas.drawText("“", 80f, startY - 20f * quoteScale, quotePaint)
+    
+    val accentPaint = Paint().apply {
+        color = quoteColor
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    canvas.drawRoundRect(60f, startY, 75f, startY + textHeight, 8f, 8f, accentPaint)
+        
+    canvas.save()
+    canvas.translate(textPaddingLeft, startY)
+    staticLayout.draw(canvas)
+    canvas.restore()
+    
+    val linePaint = Paint().apply {
+        color = 0xFFCBD5E1.toInt()
+        strokeWidth = 2f
+        style = Paint.Style.STROKE
+    }
+    canvas.drawLine(100f, 1050f, width - 100f, 1050f, linePaint)
+    
+    val bookTitlePaint = TextPaint().apply {
+        color = 0xFF0F172A.toInt()
+        textSize = 36f
+        isAntiAlias = true
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+    }
+    
+    val authorPaint = TextPaint().apply {
+        color = 0xFF475569.toInt()
+        textSize = 32f
+        isAntiAlias = true
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.ITALIC)
+    }
+    
+    val brandingPaint = TextPaint().apply {
+        color = 0xFF94A3B8.toInt()
+        textSize = 28f
+        isAntiAlias = true
+        textAlign = Paint.Align.RIGHT
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+    }
+    
+    val bookTitleClean = if (bookTitle.length > 50) bookTitle.take(47) + "..." else bookTitle
+    val hasAuthor = authorName.isNotBlank() && authorName != "Veritas Reader"
+    if (hasAuthor) {
+        canvas.drawText(bookTitleClean, 100f, 1120f, bookTitlePaint)
+        canvas.drawText("by $authorName", 100f, 1170f, authorPaint)
+    } else {
+        canvas.drawText(bookTitleClean, 100f, 1150f, bookTitlePaint)
+    }
+    canvas.drawText("Shared via Veritas Reader", width - 100f, 1220f, brandingPaint)
+    
+    val dotPaint = Paint().apply {
+        color = quoteColor
+        isAntiAlias = true
+        style = Paint.Style.FILL
+    }
+    if (hasAuthor) {
+        canvas.drawCircle(80f, 1108f, 10f, dotPaint)
+    } else {
+        canvas.drawCircle(80f, 1138f, 10f, dotPaint)
+    }
+    
+    val shareDir = File(context.cacheDir, "shares").apply { mkdirs() }
+    val shareFile = File(shareDir, "Veritas_Highlight_${System.currentTimeMillis()}.png")
+    try {
+        FileOutputStream(shareFile).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFile)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Share Highlight Card"))
+    } catch (e: Exception) {
+        android.util.Log.e("ReaderActions", "Error saving highlight image: ${e.message}", e)
+        sharePlainText(context, bookTitle, "\"$highlightedText\" — $bookTitle by $authorName")
+    }
+}
+
+fun shareNoteText(context: Context, noteText: String) {
+    val pm = context.packageManager
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, noteText)
+    }
+    
+    val resolveInfos = pm.queryIntentActivities(sendIntent, 0)
+    val targetIntents = mutableListOf<Intent>()
+    val noteKeywords = listOf("note", "keep", "memo", "journal", "evernote", "onenote", "notion")
+    
+    for (info in resolveInfos) {
+        val packageName = info.activityInfo.packageName
+        val label = info.loadLabel(pm).toString()
+        if (noteKeywords.any { packageName.contains(it, ignoreCase = true) || label.contains(it, ignoreCase = true) }) {
+            val intent = Intent(sendIntent).apply {
+                setPackage(packageName)
+                setClassName(packageName, info.activityInfo.name)
+            }
+            targetIntents.add(intent)
+        }
+    }
+    
+    val chooserIntent = Intent.createChooser(sendIntent, "Share note via...").apply {
+        if (targetIntents.isNotEmpty()) {
+            putExtra(Intent.EXTRA_INITIAL_INTENTS, targetIntents.toTypedArray())
+        }
+    }
+    context.startActivity(chooserIntent)
+}
+
+fun shareToAi(
+    context: Context,
+    document: ReaderDocument,
+    scope: ShareScope,
+    selection: ReaderTextSelection?,
+    customPageRange: IntRange?,
+    settings: AskAiSettings? = null,
+    noPrompt: Boolean = false
+) {
+    val model = ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
+    
+    val selectedSentences = when (scope) {
+        ShareScope.SELECTED_TEXT -> {
+            if (selection == null) return
+            model.sentences.filter { it.index in selection.sentenceIndexes }
+        }
+        ShareScope.CURRENT_SENTENCE -> {
+            val currentIndex = PlaybackStateStore.currentIndex
+            if (currentIndex in model.sentences.indices) {
+                listOf(model.sentences[currentIndex])
+            } else {
+                emptyList()
+            }
+        }
+        ShareScope.CURRENT_SECTION -> {
+            val currentIndex = PlaybackStateStore.currentIndex
+            val part = model.partForSentence(currentIndex) ?: return
+            model.sentences.subList(part.sentenceStartIndex, part.sentenceEndIndexExclusive)
+        }
+        ShareScope.CUSTOM_PAGE_RANGE -> {
+            if (customPageRange == null) return
+            model.sentences.filter { it.pageNumber in customPageRange }
+        }
+        ShareScope.ENTIRE_DOCUMENT -> {
+            model.sentences
+        }
+    }
+    
+    if (selectedSentences.isEmpty()) {
+        Toast.makeText(context, "No content to share", Toast.LENGTH_SHORT).show()
+        return
+    }
+    
+    val markdownText = buildMarkdownForSentences(selectedSentences)
+    
+    val minPage = selectedSentences.minOfOrNull { it.pageNumber } ?: 1
+    val maxPage = selectedSentences.maxOfOrNull { it.pageNumber } ?: 1
+    val bookTitle = document.title.trim()
+    val sanitizedTitle = bookTitle.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+    
+    val selectedPackage = settings?.let { s ->
+        when {
+            s.packageName.isNotBlank() && isPackageInstalled(context, s.packageName) -> s.packageName
+            s.assistantId.isNotBlank() -> aiAssistantOptions
+                .firstOrNull { it.id == s.assistantId }
+                ?.let { installedPackageForOption(context, it) }
+                .orEmpty()
+            else -> installedAiOptions(context).firstOrNull()?.second.orEmpty()
+        }
+    } ?: installedAiOptions(context).firstOrNull()?.second.orEmpty()
+
+    val fileNameMd = when (scope) {
+        ShareScope.SELECTED_TEXT -> "Veritas - $sanitizedTitle - Selection.md"
+        ShareScope.CURRENT_SENTENCE -> "Veritas - $sanitizedTitle - Sentence ${PlaybackStateStore.currentIndex + 1}.md"
+        ShareScope.CURRENT_SECTION -> {
+            if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
+            else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
+        }
+        ShareScope.CUSTOM_PAGE_RANGE -> {
+            if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
+            else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
+        }
+        ShareScope.ENTIRE_DOCUMENT -> "Veritas - $sanitizedTitle - Entire Document.md"
+    }
+    
+    val prompt = "Attached is the document '$bookTitle'. Please analyze the contents. Note that page boundaries are marked with [[VERITAS_PAGE:X]] where X is the page number. Citations should refer to these page numbers."
+    val textBody = if (noPrompt) markdownText else "$prompt\n\n$markdownText"
+    
+    if (!noPrompt) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Veritas Prompt", prompt))
+        Toast.makeText(context, "Prompt copied to clipboard", Toast.LENGTH_SHORT).show()
+    }
+
+    val shareDir = File(context.cacheDir, "shares").apply { mkdirs() }
+    val shareFileMd = File(shareDir, fileNameMd)
+    try {
+        FileOutputStream(shareFileMd).use { out ->
+            out.write(markdownText.toByteArray(Charsets.UTF_8))
+        }
+        
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFileMd)
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newRawUri("Veritas Share", uri)
+            val truncatedText = if (textBody.length <= 60000) {
+                textBody
+            } else {
+                textBody.take(60000) + "\n\n... [Content truncated due to size limits. Full text is attached as a file] ..."
+            }
+            putExtra(Intent.EXTRA_TEXT, truncatedText)
+            if (selectedPackage.isNotBlank()) {
+                setPackage(selectedPackage)
+            }
+        }
+        if (selectedPackage.isBlank()) {
+            context.startActivity(Intent.createChooser(shareIntent, "Share Document to AI"))
+        } else {
+            try {
+                context.startActivity(shareIntent)
+            } catch (e: ActivityNotFoundException) {
+                try {
+                    val fileNameTxt = fileNameMd.substringBeforeLast(".md") + ".txt"
+                    val shareFileTxt = File(shareDir, fileNameTxt)
+                    if (!shareFileTxt.exists()) {
+                        FileOutputStream(shareFileTxt).use { out ->
+                            out.write(markdownText.toByteArray(Charsets.UTF_8))
+                        }
+                    }
+                    val uriTxt = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFileTxt)
+                    val txtIntent = Intent(shareIntent).apply {
+                        putExtra(Intent.EXTRA_STREAM, uriTxt)
+                        clipData = ClipData.newRawUri("Veritas Share", uriTxt)
+                    }
+                    context.startActivity(txtIntent)
+                } catch (e2: Exception) {
+                    val chooserIntent = Intent.createChooser(shareIntent.apply { setPackage(null) }, "Share Document to AI")
+                    context.startActivity(chooserIntent)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("ReaderActions", "Error sharing markdown to AI: ${e.message}", e)
+        Toast.makeText(context, "Error sharing file: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+internal fun buildMarkdownForSentences(sentences: List<ReaderSentence>): String {
+    if (sentences.isEmpty()) return ""
+    val output = StringBuilder()
+    val ordered = sentences.groupBy { it.pageNumber.coerceAtLeast(1) }.toSortedMap()
+    ordered.forEach { (pageNumber, pageSentences) ->
+        if (output.isNotBlank()) output.append("\n\n")
+        output.append("[[VERITAS_PAGE:$pageNumber]]\n\n")
+        val pageText = StringBuilder()
+        pageSentences.forEachIndexed { index, sentence ->
+            if (pageText.isNotBlank()) {
+                val rawSeparator = sentence.separatorBefore.replace('\r', '\n')
+                val separator = when {
+                    index > 0 && pageSentences.getOrNull(index - 1)?.pageNumber != sentence.pageNumber -> "\n\n"
+                    rawSeparator.count { it == '\n' } >= 2 -> "\n\n"
+                    rawSeparator.contains('\n') -> "\n"
+                    else -> " "
+                }
+                pageText.append(separator)
+            }
+            pageText.append(sentence.text)
+        }
+        output.append(pageText.toString().trim())
+    }
+    return output.toString().trim()
 }

@@ -317,7 +317,9 @@ data class ReaderAnnotation(
     val type: AnnotationType,
     val note: String = "",
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val highlightColor: String? = null,
+    val selectionGroupId: String? = null
 ) {
     val sentenceIndex: Int
         get() = chunkIndex
@@ -332,6 +334,8 @@ data class ReaderAnnotation(
         .put("note", note)
         .put("createdAt", createdAt)
         .put("updatedAt", updatedAt)
+        .put("highlightColor", highlightColor)
+        .put("selectionGroupId", selectionGroupId)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderAnnotation? {
@@ -344,7 +348,9 @@ data class ReaderAnnotation(
                 type = type,
                 note = obj.optString("note"),
                 createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
-                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
+                highlightColor = if (obj.has("highlightColor")) obj.optString("highlightColor") else null,
+                selectionGroupId = if (obj.has("selectionGroupId")) obj.optString("selectionGroupId") else null
             )
         }
     }
@@ -1992,14 +1998,21 @@ class DocumentRepository(context: Context) {
         documentId: String,
         chunkIndex: Int,
         type: AnnotationType,
-        note: String = ""
+        note: String = "",
+        highlightColor: String? = null,
+        selectionGroupId: String? = null
     ): List<ReaderAnnotation> {
         val now = System.currentTimeMillis()
         val existing = loadAllAnnotations().toMutableList()
         val index = existing.indexOfFirst { it.documentId == documentId && it.chunkIndex == chunkIndex && it.type == type }
         if (index >= 0) {
             val old = existing[index]
-            existing[index] = old.copy(note = note, updatedAt = now)
+            existing[index] = old.copy(
+                note = note,
+                updatedAt = now,
+                highlightColor = highlightColor ?: old.highlightColor,
+                selectionGroupId = selectionGroupId ?: old.selectionGroupId
+            )
         } else {
             existing.add(
                 ReaderAnnotation(
@@ -2008,7 +2021,9 @@ class DocumentRepository(context: Context) {
                     type = type,
                     note = note,
                     createdAt = now,
-                    updatedAt = now
+                    updatedAt = now,
+                    highlightColor = highlightColor,
+                    selectionGroupId = selectionGroupId
                 )
             )
         }
