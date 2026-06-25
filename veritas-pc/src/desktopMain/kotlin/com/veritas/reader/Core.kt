@@ -356,6 +356,42 @@ data class ReaderAnnotation(
     }
 }
 
+data class FlashcardProgress(
+    val id: String,
+    val documentId: String,
+    val front: String,
+    val back: String,
+    val intervalDays: Int = 1,
+    val easeFactor: Float = 2.5f,
+    val repetitions: Int = 0,
+    val nextReviewTime: Long = 0L
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("documentId", documentId)
+        .put("front", front)
+        .put("back", back)
+        .put("intervalDays", intervalDays)
+        .put("easeFactor", easeFactor.toDouble())
+        .put("repetitions", repetitions)
+        .put("nextReviewTime", nextReviewTime)
+
+    companion object {
+        fun fromJson(json: JSONObject): FlashcardProgress {
+            return FlashcardProgress(
+                id = json.getString("id"),
+                documentId = json.getString("documentId"),
+                front = json.getString("front"),
+                back = json.getString("back"),
+                intervalDays = json.optInt("intervalDays", 1),
+                easeFactor = json.optDouble("easeFactor", 2.5).toFloat(),
+                repetitions = json.optInt("repetitions", 0),
+                nextReviewTime = json.optLong("nextReviewTime", 0L)
+            )
+        }
+    }
+}
+
 private const val DOCUMENT_NOTE_STABLE_KEY_PREFIX = "document-note:"
 
 fun documentNoteStableKey(documentId: String): String = "$DOCUMENT_NOTE_STABLE_KEY_PREFIX$documentId"
@@ -480,7 +516,8 @@ data class ReaderSettings(
     val showSectionNumbers: Boolean = true,
     val autoPlayQueue: Boolean = true,
     val themeId: String = VeritasThemeCatalog.DEFAULT_ID,
-    val themePackId: String = "veritas_media"
+    val themePackId: String = "veritas_media",
+    val adaptiveCover: Boolean = false
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("fontSizeSp", fontSizeSp)
@@ -489,6 +526,7 @@ data class ReaderSettings(
         .put("autoPlayQueue", autoPlayQueue)
         .put("themeId", themeId)
         .put("themePackId", themePackId)
+        .put("adaptiveCover", adaptiveCover)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderSettings {
@@ -501,7 +539,8 @@ data class ReaderSettings(
                 showSectionNumbers = obj.optBoolean("showSectionNumbers", true),
                 autoPlayQueue = obj.optBoolean("autoPlayQueue", true),
                 themeId = VeritasThemeCatalog.normalizeThemeId(migratedTheme),
-                themePackId = VeritasThemePackCatalog.normalizePackId(migratedPack)
+                themePackId = VeritasThemePackCatalog.normalizePackId(migratedPack),
+                adaptiveCover = obj.optBoolean("adaptiveCover", false)
             )
         }
     }
@@ -2260,11 +2299,28 @@ class DocumentRepository(context: Context) {
         return annotations
     }
 
-    private fun saveAllAnnotations(annotations: List<ReaderAnnotation>) {
+    fun saveAllAnnotations(annotations: List<ReaderAnnotation>) {
         val array = JSONArray()
         annotations.sortedWith(compareBy<ReaderAnnotation> { it.documentId }.thenBy { it.chunkIndex }.thenBy { it.type.name })
             .forEach { array.put(it.toJson()) }
         prefs.edit { putString(KEY_ANNOTATIONS, array.toString()) }
+    }
+
+    fun loadAllFlashcards(): List<FlashcardProgress> {
+        val raw = prefs.getString("study_flashcards", "[]") ?: "[]"
+        val array = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
+        val list = mutableListOf<FlashcardProgress>()
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            list.add(FlashcardProgress.fromJson(obj))
+        }
+        return list
+    }
+
+    fun saveAllFlashcards(list: List<FlashcardProgress>) {
+        val array = JSONArray()
+        list.forEach { array.put(it.toJson()) }
+        prefs.edit { putString("study_flashcards", array.toString()) }
     }
 
     private fun loadDocumentNotes(): Map<String, String> {

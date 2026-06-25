@@ -132,6 +132,7 @@ class DocumentImportWorker(
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    return Result.failure(workDataOf("error" to (e.message ?: "Failed to open PDF document")))
                 }
             }
 

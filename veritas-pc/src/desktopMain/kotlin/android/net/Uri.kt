@@ -2,7 +2,18 @@ package android.net
 
 class Uri(private val uriString: String) {
     val path: String?
-        get() = if (uriString.contains("://")) uriString.substringAfter("://") else uriString
+        get() {
+            val rawPath = if (uriString.contains("://")) {
+                uriString.substringAfter("://")
+            } else {
+                uriString
+            }
+            return if (rawPath.startsWith("/") && rawPath.length > 2 && rawPath[1].isLetter() && rawPath[2] == ':') {
+                rawPath.substring(1)
+            } else {
+                rawPath
+            }
+        }
 
     val scheme: String?
         get() = if (uriString.contains("://")) uriString.substringBefore("://") else "file"

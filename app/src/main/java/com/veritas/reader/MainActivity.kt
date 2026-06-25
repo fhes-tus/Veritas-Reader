@@ -168,6 +168,7 @@ import com.veritas.reader.ui.screens.SettingsHubDialog
 import com.veritas.reader.ui.screens.UserManualDialog
 import com.veritas.reader.ui.screens.SleepTimerDialog
 import com.veritas.reader.ui.screens.UpdateAvailableDialog
+import com.veritas.reader.ui.screens.ReleaseNotesDialog
 import com.veritas.reader.ui.screens.VoiceStudioDialog
 import com.veritas.reader.ReaderMode
 import kotlinx.coroutines.delay
@@ -1345,7 +1346,9 @@ private fun VeritasReaderApp(
                     onRemoveReadingHistoryEntry = viewModel::removeReadingHistoryEntry,
                     onToggleGeneralNotePin = viewModel::toggleGeneralNotePin,
                     onChangeGeneralNoteColor = viewModel::changeGeneralNoteColor,
-                    onDeleteGeneralNote = viewModel::deleteGeneralNote
+                    onDeleteGeneralNote = viewModel::deleteGeneralNote,
+                    onGradeFlashcard = viewModel::gradeFlashcard,
+                    onDeleteFlashcard = viewModel::deleteFlashcard
                 )
                 if (uiState.showTutorial) {
                     OnboardingQuestChecklist(
@@ -2172,15 +2175,36 @@ private fun VeritasReaderApp(
             UpdateAvailableDialog(
                 versionName = uiState.updateVersionName,
                 changelog = uiState.updateChangelog,
+                isDownloading = uiState.isDownloadingUpdate,
+                downloadProgress = uiState.updateDownloadProgress,
+                downloadError = uiState.updateDownloadError,
                 onUpdate = {
-                    runCatching {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uiState.updateUrl))
-                        context.startActivity(intent)
+                    if (uiState.updateApkUrl.isNotEmpty()) {
+                        viewModel.startUpdateDownload(uiState.updateApkUrl)
+                    } else {
+                        runCatching {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(uiState.updateUrl))
+                            context.startActivity(intent)
+                        }
+                        viewModel.updateState { it.copy(showUpdateDialog = false) }
                     }
-                    viewModel.updateState { it.copy(showUpdateDialog = false) }
+                },
+                onCancelDownload = {
+                    viewModel.cancelUpdateDownload()
                 },
                 onDismiss = {
+                    viewModel.cancelUpdateDownload()
                     viewModel.updateState { it.copy(showUpdateDialog = false) }
+                }
+            )
+        }
+
+        if (uiState.showReleaseNotesDialog) {
+            ReleaseNotesDialog(
+                versionName = uiState.releaseNotesVersionName,
+                changelog = uiState.releaseNotesChangelog,
+                onDismiss = {
+                    viewModel.dismissReleaseNotes()
                 }
             )
         }

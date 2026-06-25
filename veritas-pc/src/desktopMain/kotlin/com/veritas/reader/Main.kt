@@ -75,6 +75,9 @@ private fun textEditorDownloadName(
 
 fun main() {
     System.setProperty("kotlinx.coroutines.fast.service.loader", "false")
+    // Suppress verbose warning logs from Apache PDFBox / FontBox
+    java.util.logging.Logger.getLogger("org.apache.pdfbox").level = java.util.logging.Level.SEVERE
+    java.util.logging.Logger.getLogger("org.apache.fontbox").level = java.util.logging.Level.SEVERE
     application {
         Window(
             onCloseRequest = ::exitApplication,
@@ -243,7 +246,9 @@ fun main() {
                         onRemoveReadingHistoryEntry = viewModel::removeReadingHistoryEntry,
                         onToggleGeneralNotePin = viewModel::toggleGeneralNotePin,
                         onChangeGeneralNoteColor = viewModel::changeGeneralNoteColor,
-                        onDeleteGeneralNote = viewModel::deleteGeneralNote
+                        onDeleteGeneralNote = viewModel::deleteGeneralNote,
+                        onGradeFlashcard = viewModel::gradeFlashcard,
+                        onDeleteFlashcard = viewModel::deleteFlashcard
                     )
                     if (uiState.showTutorial) {
                         OnboardingQuestChecklist(

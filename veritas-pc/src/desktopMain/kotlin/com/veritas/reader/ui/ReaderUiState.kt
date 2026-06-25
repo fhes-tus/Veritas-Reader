@@ -43,6 +43,7 @@ data class ReaderUiState(
     val showConfetti: Boolean = false,
     val annotations: List<ReaderAnnotation> = emptyList(),
     val allAnnotations: List<ReaderAnnotation> = emptyList(),
+    val flashcards: List<FlashcardProgress> = emptyList(),
     val documentNotes: Map<String, String> = emptyMap(),
     val documentTitles: Map<String, String> = emptyMap(),
     val annotationCount: Int = 0,

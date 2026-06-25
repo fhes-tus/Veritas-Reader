@@ -96,6 +96,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val hasCompletedOnboarding = repository.hasSeenOnboardingTutorial()
             val hasImportedOrOpenedDocument = repository.hasImportedOrOpenedDocument()
             val questProgress = repository.loadQuestProgress()
+            val flashcards = repository.loadAllFlashcards()
             // Repair missing covers for existing files
             documents.forEach { doc ->
                 if (doc.originalFileName.isNotBlank() && CoverExtractor.coverFile(application, doc.id) == null) {
@@ -137,6 +138,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     readingListCatalog = readingListCatalog,
                     readingHistory = readingHistory,
                     allAnnotations = allAnnotations,
+                    flashcards = flashcards,
                     documentNotes = documentNotes,
                     documentTitles = documentTitles,
                     annotationCount = annotationCount,
@@ -2496,6 +2498,85 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 withContext(Dispatchers.Main) {
                     _uiState.update { it.copy(generalNotes = updated) }
                 }
+            }
+        }
+    }
+
+    fun importFlashcards(documentId: String, cards: List<Flashcard>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadAllFlashcards().toMutableList()
+            cards.forEach { card ->
+                val id = java.util.UUID.randomUUID().toString()
+                existing.add(
+                    FlashcardProgress(
+                        id = id,
+                        documentId = documentId,
+                        front = card.front,
+                        back = card.back,
+                        nextReviewTime = System.currentTimeMillis()
+                    )
+                )
+            }
+            repository.saveAllFlashcards(existing)
+            val updated = repository.loadAllFlashcards()
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(flashcards = updated) }
+            }
+        }
+    }
+
+    fun gradeFlashcard(cardId: String, score: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.loadAllFlashcards().toMutableList()
+            val index = existing.indexOfFirst { it.id == cardId }
+            if (index != -1) {
+                val card = existing[index]
+                val q = when (score) {
+                    1 -> 1
+                    2 -> 2
+                    3 -> 4
+                    4 -> 5
+                    else -> 3
+                }
+                val newRepetitions: Int
+                val newIntervalDays: Int
+                var newEaseFactor = card.easeFactor + (0.1f - (5 - q) * (0.08f + (5 - q) * 0.02f))
+                if (newEaseFactor < 1.3f) newEaseFactor = 1.3f
+                if (q < 3) {
+                    newRepetitions = 0
+                    newIntervalDays = 1
+                } else {
+                    newRepetitions = card.repetitions + 1
+                    newIntervalDays = when (newRepetitions) {
+                        1 -> 1
+                        2 -> 6
+                        else -> (card.intervalDays * newEaseFactor).toInt().coerceAtLeast(1)
+                    }
+                }
+                val nextReview = System.currentTimeMillis() + (newIntervalDays * 24L * 60L * 60L * 1000L)
+                val updatedCard = card.copy(
+                    repetitions = newRepetitions,
+                    intervalDays = newIntervalDays,
+                    nextReviewTime = nextReview,
+                    easeFactor = newEaseFactor
+                )
+                existing[index] = updatedCard
+                repository.saveAllFlashcards(existing)
+                val updated = repository.loadAllFlashcards()
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(flashcards = updated) }
+                }
+            }
+        }
+    }
+
+    fun deleteFlashcard(cardId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val remaining = repository.loadAllFlashcards().filterNot { it.id == cardId }
+            repository.saveAllFlashcards(remaining)
+            val updated = repository.loadAllFlashcards()
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(flashcards = updated) }
             }
         }
     }

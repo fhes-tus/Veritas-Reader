@@ -13,6 +13,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.veritas.reader.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +73,36 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     init {
         viewModelScope.launch(Dispatchers.IO) {
             checkForUpdates()
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val currentVersion = runCatching {
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                }.getOrNull() ?: ""
+                val prefs = context.getSharedPreferences("veritas_reader_library", android.content.Context.MODE_PRIVATE)
+                val lastRunVersion = prefs.getString("last_run_version_name", "") ?: ""
+                
+                if (currentVersion.isNotEmpty() && lastRunVersion.isNotEmpty() && currentVersion != lastRunVersion) {
+                    val savedChangelog = prefs.getString("last_downloaded_changelog", "") ?: ""
+                    if (savedChangelog.isNotEmpty()) {
+                        _uiState.update {
+                            it.copy(
+                                showReleaseNotesDialog = true,
+                                releaseNotesChangelog = savedChangelog,
+                                releaseNotesVersionName = currentVersion
+                            )
+                        }
+                        prefs.edit().remove("last_downloaded_changelog").apply()
+                    }
+                }
+                
+                if (currentVersion.isNotEmpty() && currentVersion != lastRunVersion) {
+                    prefs.edit().putString("last_run_version_name", currentVersion).apply()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReaderViewModel", "Error checking for post-update release notes", e)
+            }
         }
         viewModelScope.launch(Dispatchers.IO) {
             val trackerSnapshot = repository.recordAppOpen()
@@ -2729,12 +2760,24 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private var downloadJob: Job? = null
+
     private fun checkForUpdates() {
         try {
+            // Delete old update file if it exists in the cache
+            runCatching {
+                val context = getApplication<Application>()
+                val oldFile = File(context.cacheDir, "veritas_update.apk")
+                if (oldFile.exists()) {
+                    oldFile.delete()
+                }
+            }
+
             val url = java.net.URL("https://api.github.com/repos/fhes-tus/Veritas-Reader/releases/latest")
             val connection = url.openConnection() as java.net.HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+            connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")
             connection.connectTimeout = 8000
             connection.readTimeout = 8000
             if (connection.responseCode == 200) {
@@ -2749,11 +2792,34 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 if (isVersionNewer(localVersion, cleanTagName)) {
                     val htmlUrl = json.optString("html_url", "https://github.com/fhes-tus/Veritas-Reader/releases")
                     val body = json.optString("body", "")
+                    
+                    var apkUrl = ""
+                    val assets = json.optJSONArray("assets")
+                    if (assets != null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.optJSONObject(i)
+                            if (asset != null) {
+                                val name = asset.optString("name", "")
+                                if (name.endsWith(".apk", ignoreCase = true)) {
+                                    apkUrl = asset.optString("browser_download_url", "")
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    runCatching {
+                        val context = getApplication<Application>()
+                        val prefs = context.getSharedPreferences("veritas_reader_library", android.content.Context.MODE_PRIVATE)
+                        prefs.edit().putString("last_downloaded_changelog", body).apply()
+                    }
+
                     _uiState.update {
                         it.copy(
                             showUpdateDialog = true,
                             updateVersionName = tagName,
                             updateUrl = htmlUrl,
+                            updateApkUrl = apkUrl,
                             updateChangelog = body
                         )
                     }
@@ -2764,10 +2830,170 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun startUpdateDownload(apkUrl: String) {
+        downloadJob?.cancel()
+        downloadJob = viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update {
+                it.copy(
+                    isDownloadingUpdate = true,
+                    updateDownloadProgress = 0f,
+                    updateDownloadError = null
+                )
+            }
+            try {
+                val context = getApplication<Application>()
+                val destinationFile = File(context.cacheDir, "veritas_update.apk")
+                if (destinationFile.exists()) {
+                    destinationFile.delete()
+                }
+
+                val url = java.net.URL(apkUrl)
+                var connection = url.openConnection() as java.net.HttpURLConnection
+                connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                connection.connect()
+
+                var responseCode = connection.responseCode
+                var redirectCount = 0
+                while ((responseCode == java.net.HttpURLConnection.HTTP_MOVED_TEMP ||
+                        responseCode == java.net.HttpURLConnection.HTTP_MOVED_PERM ||
+                        responseCode == 307 || responseCode == 308) && redirectCount < 5) {
+                    val newUrl = connection.getHeaderField("Location")
+                    connection.disconnect()
+                    val nextUrl = java.net.URL(newUrl)
+                    connection = nextUrl.openConnection() as java.net.HttpURLConnection
+                    connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")
+                    connection.connectTimeout = 15000
+                    connection.readTimeout = 15000
+                    connection.connect()
+                    responseCode = connection.responseCode
+                    redirectCount++
+                }
+
+                if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                    throw Exception("Server returned HTTP $responseCode")
+                }
+
+                val fileLength = connection.contentLength
+                connection.inputStream.use { input ->
+                    destinationFile.outputStream().use { output ->
+                        val data = ByteArray(4096)
+                        var total: Long = 0
+                        var count: Int
+                        while (input.read(data).also { count = it } != -1) {
+                            if (!isActive) {
+                                throw CancellationException("Download cancelled")
+                            }
+                            total += count
+                            if (fileLength > 0) {
+                                val progress = total.toFloat() / fileLength
+                                _uiState.update { it.copy(updateDownloadProgress = progress) }
+                            }
+                            output.write(data, 0, count)
+                        }
+                    }
+                }
+
+                if (!isActive) {
+                    throw CancellationException("Download cancelled")
+                }
+
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        showUpdateDialog = false
+                    )
+                }
+
+                triggerApkInstallation(destinationFile)
+
+            } catch (e: CancellationException) {
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        updateDownloadProgress = 0f
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReaderViewModel", "Error downloading update", e)
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        updateDownloadError = e.localizedMessage ?: "Unknown error"
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelUpdateDownload() {
+        downloadJob?.cancel()
+        _uiState.update {
+            it.copy(
+                isDownloadingUpdate = false,
+                updateDownloadProgress = 0f,
+                updateDownloadError = null
+            )
+        }
+    }
+
+    private fun triggerApkInstallation(apkFile: File) {
+        val context = getApplication<Application>()
+        try {
+            val authority = "${context.packageName}.fileprovider"
+            val apkUri = FileProvider.getUriForFile(context, authority, apkFile)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(apkUri, "application/vnd.android.package-archive")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            android.util.Log.e("ReaderViewModel", "Error launching APK installation", e)
+        }
+    }
+
+    fun dismissReleaseNotes() {
+        _uiState.update {
+            it.copy(
+                showReleaseNotesDialog = false,
+                releaseNotesChangelog = "",
+                releaseNotesVersionName = ""
+            )
+        }
+    }
+
     companion object {
+        fun cleanVersionString(version: String): String {
+            var clean = version.trim().lowercase(Locale.getDefault())
+            if (clean.startsWith("v_")) {
+                clean = clean.substring(2)
+            } else if (clean.startsWith("v")) {
+                clean = clean.substring(1)
+            }
+            val builder = StringBuilder()
+            var lastWasDot = false
+            for (char in clean) {
+                if (char.isDigit()) {
+                    builder.append(char)
+                    lastWasDot = false
+                } else if (char == '.') {
+                    if (!lastWasDot) {
+                        builder.append(char)
+                        lastWasDot = true
+                    }
+                } else {
+                    break
+                }
+            }
+            return builder.toString().trimEnd('.')
+        }
+
         fun isVersionNewer(local: String, remote: String): Boolean {
-            val localParts = local.split(".").map { it.toIntOrNull() ?: 0 }
-            val remoteParts = remote.split(".").map { it.toIntOrNull() ?: 0 }
+            val cleanLocal = cleanVersionString(local)
+            val cleanRemote = cleanVersionString(remote)
+            val localParts = cleanLocal.split(".").map { it.toIntOrNull() ?: 0 }
+            val remoteParts = cleanRemote.split(".").map { it.toIntOrNull() ?: 0 }
             val length = kotlin.math.max(localParts.size, remoteParts.size)
             for (i in 0 until length) {
                 val l = localParts.getOrElse(i) { 0 }

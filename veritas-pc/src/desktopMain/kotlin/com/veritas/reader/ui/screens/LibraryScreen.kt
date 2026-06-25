@@ -224,7 +224,9 @@ fun LibraryScreen(
     onRemoveReadingHistoryEntry: (String) -> Unit = {},
     onToggleGeneralNotePin: (String) -> Unit = {},
     onChangeGeneralNoteColor: (String, String?) -> Unit = { _, _ -> },
-    onDeleteGeneralNote: (String) -> Unit = {}
+    onDeleteGeneralNote: (String) -> Unit = {},
+    onGradeFlashcard: (String, Int) -> Unit = { _, _ -> },
+    onDeleteFlashcard: (String) -> Unit = {}
 ) {
     val documents = uiState.documents
     val configuration = LocalConfiguration.current
@@ -241,6 +243,7 @@ fun LibraryScreen(
     var collectionFilter by remember { mutableStateOf("All") }
     var readingListFilter by remember { mutableStateOf("All") }
     var manageListsDocument by remember { mutableStateOf<SavedDocument?>(null) }
+    var activeReviewDeck by remember { mutableStateOf<List<FlashcardProgress>?>(null) }
     var sortMode by remember { mutableStateOf("Updated") }
     var showQueue by remember { mutableStateOf(false) }
     var selectedDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -475,6 +478,11 @@ fun LibraryScreen(
         }
         list
     }
+    val cards = uiState.flashcards
+    val dueCards = remember(cards) {
+        val now = System.currentTimeMillis()
+        cards.filter { it.nextReviewTime <= now }
+    }
     val visibleDocuments by remember(documents, queuedDocuments, libraryQuery, statusFilter, sourceFilter, collectionFilter, readingListFilter, sortMode, uiState.readingListCatalog) {
         derivedStateOf {
             documents.asSequence()
@@ -665,6 +673,14 @@ fun LibraryScreen(
             },
             title = { Text("Delete selected marks?") },
             text = { Text("This removes ${selectedAnnotationKeys.size} bookmark/note item${if (selectedAnnotationKeys.size == 1) "" else "s"} and clears bookmark highlights from the reader.") }
+        )
+    }
+
+    activeReviewDeck?.let { deck ->
+        FlashcardReviewDialog(
+            dueCards = deck,
+            onGrade = onGradeFlashcard,
+            onDismiss = { activeReviewDeck = null }
         )
     }
 
@@ -931,7 +947,7 @@ fun LibraryScreen(
                                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        val filterOptions = listOf("General", "Bookmarks", "Notes", "Vocab", "History")
+                                        val filterOptions = listOf("General", "Bookmarks", "Notes", "Vocab", "Flashcards", "History")
                                         filterOptions.forEach { option ->
                                             val active = annotationFilter == option
                                             val optionIcon = when (option) {
@@ -939,6 +955,7 @@ fun LibraryScreen(
                                                 "Bookmarks" -> Icons.Outlined.Bookmark
                                                 "Notes" -> Icons.Outlined.EditNote
                                                 "Vocab" -> Icons.Outlined.Book
+                                                "Flashcards" -> Icons.Outlined.Book
                                                 "History" -> Icons.Outlined.History
                                                 else -> Icons.AutoMirrored.Outlined.Note
                                             }
@@ -2023,6 +2040,153 @@ fun LibraryScreen(
                                 otherNotes.forEach { note ->
                                     item(key = "general-note-list-other-${note.id}") {
                                         Box(modifier = Modifier.animateItem()) { NoteCardItem(note) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                "Flashcards" -> {
+                    if (cards.isEmpty()) {
+                        item {
+                            StudyEmptyState(
+                                icon = Icons.Outlined.Book,
+                                title = "No flashcards yet",
+                                description = "Open a document, go to 'Study Tools', and click 'Create flashcards'. Once generated, import them to your deck to start reviewing!",
+                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onImportFile = onImportFile
+                            )
+                        }
+                    } else {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                shape = VeritasPackStyle.cardShape(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Book,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                "Spaced Repetition Deck",
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Text(
+                                                "${dueCards.size} card${if (dueCards.size == 1) "" else "s"} due out of ${cards.size} total",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = { activeReviewDeck = dueCards },
+                                        enabled = dueCards.isNotEmpty(),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = VeritasPackStyle.chipShape()
+                                    ) {
+                                        Text(if (dueCards.isNotEmpty()) "Review Now (${dueCards.size})" else "All caught up!")
+                                    }
+                                }
+                            }
+                        }
+
+                        item {
+                            Text(
+                                text = "All Deck Cards",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+
+                        cards.forEach { card ->
+                            item(key = "flashcard-item-${card.id}") {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    shape = VeritasPackStyle.compactShape(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = card.front,
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                            Text(
+                                                text = card.back,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                val isDue = card.nextReviewTime <= System.currentTimeMillis()
+                                                val badgeColor = if (isDue) Color(0xFFEF4444) else Color(0xFF10B981)
+                                                val badgeText = if (isDue) "Due" else {
+                                                    val diff = card.nextReviewTime - System.currentTimeMillis()
+                                                    val days = (diff / (1000 * 60 * 60 * 24)).coerceAtLeast(0L)
+                                                    if (days == 0L) "Due later today" else "Due in $days d"
+                                                }
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = badgeColor.copy(alpha = 0.15f)
+                                                ) {
+                                                    Text(
+                                                        text = badgeText,
+                                                        color = badgeColor,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "Repetitions: ${card.repetitions}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                )
+                                            }
+                                        }
+
+                                        IconButton(onClick = { onDeleteFlashcard(card.id) }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete flashcard",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -5244,6 +5408,128 @@ private fun renderMarkdown(text: String): androidx.compose.ui.text.AnnotatedStri
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FlashcardReviewDialog(
+    dueCards: List<FlashcardProgress>,
+    onGrade: (String, Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var currentIndex by remember { mutableStateOf(0) }
+    var showAnswer by remember { mutableStateOf(false) }
+
+    if (currentIndex >= dueCards.size) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            confirmButton = { Button(onClick = onDismiss) { Text("Awesome") } },
+            title = { Text("Session Completed") },
+            text = { Text("You've finished reviewing all due cards for now!") }
+        )
+    } else {
+        val card = dueCards[currentIndex]
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = onDismiss) { Text("Exit Review") }
+            },
+            title = { Text("Reviewing Card ${currentIndex + 1} of ${dueCards.size}") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .clickable { showAnswer = !showAnswer },
+                        shape = VeritasPackStyle.cardShape(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(18.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                if (!showAnswer) {
+                                    Text(card.front, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text("Tap to flip", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                                } else {
+                                    Text(card.back, style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text("Tap to show question", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+                                }
+                            }
+                        }
+                    }
+
+                    if (showAnswer) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text("Rate your recall:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        onGrade(card.id, 1)
+                                        showAnswer = false
+                                        currentIndex++
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFEF4444)),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Again", style = MaterialTheme.typography.labelSmall, color = androidx.compose.ui.graphics.Color.White)
+                                }
+                                Button(
+                                    onClick = {
+                                        onGrade(card.id, 2)
+                                        showAnswer = false
+                                        currentIndex++
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFF97316)),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Hard", style = MaterialTheme.typography.labelSmall, color = androidx.compose.ui.graphics.Color.White)
+                                }
+                                Button(
+                                    onClick = {
+                                        onGrade(card.id, 3)
+                                        showAnswer = false
+                                        currentIndex++
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF3B82F6)),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Good", style = MaterialTheme.typography.labelSmall, color = androidx.compose.ui.graphics.Color.White)
+                                }
+                                Button(
+                                    onClick = {
+                                        onGrade(card.id, 4)
+                                        showAnswer = false
+                                        currentIndex++
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF10B981)),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Easy", style = MaterialTheme.typography.labelSmall, color = androidx.compose.ui.graphics.Color.White)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        )
     }
 }
 
