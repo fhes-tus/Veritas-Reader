@@ -521,7 +521,10 @@ data class ReaderSettings(
     val autoPlayQueue: Boolean = true,
     val themeId: String = VeritasThemeCatalog.DEFAULT_ID,
     val themePackId: String = "veritas_media",
-    val adaptiveCover: Boolean = false
+    val adaptiveCover: Boolean = false,
+    // false = subtle container-tone hero card (theme-matched); true = the original
+    // vivid accent-gradient "poster" style. User-selectable — neither is imposed.
+    val vibrantHero: Boolean = false
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("fontSizeSp", fontSizeSp)
@@ -531,6 +534,7 @@ data class ReaderSettings(
         .put("themeId", themeId)
         .put("themePackId", themePackId)
         .put("adaptiveCover", adaptiveCover)
+        .put("vibrantHero", vibrantHero)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderSettings {
@@ -544,7 +548,8 @@ data class ReaderSettings(
                 autoPlayQueue = obj.optBoolean("autoPlayQueue", true),
                 themeId = VeritasThemeCatalog.normalizeThemeId(migratedTheme),
                 themePackId = VeritasThemePackCatalog.normalizePackId(migratedPack),
-                adaptiveCover = obj.optBoolean("adaptiveCover", false)
+                adaptiveCover = obj.optBoolean("adaptiveCover", false),
+                vibrantHero = obj.optBoolean("vibrantHero", false)
             )
         }
     }

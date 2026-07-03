@@ -1286,19 +1286,35 @@ fun LibraryScreen(
                                 val tracker = uiState.readerTrackerSnapshot
                                 val weeklyMinutes = tracker.weeklyUsageMillis / 60000L
 
-                                // Container tones, not raw primary: the hero reads as a large
-                                // themed surface in every palette (incl. monochrome and
-                                // high-contrast, where the old HSV math degenerated) instead of
-                                // an accent-colored poster. primaryContainer/surface are exactly
-                                // what adaptColorScheme re-tints, so adaptive cover keeps working.
+                                // Two user-selectable hero styles (Settings → Vibrant hero card):
+                                // subtle (default) uses container tones so the card reads as a
+                                // large themed surface in every palette; vibrant is the original
+                                // accent-derived HSV "poster" gradient. Both track the active
+                                // color scheme, so adaptive cover keeps working in either mode.
                                 val heroScheme = MaterialTheme.colorScheme
-                                val streakGradient = Brush.linearGradient(
-                                    listOf(
-                                        heroScheme.primaryContainer,
-                                        blendColors(heroScheme.primaryContainer, heroScheme.surface, 0.55f)
+                                val streakGradient: Brush
+                                val streakOnCard: Color
+                                if (uiState.readerSettings.vibrantHero) {
+                                    val streakPrimary = heroScheme.primary
+                                    val streakHsl = FloatArray(3)
+                                    android.graphics.Color.colorToHSV(streakPrimary.toArgb(), streakHsl)
+                                    streakGradient = Brush.linearGradient(
+                                        listOf(
+                                            Color(android.graphics.Color.HSVToColor(floatArrayOf(streakHsl[0], (streakHsl[1] * 0.7f).coerceIn(0f, 1f), (streakHsl[2] * 1.15f).coerceIn(0f, 1f)))),
+                                            Color(android.graphics.Color.HSVToColor(floatArrayOf((streakHsl[0] + 15f) % 360f, streakHsl[1].coerceIn(0f, 1f), (streakHsl[2] * 0.85f).coerceIn(0f, 1f))))
+                                        )
                                     )
-                                )
-                                val streakOnCard = heroScheme.onPrimaryContainer
+                                    streakOnCard = if (streakPrimary.luminance() > 0.35f)
+                                        Color(0xFF1A1A2E) else Color.White
+                                } else {
+                                    streakGradient = Brush.linearGradient(
+                                        listOf(
+                                            heroScheme.primaryContainer,
+                                            blendColors(heroScheme.primaryContainer, heroScheme.surface, 0.55f)
+                                        )
+                                    )
+                                    streakOnCard = heroScheme.onPrimaryContainer
+                                }
 
                                 LazyColumn(
                                     modifier = Modifier

@@ -2037,6 +2037,13 @@ internal fun VeritasReaderApp(
                             adaptiveCover = !uiState.readerSettings.adaptiveCover
                         )
                     )
+                },
+                onToggleVibrantHero = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(
+                            vibrantHero = !uiState.readerSettings.vibrantHero
+                        )
+                    )
                 }
             )
         }

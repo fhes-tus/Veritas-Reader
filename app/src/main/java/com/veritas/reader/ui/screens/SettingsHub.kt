@@ -444,7 +444,8 @@ fun ReaderSettingsDialog(
     onThemePackChange: (String) -> Unit,
     onToggleSectionNumbers: () -> Unit,
     onToggleAutoPlayQueue: () -> Unit,
-    onToggleAdaptiveCover: () -> Unit
+    onToggleAdaptiveCover: () -> Unit,
+    onToggleVibrantHero: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -501,6 +502,13 @@ fun ReaderSettingsDialog(
                         Text("Blend active book cover colors into selected theme.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = settings.adaptiveCover, onCheckedChange = { onToggleAdaptiveCover() })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Vibrant hero card", fontWeight = FontWeight.SemiBold)
+                        Text("Bold accent-colored home card instead of the subtle themed one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = settings.vibrantHero, onCheckedChange = { onToggleVibrantHero() })
                 }
             }
         }
