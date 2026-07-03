@@ -22,6 +22,16 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -173,12 +183,14 @@ fun ReaderToolsSheet(
                 )
 
                 SettingsItem(
-                    title = if (showSearch) "🔎 Hide search" else "🔎 Search document",
+                    title = if (showSearch) "Hide search" else "Search document",
+                    leadingIcon = Icons.Filled.Search,
                     onClick = { choose(onToggleSearch) }
                 )
 
                 SettingsItem(
-                    title = "💾 Original View",
+                    title = "Original View",
+                    leadingIcon = Icons.Filled.Description,
                     enabled = hasCanvas,
                     onClick = { choose(onOpenCanvas) }
                 )
@@ -186,25 +198,29 @@ fun ReaderToolsSheet(
                 val readingListsFeature = readerFeature(VeritasFeatureId.READING_LISTS)
                 SettingsItem(
                     title = "Reading lists ($activeDocumentReadingListCount/$readingListCount)",
+                    leadingIcon = Icons.Filled.CollectionsBookmark,
                     enabled = readingListsFeature.enabled,
                     subtitle = if (!readingListsFeature.enabled) readingListsFeature.disabledReason else null,
                     onClick = { choose(onOpenReadingLists) }
                 )
 
                 SettingsItem(
-                    title = if (isQueued) "✓ Remove from Queue" else "+ Add to Queue",
+                    title = if (isQueued) "Remove from Queue" else "Add to Queue",
+                    leadingIcon = if (isQueued) Icons.AutoMirrored.Filled.PlaylistAddCheck else Icons.AutoMirrored.Filled.PlaylistAdd,
                     onClick = { choose(onToggleQueue) }
                 )
 
                 SettingsItem(
-                    title = "▶ Play Queue ($queueCount)",
+                    title = "Play Queue ($queueCount)",
+                    leadingIcon = Icons.AutoMirrored.Filled.PlaylistPlay,
                     enabled = queueCount > 0,
                     onClick = { choose(onPlayQueue) }
                 )
 
                 val readingHistoryFeature = readerFeature(VeritasFeatureId.READING_HISTORY)
                 SettingsItem(
-                    title = "↺ Reading history",
+                    title = "Reading history",
+                    leadingIcon = Icons.Filled.History,
                     enabled = readingHistoryFeature.enabled,
                     subtitle = if (!readingHistoryFeature.enabled) readingHistoryFeature.disabledReason else null,
                     onClick = { choose(onOpenReadingHistory) }
@@ -222,13 +238,15 @@ fun ReaderToolsSheet(
                 )
 
                 SettingsItem(
-                    title = if (showBookmarks) "🔖 Hide bookmarks" else "🔖 Bookmarks",
+                    title = if (showBookmarks) "Hide bookmarks" else "Bookmarks",
+                    leadingIcon = Icons.Filled.Bookmark,
                     onClick = { choose(onToggleBookmarks) }
                 )
 
                 val documentNotesFeature = readerFeature(VeritasFeatureId.BOOKMARKS_AND_NOTES)
                 SettingsItem(
-                    title = "✒️ Document notes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",
+                    title = "Document notes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",
+                    leadingIcon = Icons.Filled.EditNote,
                     enabled = documentNotesFeature.enabled,
                     subtitle = if (!documentNotesFeature.enabled) documentNotesFeature.disabledReason else null,
                     onClick = { choose(onOpenDocumentNotes) }
@@ -368,6 +386,7 @@ private fun SettingsItem(
     title: String,
     subtitle: String? = null,
     enabled: Boolean = true,
+    leadingIcon: ImageVector? = null,
     onClick: () -> Unit
 ) {
     Surface(
@@ -377,22 +396,33 @@ private fun SettingsItem(
             .alpha(if (enabled) 1f else 0.4f),
         color = androidx.compose.ui.graphics.Color.Transparent
     ) {
-        Column(
-            modifier = Modifier
-                .padding(horizontal = 24.dp, vertical = 12.dp)
+        Row(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            if (subtitle != null) {
-                Spacer(modifier = Modifier.size(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            if (leadingIcon != null) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
                 )
+                Spacer(modifier = Modifier.size(14.dp))
+            }
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (subtitle != null) {
+                    Spacer(modifier = Modifier.size(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

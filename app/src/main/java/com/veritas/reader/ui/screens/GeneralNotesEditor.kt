@@ -93,6 +93,68 @@ fun GeneralNotesEditor(
     var reminderAt by remember { mutableStateOf(note?.reminderAt) }
     var showColorPicker by remember { mutableStateOf(false) }
     var showReminderMenu by remember { mutableStateOf(false) }
+    var confirmDeleteNote by remember { mutableStateOf(false) }
+    var showExactAlarmPrompt by remember { mutableStateOf(false) }
+
+    // Reminders fall back to inexact alarms without the "Alarms & reminders" permission on
+    // Android 12+, arriving late with no explanation. Ask once when a reminder is set.
+    LaunchedEffect(reminderAt) {
+        if (reminderAt != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val alarmManager = context.getSystemService(android.app.AlarmManager::class.java)
+            if (alarmManager != null && !alarmManager.canScheduleExactAlarms()) {
+                showExactAlarmPrompt = true
+            }
+        }
+    }
+    if (showExactAlarmPrompt) {
+        AlertDialog(
+            onDismissRequest = { showExactAlarmPrompt = false },
+            title = { Text(androidx.compose.ui.res.stringResource(com.veritas.reader.R.string.reminder_exact_title)) },
+            text = { Text(androidx.compose.ui.res.stringResource(com.veritas.reader.R.string.reminder_exact_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showExactAlarmPrompt = false
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                        runCatching {
+                            context.startActivity(
+                                Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                    data = android.net.Uri.parse("package:${context.packageName}")
+                                }
+                            )
+                        }
+                    }
+                }) { Text(androidx.compose.ui.res.stringResource(com.veritas.reader.R.string.reminder_exact_allow)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExactAlarmPrompt = false }) {
+                    Text(androidx.compose.ui.res.stringResource(com.veritas.reader.R.string.reminder_exact_later))
+                }
+            }
+        )
+    }
+    if (confirmDeleteNote && note != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteNote = false },
+            title = { Text(androidx.compose.ui.res.stringResource(com.veritas.reader.R.string.delete_note_title)) },
+            text = { Text(androidx.compose.ui.res.stringResource(com.veritas.reader.R.string.delete_note_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDeleteNote = false
+                    onDelete(note.id)
+                }) {
+                    Text(
+                        androidx.compose.ui.res.stringResource(com.veritas.reader.R.string.action_delete),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteNote = false }) {
+                    Text(androidx.compose.ui.res.stringResource(com.veritas.reader.R.string.action_cancel))
+                }
+            }
+        )
+    }
 
     var expandedMenu by remember { mutableStateOf(NotesToolbarMenu.NONE) }
     var triggerImagePickerOnStart by remember { mutableStateOf(false) }
@@ -408,98 +470,26 @@ fun GeneralNotesEditor(
     fun applyInlineMarker(marker: String) {
         if (isChecklist) return
         pushHistory()
-        val text = contentValue.text
-        val s = contentValue.selection.min
-        val e = contentValue.selection.max
-        val selected = text.substring(s, e)
-        val mlen = marker.length
-        val newValue: TextFieldValue = when {
-            selected.length >= 2 * mlen && selected.startsWith(marker) && selected.endsWith(marker) -> {
-                val inner = selected.substring(mlen, selected.length - mlen)
-                val nt = text.substring(0, s) + inner + text.substring(e)
-                TextFieldValue(nt, TextRange(s, s + inner.length))
-            }
-            s >= mlen && e + mlen <= text.length &&
-                text.substring(s - mlen, s) == marker && text.substring(e, e + mlen) == marker -> {
-                val nt = text.substring(0, s - mlen) + selected + text.substring(e + mlen)
-                TextFieldValue(nt, TextRange(s - mlen, e - mlen))
-            }
-            else -> {
-                val nt = text.substring(0, s) + marker + selected + marker + text.substring(e)
-                val sel = if (s == e) TextRange(s + mlen) else TextRange(s + mlen, e + mlen)
-                TextFieldValue(nt, sel)
-            }
-        }
+        val newValue = VeritasNoteEditing.toggleInlineMarker(contentValue, marker)
         contentValue = newValue
         contentText = newValue.text
     }
 
     // Toggle a line-level prefix (heading / list marker) across every line touched by the
-    // selection. For a numbered list each line is numbered sequentially (1., 2., 3., …) so
-    // "select all → numbered list" works correctly; for bullets/headings the same marker is
-    // applied to each line. With no selection it toggles the single caret line.
-    val linePrefixRegex = Regex("^(#{1,3} |[-*•] |\\d+\\. )")
+    // selection. Logic lives in VeritasNoteEditing so it is unit-tested.
     fun applyLinePrefix(prefix: String) {
         if (isChecklist) return
         pushHistory()
-        val text = contentValue.text
-        val selMin = contentValue.selection.min
-        val selMax = contentValue.selection.max
-        val blockStart = text.lastIndexOf('\n', (selMin - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
-        val blockEnd = text.indexOf('\n', selMax).let { if (it < 0) text.length else it }
-        val block = text.substring(blockStart, blockEnd)
-        val lines = block.split("\n")
-        val isNumbered = prefix.matches(Regex("\\d+\\. "))
-        // Toggle off when every non-blank line already carries this kind of marker.
-        val allHave = lines.all { line ->
-            line.isBlank() || if (isNumbered) line.matches(Regex("^\\d+\\. .*")) else line.startsWith(prefix)
-        }
-        val rebuilt = if (allHave) {
-            lines.joinToString("\n") { it.replaceFirst(linePrefixRegex, "") }
-        } else {
-            var n = 1
-            lines.joinToString("\n") { line ->
-                if (line.isBlank()) {
-                    line
-                } else {
-                    val stripped = line.replaceFirst(linePrefixRegex, "")
-                    if (isNumbered) "${n++}. $stripped" else "$prefix$stripped"
-                }
-            }
-        }
-        val nt = text.substring(0, blockStart) + rebuilt + text.substring(blockEnd)
-        val newCaret = (blockStart + rebuilt.length).coerceIn(0, nt.length)
-        contentValue = TextFieldValue(nt, TextRange(newCaret))
-        contentText = nt
+        val newValue = VeritasNoteEditing.toggleLinePrefix(contentValue, prefix)
+        contentValue = newValue
+        contentText = newValue.text
     }
 
     // Continue list markers when Enter is pressed; terminate the list on an empty item.
+    // Diff-based detection in VeritasNoteEditing tolerates IME batch edits (autocorrect +
+    // newline committed together), which used to break numbering after a couple of items.
     fun handleSmartNewline(old: TextFieldValue, candidate: TextFieldValue): TextFieldValue {
-        if (candidate.text.length != old.text.length + 1) return candidate
-        val caret = candidate.selection.start
-        if (caret <= 0 || candidate.text.getOrNull(caret - 1) != '\n') return candidate
-        val before = candidate.text.substring(0, caret - 1)
-        val lineStart = before.lastIndexOf('\n') + 1
-        val line = before.substring(lineStart)
-        val match = Regex("^(\\s*)(?:([-*•])|(\\d+)\\.|(\\[[ xX]\\]))\\s+(.*)$").find(line) ?: return candidate
-        val indent = match.groupValues[1]
-        val bullet = match.groupValues[2]
-        val number = match.groupValues[3]
-        val check = match.groupValues[4]
-        val itemContent = match.groupValues[5]
-        if (itemContent.isBlank()) {
-            // Empty list item + Enter => remove the marker and end the list.
-            val nt = candidate.text.substring(0, lineStart) + candidate.text.substring(caret)
-            return candidate.copy(text = nt, selection = TextRange(lineStart))
-        }
-        val nextMarker = when {
-            bullet.isNotEmpty() -> "$indent$bullet "
-            number.isNotEmpty() -> "$indent${(number.toIntOrNull() ?: 1) + 1}. "
-            check.isNotEmpty() -> "$indent[ ] "
-            else -> return candidate
-        }
-        val nt = candidate.text.substring(0, caret) + nextMarker + candidate.text.substring(caret)
-        return candidate.copy(text = nt, selection = TextRange(caret + nextMarker.length))
+        return VeritasNoteEditing.continueListOnNewline(old, candidate)
     }
 
     fun shareNote() {
@@ -894,8 +884,7 @@ fun GeneralNotesEditor(
                                                     text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                                                     onClick = {
                                                         showOverflow = false
-                                                        onDelete(note.id)
-                                                        onDismiss()
+                                                        confirmDeleteNote = true
                                                     },
                                                     leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
                                                 )
@@ -1166,9 +1155,15 @@ fun GeneralNotesEditor(
                                             updateChecklistString()
                                         }
                                     },
-                                    modifier = Modifier.size(24.dp)
+                                    // 40dp touch target (was 24dp); icon stays small.
+                                    modifier = Modifier.size(40.dp)
                                 ) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Remove", tint = onCardColor.copy(alpha = 0.5f))
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "Remove item",
+                                        tint = onCardColor.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
                             }
                         }

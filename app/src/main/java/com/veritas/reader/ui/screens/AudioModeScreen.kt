@@ -1,7 +1,12 @@
 package com.veritas.reader.ui.screens
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -289,17 +294,27 @@ fun AudioModeScreen(
                     ) {
                         itemsIndexed(documentChunks) { index, sentence ->
                             val isActive = index == currentIndex
-                            // Animate the active-sentence emphasis so the lyrics view glides
-                            // between sentences instead of snapping.
+                            // YouTube-Music-style lyric emphasis: the active line fades IN slowly
+                            // with a decelerating ease and a subtle upward rise, while lines
+                            // fading OUT dim faster so attention lands on the new sentence.
                             val alpha by animateFloatAsState(
                                 targetValue = if (isActive) 1.0f else 0.35f,
-                                animationSpec = tween(durationMillis = 350),
+                                animationSpec = if (isActive) {
+                                    tween(durationMillis = 550, easing = LinearOutSlowInEasing)
+                                } else {
+                                    tween(durationMillis = 300, easing = FastOutLinearInEasing)
+                                },
                                 label = "sentenceAlpha"
                             )
                             val fontSizeValue by animateFloatAsState(
                                 targetValue = if (isActive) 19f else 15f,
-                                animationSpec = tween(durationMillis = 350),
+                                animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
                                 label = "sentenceSize"
+                            )
+                            val lift by animateFloatAsState(
+                                targetValue = if (isActive) 0f else 1f,
+                                animationSpec = tween(durationMillis = 550, easing = LinearOutSlowInEasing),
+                                label = "sentenceLift"
                             )
                             val fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
                             val fontSize = fontSizeValue.sp
@@ -317,6 +332,7 @@ fun AudioModeScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 24.dp)
+                                    .graphicsLayer { translationY = lift * 6.dp.toPx() }
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null
@@ -642,12 +658,23 @@ fun AudioModeButton(
             )
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                modifier = Modifier.size(iconSize),
-                tint = contentColor
-            )
+            // Same springy scale-morph the home hero uses, so play↔pause feels
+            // consistent across every player surface.
+            AnimatedContent(
+                targetState = icon,
+                transitionSpec = {
+                    (scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)) + fadeIn(tween(150)))
+                        .togetherWith(fadeOut(tween(100)))
+                },
+                label = "audioModeIconMorph"
+            ) { targetIcon ->
+                Icon(
+                    imageVector = targetIcon,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.size(iconSize),
+                    tint = contentColor
+                )
+            }
         }
     }
 }

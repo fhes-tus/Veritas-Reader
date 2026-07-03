@@ -5,9 +5,13 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.pdf.PdfRenderer
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -145,6 +149,7 @@ internal fun ActualDocumentView(
     var zoomScale by remember(document.id) { mutableFloatStateOf(1f) }
     var zoomOffset by remember(document.id) { mutableStateOf(Offset.Zero) }
     var rotationDegrees by remember(document.id) { mutableIntStateOf(0) }
+    var pageTurnDirection by remember(document.id) { mutableIntStateOf(0) }
     var topBarVisible by remember { mutableStateOf(true) }
     var bottomBarVisible by remember { mutableStateOf(true) }
     var interactionTrigger by remember { mutableStateOf(0L) }
@@ -271,7 +276,10 @@ internal fun ActualDocumentView(
     LaunchedEffect(readingProgress, pageCount) {
         if (isPdf && pageCount > 1) {
             val syncedPage = (readingProgress.coerceIn(0f, 1f) * (pageCount - 1)).roundToInt().coerceIn(0, pageCount - 1)
-            if (syncedPage != pageIndex) pageIndex = syncedPage
+            if (syncedPage != pageIndex) {
+                pageTurnDirection = if (syncedPage > pageIndex) 1 else -1
+                pageIndex = syncedPage
+            }
         }
     }
 
@@ -284,8 +292,19 @@ internal fun ActualDocumentView(
         if (!isPdf || pageCount <= 1) return
         val safeTarget = target.coerceIn(0, pageCount - 1)
         if (safeTarget != pageIndex) {
+            pageTurnDirection = if (safeTarget > pageIndex) 1 else -1
             pageIndex = safeTarget
             onPageChanged(safeTarget, pageCount)
+        }
+    }
+
+    // Page-turn entrance: when a freshly rendered page arrives, it slides in a little
+    // from the swipe direction while fading, instead of hard-cutting. 0 = just arrived.
+    val pageEnter = remember { Animatable(1f) }
+    LaunchedEffect(bitmap) {
+        if (bitmap != null) {
+            pageEnter.snapTo(0f)
+            pageEnter.animateTo(1f, tween(durationMillis = 260, easing = LinearOutSlowInEasing))
         }
     }
 
@@ -362,11 +381,14 @@ internal fun ActualDocumentView(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
+                                    val enter = pageEnter.value
                                     scaleX = zoomScale
                                     scaleY = zoomScale
                                     rotationZ = rotationDegrees.toFloat()
-                                    translationX = zoomOffset.x
+                                    translationX = zoomOffset.x +
+                                        (1f - enter) * pageTurnDirection * 48.dp.toPx()
                                     translationY = zoomOffset.y
+                                    alpha = 0.3f + 0.7f * enter
                                 }
                                 .pointerInput(isPdf, pageIndex, pageCount, viewportWidthPx, viewportHeightPx, zoomScale) {
                                     awaitEachGesture {
@@ -757,10 +779,20 @@ private fun DocPlayerPanel(
                         )
                     }
                     FilledTonalIconButton(onClick = onPlayPause) {
-                        Icon(
-                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play"
-                        )
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = isPlaying,
+                            transitionSpec = {
+                                (androidx.compose.animation.scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
+                                    androidx.compose.animation.fadeIn(tween(150)))
+                                    .togetherWith(androidx.compose.animation.fadeOut(tween(100)))
+                            },
+                            label = "originalPlayMorph"
+                        ) { playing ->
+                            Icon(
+                                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (playing) "Pause" else "Play"
+                            )
+                        }
                     }
                     IconButton(
                         onClick = onNext,

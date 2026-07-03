@@ -1670,7 +1670,13 @@ class DocumentRepository(context: Context) {
     fun loadReaderTrackerSnapshot(nowMillis: Long = System.currentTimeMillis()): ReaderTrackerSnapshot {
         val days = loadTrackerDays().values.sortedBy { it.dateKey }
         val todayKey = trackerDateKey(nowMillis)
-        val openDateKeys = days.filter { it.appOpenCount > 0 }.map { it.dateKey }.toSet()
+        // Streaks and the heatmap count days the user actually READ something (a document
+        // was opened for reading that day), not days the app was merely launched. Merely
+        // opening the app used to grant a "1-day streak", which cheapened the streak.
+        val readingDateKeys = days
+            .filter { it.readDocumentIds.isNotEmpty() }
+            .map { it.dateKey }
+            .toSet()
         val weekKeys = trackerWeekKeys(nowMillis)
         val (weeklyUsage, weeklyAverage) = ReaderTrackerMath.weeklyUsage(days, weekKeys)
         val daysByKey = days.associateBy { it.dateKey }
@@ -1700,8 +1706,8 @@ class DocumentRepository(context: Context) {
             dateKeyFor = ::trackerDateKey
         )
         return ReaderTrackerSnapshot(
-            currentStreak = ReaderTrackerMath.currentStreak(openDateKeys, todayKey),
-            longestStreak = ReaderTrackerMath.longestStreak(openDateKeys),
+            currentStreak = ReaderTrackerMath.currentStreak(readingDateKeys, todayKey),
+            longestStreak = ReaderTrackerMath.longestStreak(readingDateKeys),
             weeklyUsageMillis = weeklyUsage,
             weeklyAverageMillis = weeklyAverage,
             documentsReadThisWeek = readThisWeek,
@@ -1709,7 +1715,7 @@ class DocumentRepository(context: Context) {
             weeklyUsageByDay = weeklyUsageByDay,
             weeklyHistory = weeklyHistory,
             recentCompletions = completions.sortedByDescending { it.completedAt }.take(8),
-            activeDateKeys = openDateKeys
+            activeDateKeys = readingDateKeys
         )
     }
 
@@ -2449,11 +2455,10 @@ class DocumentRepository(context: Context) {
      * to the user like their library/notes had been wiped.
      */
     private fun readResilientJsonArray(key: String): JSONArray {
-        prefs.getString(key, null)?.let { raw ->
-            runCatching { JSONArray(raw) }.getOrNull()?.let { return it }
-        }
-        val backup = prefs.getString("${key}__bak", null) ?: return JSONArray()
-        return runCatching { JSONArray(backup) }.getOrDefault(JSONArray())
+        return ResilientJson.chooseArray(
+            primary = prefs.getString(key, null),
+            backup = prefs.getString("${key}__bak", null)
+        )
     }
 
     private fun saveDocuments(documents: List<SavedDocument>) {

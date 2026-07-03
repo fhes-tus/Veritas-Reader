@@ -19,6 +19,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -61,7 +62,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private var toolbarChrome: View? = null
     private var bottomChrome: View? = null
     private var chromeHideJob: Job? = null
-    private var chromeVisible = true
+    private var chromeVisible = false
     private var chromeMenuOpen = false
     private var tapDownX = 0f
     private var tapDownY = 0f
@@ -160,8 +161,9 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     }
 
     private fun buildLayout(title: String) {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        // FrameLayout so the PDF stays full-screen underneath and the bars float
+        // OVER it — sliding them away never resizes or jumps the document.
+        val root = FrameLayout(this).apply {
             setBackgroundColor(colorBackground)
         }
 
@@ -170,9 +172,11 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(8.dp, statusBarHeight() + 8.dp, 6.dp, 4.dp)
             setBackgroundColor(colorToolbar)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+            elevation = 6f
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP
             )
         }
         applyToolbarInsets(toolbar)
@@ -229,10 +233,9 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 handleDocumentChromeTouch(this, event)
                 false
             }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
@@ -240,9 +243,11 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(10.dp, 7.dp, 10.dp, 13.dp)
             setBackgroundColor(colorBackground)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+            elevation = 6f
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM
             )
         }
         applyDeckInsets(controlsOuter)
@@ -391,13 +396,14 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         controls.addView(expandedSection)
         controlsOuter.addView(controls)
 
-        root.addView(toolbar)
         root.addView(fragmentContainer)
+        root.addView(toolbar)
         root.addView(controlsOuter)
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
-        showChrome(keepVisible = true)
-        scheduleChromeAutoHide()
+        // Minimized chrome is the default. INVISIBLE (not GONE) so the bars are
+        // measured on the first layout pass and can slide in from their real heights.
+        listOfNotNull(toolbarChrome, bottomChrome).forEach { it.visibility = View.INVISIBLE }
     }
 
     private fun resetInactivityTimer() {
@@ -409,8 +415,14 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         }
     }
 
+    // Silent reading in this viewer happens while MainActivity is stopped, so the app's
+    // session timer isn't running — without this, Original-mode reading earned no reading
+    // time and no streak day. Wall-clock while resumed, recorded on pause.
+    private var viewerReadingStartedAt = 0L
+
     override fun onResume() {
         super.onResume()
+        viewerReadingStartedAt = System.currentTimeMillis()
         updatePlaybackControls()
         if (chromeVisible) scheduleChromeAutoHide()
         resetInactivityTimer()
@@ -419,8 +431,24 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveCurrentProgress()
+        recordViewerReadingSession()
         keepAwakeTimerJob?.cancel()
         window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun recordViewerReadingSession() {
+        val doc = document ?: return
+        val startedAt = viewerReadingStartedAt
+        viewerReadingStartedAt = 0L
+        if (startedAt <= 0L) return
+        val delta = System.currentTimeMillis() - startedAt
+        // Cap defensively: a forgotten open viewer overnight shouldn't count 8 hours.
+        if (delta in 1_000L..(3L * 60L * 60L * 1000L)) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                repository.recordDocReadingTime(doc.id, delta)
+                repository.recordDocumentRead(doc.id, doc.title)
+            }
+        }
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
@@ -439,7 +467,11 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         val view = pdfView ?: return
         val visiblePage = runCatching { view.firstVisiblePage }.getOrNull() ?: return
         val model = readerTextModel ?: return
-        
+        // Eyes don't move the voice: while TTS is actively reading this document, the page
+        // being LOOKED at must not overwrite the sentence being SPOKEN — that stomped the
+        // live position and caused playback to restart from far above after navigation.
+        if (PlaybackStateStore.isPlaying && PlaybackStateStore.activeDocumentId == metadata.id) return
+
         lifecycleScope.launch(Dispatchers.IO) {
             val pageNum = visiblePage + 1
             var sentenceIndex = model.sentences.indexOfFirst { it.pageNumber == pageNum }
@@ -1089,16 +1121,19 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 val dx = event.x - tapDownX
                 val dy = event.y - tapDownY
                 if ((dx * dx + dy * dy) > (slop * slop)) {
+                    // The finger is scrolling, not tapping — glide the bars away
+                    // the moment the scroll starts.
+                    if (!tapMoved && chromeVisible) hideChrome()
                     tapMoved = true
                 }
             }
             MotionEvent.ACTION_UP -> {
-                val topTapZone = view.height.toFloat() * 0.30f
                 val quickTap = event.eventTime - tapDownTime < 360L
                 val dx = event.x - tapDownX
                 val dy = event.y - tapDownY
                 val moved = tapMoved || (dx * dx + dy * dy) > (slop * slop)
-                if (!moved && quickTap && tapDownY <= topTapZone) {
+                // A clean tap anywhere on the document toggles the chrome.
+                if (!moved && quickTap) {
                     toggleChromeFromDocumentTap()
                 }
             }
@@ -1118,37 +1153,56 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
     private fun showChrome(keepVisible: Boolean = false) {
         chromeVisible = true
-        listOfNotNull(toolbarChrome, bottomChrome).forEach { view ->
-            if (view.visibility != View.VISIBLE) {
-                view.alpha = 0f
-                view.visibility = View.VISIBLE
-            }
-            view.animate().cancel()
-            view.animate().alpha(1f).setDuration(140L).start()
-        }
+        toolbarChrome?.let { slideChromeIn(it, offscreenY = -it.height.toFloat()) }
+        bottomChrome?.let { slideChromeIn(it, offscreenY = it.height.toFloat()) }
         chromeHideJob?.cancel()
         if (!keepVisible) scheduleChromeAutoHide()
     }
 
     private fun hideChrome() {
         chromeHideJob?.cancel()
-        if (chromeMenuOpen || !chromeVisible) return
+        // While the bottom panel is expanded the user is actively adjusting
+        // controls (speed/pitch sliders, queue) — never pull the bars away.
+        if (chromeMenuOpen || panelExpanded || !chromeVisible) return
         chromeVisible = false
-        listOfNotNull(toolbarChrome, bottomChrome).forEach { view ->
-            view.animate().cancel()
-            view.animate()
-                .alpha(0f)
-                .setDuration(160L)
-                .withEndAction {
-                    if (!chromeVisible) view.visibility = View.GONE
-                }
-                .start()
+        toolbarChrome?.let { slideChromeOut(it, offscreenY = -it.height.toFloat()) }
+        bottomChrome?.let { slideChromeOut(it, offscreenY = it.height.toFloat()) }
+    }
+
+    // The bars glide on/off screen (top bar upward, bottom bar downward) with a
+    // decelerating ease instead of a hard fade — they read as part of the UI
+    // sliding away, and the document underneath never moves.
+    private fun slideChromeIn(bar: View, offscreenY: Float) {
+        bar.animate().cancel()
+        if (bar.visibility != View.VISIBLE) {
+            bar.translationY = offscreenY
+            bar.alpha = 0f
+            bar.visibility = View.VISIBLE
         }
+        bar.animate()
+            .translationY(0f)
+            .alpha(1f)
+            .setDuration(240L)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
+    }
+
+    private fun slideChromeOut(bar: View, offscreenY: Float) {
+        bar.animate().cancel()
+        bar.animate()
+            .translationY(offscreenY)
+            .alpha(0f)
+            .setDuration(250L)
+            .setInterpolator(DecelerateInterpolator())
+            .withEndAction {
+                if (!chromeVisible) bar.visibility = View.INVISIBLE
+            }
+            .start()
     }
 
     private fun scheduleChromeAutoHide() {
         chromeHideJob?.cancel()
-        if (!chromeVisible || chromeMenuOpen) return
+        if (!chromeVisible || chromeMenuOpen || panelExpanded) return
         chromeHideJob = lifecycleScope.launch {
             delay(CHROME_AUTO_HIDE_MS)
             hideChrome()
@@ -1457,7 +1511,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     companion object {
         private const val EXTRA_DOCUMENT_ID = "document_id"
         private const val VIEWER_TAG = "veritas_pdf_viewer"
-        private const val CHROME_AUTO_HIDE_MS = 5_000L
+        private const val CHROME_AUTO_HIDE_MS = 4_000L
 
         fun intent(context: Context, documentId: String): Intent {
             return Intent(context, VeritasPdfViewerActivity::class.java)

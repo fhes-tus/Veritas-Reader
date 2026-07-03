@@ -14,6 +14,12 @@ class TextToSpeech {
     private var activeProcess: Process? = null
     private var activeThread: Thread? = null
     private var progressListener: UtteranceProgressListener? = null
+    // Bumped on every stop()/speak(); an utterance whose generation is stale was cancelled
+    // on purpose and must fire NEITHER onDone NOR onError. Without this, the QUEUE_FLUSH
+    // stop() inside speak() killed the previous process, its waitFor() returned non-zero,
+    // onError fired, and PlaybackService treated every pause/seek/rate-change as an engine
+    // failure and halted playback.
+    @Volatile private var generation: Long = 0L
     private var currentLanguage: Locale = Locale.getDefault()
     private var currentRate: Float = 1.0f
     private var currentPitch: Float = 1.0f
@@ -82,6 +88,7 @@ class TextToSpeech {
         val txt = text.toString()
         val voiceName = voice?.name ?: currentVoiceName
         val rate = currentRate
+        val myGeneration = ++generation
 
         activeThread = Thread {
             var tempFile: File? = null
@@ -123,17 +130,25 @@ class TextToSpeech {
                         activeProcess = null
                     }
                 }
-                
-                SwingUtilities.invokeLater {
-                    if (exitCode == 0) {
-                        listener?.onDone(utteranceId)
-                    } else {
-                        listener?.onError(utteranceId)
+
+                // A stale generation means stop()/a newer speak() cancelled this utterance
+                // deliberately — report nothing, like Android's engine does on stop().
+                if (generation == myGeneration) {
+                    SwingUtilities.invokeLater {
+                        if (exitCode == 0) {
+                            listener?.onDone(utteranceId)
+                        } else {
+                            listener?.onError(utteranceId)
+                        }
                     }
                 }
+            } catch (e: InterruptedException) {
+                // Interrupted by stop(): intentional cancellation, never an error.
             } catch (e: Exception) {
-                SwingUtilities.invokeLater {
-                    listener?.onError(utteranceId)
+                if (generation == myGeneration) {
+                    SwingUtilities.invokeLater {
+                        listener?.onError(utteranceId)
+                    }
                 }
             } finally {
                 runCatching { tempFile?.delete() }
@@ -150,6 +165,7 @@ class TextToSpeech {
     }
 
     fun stop(): Int {
+        generation++
         synchronized(this) {
             activeProcess?.destroy()
             activeProcess = null

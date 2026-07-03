@@ -12,4 +12,23 @@
     <string name="widget_play">▶</string>
     <string name="widget_next">›</string>
     <string name="widget_favorite">♡</string>
+    <string name="crash_dialog_title">Veritas closed unexpectedly</string>
+    <string name="crash_dialog_message">Last time, the app hit an error and had to close. You can send the crash details to the developer to help fix it — nothing is sent without your say-so.</string>
+    <string name="crash_dialog_send">Send report</string>
+    <string name="crash_dialog_dismiss">Dismiss</string>
+    <string name="tts_hint_title">Better voices available</string>
+    <string name="tts_hint_message">Your device is using a text-to-speech engine that may limit word highlighting and voice quality. Installing Google Text-to-Speech usually gives the best reading experience.</string>
+    <string name="tts_hint_get">Get Google TTS</string>
+    <string name="tts_hint_dismiss">Keep current</string>
+    <string name="reminder_exact_title">Allow exact reminders</string>
+    <string name="reminder_exact_message">To ring at the exact time you set, Veritas needs the "Alarms &amp; reminders" permission. Without it, reminders may arrive a little late.</string>
+    <string name="reminder_exact_allow">Open settings</string>
+    <string name="reminder_exact_later">Not now</string>
+    <string name="delete_note_title">Delete this note?</string>
+    <string name="delete_note_message">This can\'t be undone.</string>
+    <string name="clear_history_title">Clear reading history?</string>
+    <string name="clear_history_message">This removes all history entries. Your documents and progress are not affected.</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_cancel">Cancel</string>
 </resources>

@@ -90,6 +90,13 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Search
@@ -550,7 +557,12 @@ fun ReaderScreen(
                             Spacer(modifier = Modifier.height(24.dp))
                         }
                     }
-                    item(key = "part-${currentPart?.index ?: 0}") {
+                    // STABLE key on purpose: keying by part index destroyed the AndroidView
+                    // TextView every section change. If that TextView held focus (text was
+                    // selected), removeViewInLayout triggered a framework focus hunt into the
+                    // Compose view mid-teardown and crashed the app. Reusing one item (update
+                    // rewrites the text) means the focusable view is never removed mid-read.
+                    item(key = "reader-part") {
                         val part = currentPart
                         if (part == null) {
                             Text("No readable text found.", modifier = Modifier.padding(18.dp))
@@ -687,6 +699,13 @@ fun ReaderScreen(
                                         }
                                     }
 
+                                    // Drop any lingering native selection when the section
+                                    // changes — the reused TextView is about to show new text.
+                                    LaunchedEffect(part.index) {
+                                        selectedTextSelection = null
+                                        clearNativeTextSelection(selectedTextView)
+                                        selectedTextView?.clearFocus()
+                                    }
                                     AndroidView(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -695,6 +714,14 @@ fun ReaderScreen(
                                             TextView(viewContext).apply {
                                                 setTextIsSelectable(true)
                                                 includeFontPadding = true
+                                            }
+                                        },
+                                        onRelease = { released ->
+                                            // Never let a focused view be torn down (framework
+                                            // focus-hunt crash on removal).
+                                            runCatching {
+                                                clearNativeTextSelection(released)
+                                                released.clearFocus()
                                             }
                                         },
                                         update = { textView ->
@@ -1244,33 +1271,45 @@ private fun ReaderToolsMenu(
             fontWeight = FontWeight.Bold
         )
         DropdownMenuItem(
-            text = { Text(if (showSearch) "🔎 Hide search" else "🔎 Search document") },
+            text = { Text(if (showSearch) "Hide search" else "Search document") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             onClick = { choose(onToggleSearch) })
         DropdownMenuItem(
-            text = { Text("💾 Original View") },
+            text = { Text("Original View") },
+            leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null) },
             enabled = hasCanvas,
             onClick = { choose(onOpenCanvas) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.SLEEP_TIMER),
-            label = if (sleepTimerLabel.isBlank()) "⏱️ Sleep timer" else "⏱️ $sleepTimerLabel",
-            onClick = { choose(onOpenSleepTimer) }
+            label = if (sleepTimerLabel.isBlank()) "Sleep timer" else sleepTimerLabel,
+            onClick = { choose(onOpenSleepTimer) },
+            leadingIcon = Icons.Filled.Timer
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.READING_LISTS),
-            label = "📰 Reading lists ($activeDocumentReadingListCount/$readingListCount)",
-            onClick = { choose(onOpenReadingLists) }
+            label = "Reading lists ($activeDocumentReadingListCount/$readingListCount)",
+            onClick = { choose(onOpenReadingLists) },
+            leadingIcon = Icons.Filled.CollectionsBookmark
         )
         DropdownMenuItem(
-            text = { Text(if (isQueued) "✓ Remove from Queue" else "+ Add to Queue") },
+            text = { Text(if (isQueued) "Remove from Queue" else "Add to Queue") },
+            leadingIcon = {
+                Icon(
+                    if (isQueued) Icons.AutoMirrored.Filled.PlaylistAddCheck else Icons.AutoMirrored.Filled.PlaylistAdd,
+                    contentDescription = null
+                )
+            },
             onClick = { choose(onToggleQueue) })
         DropdownMenuItem(
-            text = { Text("▶ Play Queue ($queueCount)") },
+            text = { Text("Play Queue ($queueCount)") },
+            leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null) },
             enabled = queueCount > 0,
             onClick = { choose(onPlayQueue) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.READING_HISTORY),
-            label = "↺ Reading history",
-            onClick = { choose(onOpenReadingHistory) }
+            label = "Reading history",
+            onClick = { choose(onOpenReadingHistory) },
+            leadingIcon = Icons.Filled.History
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
         Text(
@@ -1280,12 +1319,14 @@ private fun ReaderToolsMenu(
             fontWeight = FontWeight.Bold
         )
         DropdownMenuItem(
-            text = { Text(if (showBookmarks) "🔖 Hide bookmarks" else "🔖 Bookmarks") },
+            text = { Text(if (showBookmarks) "Hide bookmarks" else "Bookmarks") },
+            leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
             onClick = { choose(onToggleBookmarks) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.BOOKMARKS_AND_NOTES),
-            label = "✒️ Document notes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",
-            onClick = { choose(onOpenDocumentNotes) }
+            label = "Document notes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",
+            onClick = { choose(onOpenDocumentNotes) },
+            leadingIcon = Icons.Filled.EditNote
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
         Text(
@@ -1393,12 +1434,14 @@ private fun ReaderToolsMenu(
 internal fun FeatureDropdownMenuItem(
     feature: ResolvedVeritasFeature,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     DropdownMenuItem(
         text = { FeatureMenuText(feature, label) },
         enabled = feature.enabled,
-        onClick = onClick
+        onClick = onClick,
+        leadingIcon = leadingIcon?.let { icon -> { Icon(icon, contentDescription = null) } }
     )
 }
 

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
@@ -111,6 +112,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -143,34 +146,42 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.automirrored.outlined.Note
+import androidx.compose.ui.res.stringResource
+import com.veritas.reader.R
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 
-private enum class VeritasHomeTab {
+internal enum class VeritasHomeTab {
     HOME,
     LIBRARY,
     STUDY
 }
 
-private data class MarkedDocument(
+internal data class MarkedDocument(
     val document: SavedDocument,
     val annotations: List<ReaderAnnotation>,
     val documentNote: String,
     val updatedAt: Long
 )
 
-private enum class ImportSheetMode {
+internal enum class ImportSheetMode {
     MENU,
     WEB,
     PASTE
 }
 
-private enum class ImportOption {
+internal enum class ImportOption {
     FILE,
     WEB,
     PASTE,
@@ -372,6 +383,148 @@ fun LibraryScreen(
     val selectionMode = selectedDocumentIds.isNotEmpty()
     val currentStreak = uiState.readerTrackerSnapshot.currentStreak
     val longestStreak = uiState.readerTrackerSnapshot.longestStreak
+
+    val pagerState = rememberPagerState(initialPage = selectedHomeTab.ordinal) { VeritasHomeTab.entries.size }
+    val homeListState = rememberLazyListState()
+    val studyListState = rememberLazyListState()
+
+    // Sync pager scroll to selectedHomeTab changes (tab taps, programmatic switches):
+    LaunchedEffect(selectedHomeTab) {
+        if (pagerState.currentPage != selectedHomeTab.ordinal) {
+            pagerState.animateScrollToPage(selectedHomeTab.ordinal)
+        }
+    }
+
+    // Sync selectedHomeTab from the pager via targetPage: during a user swipe/fling it
+    // updates the moment the destination is known (crossing halfway), so the chrome syncs
+    // as responsively as a tab tap; during a programmatic animateScrollToPage it already
+    // equals the final destination, so intermediate pages crossed mid-animation can never
+    // hijack the selection (the old currentPage bug where Home→Study landed on Library).
+    LaunchedEffect(pagerState.targetPage) {
+        val targetTab = VeritasHomeTab.entries[pagerState.targetPage]
+        if (selectedHomeTab != targetTab) {
+            selectedHomeTab = targetTab
+        }
+    }
+
+    // Keep document progress fresh: the PlaybackService writes currentIndex straight to the
+    // repository while speaking, so the uiState document list goes stale during playback.
+    // Refresh on entering this screen (initial false) and every time playback pauses/stops,
+    // so the hero card and library rows show real progress without reopening the app.
+    LaunchedEffect(PlaybackStateStore.isPlaying) {
+        if (!PlaybackStateStore.isPlaying) {
+            onRefreshMainPage()
+        }
+    }
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    val errorColor = MaterialTheme.colorScheme.error
+    val pastedColor = MaterialTheme.colorScheme.inversePrimary
+
+    val formatSlices = remember(documents, primaryColor, secondaryColor, tertiaryColor, errorColor, pastedColor) {
+        var pdfCount = 0
+        var webCount = 0
+        var ebookCount = 0
+        var docCount = 0
+        var pastedCount = 0
+        documents.forEach { doc ->
+            val mime = doc.originalMimeType.lowercase(Locale.US)
+            val title = doc.title.lowercase(Locale.US)
+            val label = doc.sourceLabel.lowercase(Locale.US)
+            when {
+                label == "pdf" || mime.contains("pdf") || title.endsWith(".pdf") -> pdfCount++
+                label.contains("web") || label.contains("http") || label.contains("article") ||
+                    mime.contains("html") -> webCount++
+                label == "epub" || mime.contains("epub") || title.endsWith(".epub") -> ebookCount++
+                label in setOf("docx", "txt", "ocr") ||
+                    mime.contains("word") || mime.contains("wordprocessingml") ||
+                    mime.startsWith("image/") ||
+                    title.endsWith(".docx") || title.endsWith(".txt") -> docCount++
+                else -> pastedCount++
+            }
+        }
+        listOf(
+            DonutSlice(
+                label = "PDF Documents",
+                value = pdfCount.toFloat(),
+                color = primaryColor,
+                description = "PDFs imported from local file storage or other directories."
+            ),
+            DonutSlice(
+                label = "Web Articles",
+                value = webCount.toFloat(),
+                color = secondaryColor,
+                description = "Online articles, blogs, and papers saved via URL import."
+            ),
+            DonutSlice(
+                label = "E-Books",
+                value = ebookCount.toFloat(),
+                color = tertiaryColor,
+                description = "EPUB e-books imported into your library."
+            ),
+            DonutSlice(
+                label = "Documents",
+                value = docCount.toFloat(),
+                color = errorColor,
+                description = "Word documents, text files, and scanned (OCR) documents."
+            ),
+            DonutSlice(
+                label = "Pasted Text",
+                value = pastedCount.toFloat(),
+                color = pastedColor,
+                description = "Text pasted directly into the reader interface."
+            )
+        ).filter { it.value > 0f }
+    }
+
+    val timeSlices = remember(documents, uiState.documentReadingTimes, primaryColor, secondaryColor, tertiaryColor, errorColor) {
+        val docTimes = documents.mapNotNull { doc ->
+            val readingTime = uiState.documentReadingTimes[doc.id] ?: 0L
+            if (readingTime > 0L) doc to readingTime else null
+        }.sortedByDescending { it.second }
+
+        val totalTime = docTimes.sumOf { it.second }
+
+        if (docTimes.isEmpty()) {
+            emptyList()
+        } else {
+            val top4 = docTimes.take(4)
+            val othersTime = if (docTimes.size > 4) docTimes.drop(4).sumOf { it.second } else 0L
+            
+            val colors = listOf(
+                primaryColor,
+                secondaryColor,
+                tertiaryColor,
+                errorColor,
+                Color.Gray
+            )
+            
+            val list = mutableListOf<DonutSlice>()
+            top4.forEachIndexed { idx, (doc, time) ->
+                list.add(
+                    DonutSlice(
+                        label = doc.title,
+                        value = time.toFloat() / 60000f,
+                        color = colors[idx % colors.size],
+                        description = "You spent ${time / 60000} minutes reading this document."
+                    )
+                )
+            }
+            if (othersTime > 0L) {
+                list.add(
+                    DonutSlice(
+                        label = "Others",
+                        value = othersTime.toFloat() / 60000f,
+                        color = colors[4],
+                        description = "All other documents combined account for ${othersTime / 60000} minutes."
+                    )
+                )
+            }
+            list
+        }
+    }
     val welcomeName = uiState.userName.trim().ifBlank { "Reader" }
     val (dashboardHeadline, dashboardSubtitle) = when {
         documents.isEmpty() -> {
@@ -785,13 +938,34 @@ fun LibraryScreen(
             // and is unreadable in dark mode on the notes/bookmarks/history/vocabulary tabs.
             contentColor = MaterialTheme.colorScheme.onSurface,
             floatingActionButton = {
-                if (selectedHomeTab == VeritasHomeTab.LIBRARY) {
+                // FAB pops in/out with the Library tab and its + rotates 45° with a
+                // spring while the import sheet is open (micro-morph, no layout risk).
+                AnimatedVisibility(
+                    visible = selectedHomeTab == VeritasHomeTab.LIBRARY,
+                    enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(150)),
+                    exit = scaleOut(tween(120)) + fadeOut(tween(120))
+                ) {
+                    val fabPlusRotation by animateFloatAsState(
+                        targetValue = if (showImportSheet) 45f else 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        ),
+                        label = "fabPlusRotation"
+                    )
                     ExtendedFloatingActionButton(
                         onClick = { showImportSheet = true },
                         shape = VeritasPackStyle.chipShape(),
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
-                        icon = { Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
+                        icon = {
+                            Text(
+                                "+",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.graphicsLayer { rotationZ = fabPlusRotation }
+                            )
+                        },
                         text = { Text("Add") },
                         modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("add_fab", it) }
                     )
@@ -925,8 +1099,8 @@ fun LibraryScreen(
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
-                                            val bookmarkCount = uiState.allAnnotations.count { it.type == AnnotationType.BOOKMARK }
-                                            val noteCount = uiState.allAnnotations.count { it.type == AnnotationType.NOTE } + uiState.documentNotes.size
+                                            val bookmarkCount = remember(uiState.allAnnotations) { uiState.allAnnotations.count { it.type == AnnotationType.BOOKMARK } }
+                                            val noteCount = remember(uiState.allAnnotations, uiState.documentNotes) { uiState.allAnnotations.count { it.type == AnnotationType.NOTE } + uiState.documentNotes.size }
                                             Text(
                                                 "$bookmarkCount bookmark${if (bookmarkCount == 1) "" else "s"} • $noteCount note${if (noteCount == 1) "" else "s"}",
                                                 style = MaterialTheme.typography.bodySmall,
@@ -1057,7 +1231,7 @@ fun LibraryScreen(
                                 onClick = { selectedHomeTab = VeritasHomeTab.LIBRARY },
                                 icon = { color ->
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.List,
+                                        imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
                                         contentDescription = "Library",
                                         tint = color,
                                         modifier = Modifier.size(24.dp)
@@ -1071,7 +1245,7 @@ fun LibraryScreen(
                                 onClick = { selectedHomeTab = VeritasHomeTab.STUDY },
                                 icon = { color ->
                                     Icon(
-                                        imageVector = Icons.Filled.Edit,
+                                        imageVector = Icons.Filled.Layers,
                                         contentDescription = "Study",
                                         tint = color,
                                         modifier = Modifier.size(24.dp)
@@ -1099,9 +1273,204 @@ fun LibraryScreen(
                         .widthIn(max = 760.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    if (selectedHomeTab == VeritasHomeTab.LIBRARY) {
-                        Row(
+                    HorizontalPager(
+                        state = pagerState,
+                        beyondViewportPageCount = 1,
+                        modifier = Modifier.fillMaxSize()
+                    ) { page ->
+                        when (VeritasHomeTab.entries[page]) {
+                            VeritasHomeTab.HOME -> {
+                                val recentImports = remember(documents) {
+                                    documents.sortedByDescending { maxOf(it.createdAt, it.updatedAt) }.take(4)
+                                }
+                                val tracker = uiState.readerTrackerSnapshot
+                                val weeklyMinutes = tracker.weeklyUsageMillis / 60000L
+
+                                // Container tones, not raw primary: the hero reads as a large
+                                // themed surface in every palette (incl. monochrome and
+                                // high-contrast, where the old HSV math degenerated) instead of
+                                // an accent-colored poster. primaryContainer/surface are exactly
+                                // what adaptColorScheme re-tints, so adaptive cover keeps working.
+                                val heroScheme = MaterialTheme.colorScheme
+                                val streakGradient = Brush.linearGradient(
+                                    listOf(
+                                        heroScheme.primaryContainer,
+                                        blendColors(heroScheme.primaryContainer, heroScheme.surface, 0.55f)
+                                    )
+                                )
+                                val streakOnCard = heroScheme.onPrimaryContainer
+
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pointerInput(homeListState) {
+                                            var pullDistance = 0f
+                                            detectVerticalDragGestures(
+                                                onDragStart = { pullDistance = 0f },
+                                                onVerticalDrag = { _, dragAmount ->
+                                                    val atTop = homeListState.firstVisibleItemIndex == 0 && homeListState.firstVisibleItemScrollOffset == 0
+                                                    if (atTop && dragAmount > 0f) pullDistance += dragAmount
+                                                },
+                                                onDragEnd = {
+                                                    val now = System.currentTimeMillis()
+                                                    if (pullDistance > 120f && now - lastMainPageRefreshAt > 1500L) {
+                                                        lastMainPageRefreshAt = now
+                                                        onRefreshMainPage()
+                                                    }
+                                                    pullDistance = 0f
+                                                },
+                                                onDragCancel = { pullDistance = 0f }
+                                            )
+                                        }
+                                        .padding(horizontal = 18.dp),
+                                    state = homeListState,
+                                    contentPadding = PaddingValues(top = 10.dp, bottom = 22.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    // 1. Overview Pills (scrollable row, no header) - compact sized
+                                    item {
+                                        val collectionCount = remember(documents) { documents.map { it.collection.trim() }.filter { it.isNotBlank() }.distinct().size }
+                                        val sourceCount = remember(documents) { documents.map { it.sourceLabel.trim().ifBlank { "Text" } }.distinct().size }
+                                        val unreadCountVal = remember(documents) { documents.count { it.currentIndex <= 0 } }
+                                        Row(
+                                            modifier = Modifier
+                                                .staggeredEntrance(0)
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OverviewPill(value = "${documents.size}", label = "Saved", modifier = Modifier.width(68.dp))
+                                            OverviewPill(value = "$unreadCountVal", label = "Unread", modifier = Modifier.width(70.dp))
+                                            OverviewPill(value = "$readingCount", label = "Reading", modifier = Modifier.width(72.dp))
+                                            OverviewPill(value = "$completedCount", label = "Done", modifier = Modifier.width(60.dp))
+                                            OverviewPill(value = "$favoriteCount", label = "Starred", modifier = Modifier.width(64.dp))
+                                            OverviewPill(value = "$collectionCount", label = "Collections", modifier = Modifier.width(84.dp))
+                                            OverviewPill(value = "$sourceCount", label = "Formats", modifier = Modifier.width(72.dp))
+                                        }
+                                    }
+
+                                    // 2. Hero Card: continue-reading-first, playback-aware,
+                                    // with data-earned rotating insight copy.
+                                    item {
+                                        val todayMinutes = remember(tracker.weeklyUsageByDay) {
+                                            val idx = (java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+                                            (tracker.weeklyUsageByDay.getOrNull(idx) ?: 0L) / 60000L
+                                        }
+                                        Box(modifier = Modifier.staggeredEntrance(1)) {
+                                        VeritasHomeHeroCard(
+                                            tracker = tracker,
+                                            continueDocument = continueDocument,
+                                            gradient = streakGradient,
+                                            onCardColor = streakOnCard,
+                                            weeklyMinutes = weeklyMinutes,
+                                            todayMinutes = todayMinutes,
+                                            onOpen = { onOpenDocument(it) },
+                                            onPlayPause = { onPlayPauseContinue(it) },
+                                            onClear = { onClearContinueDocument(it) },
+                                            onAddContent = { showImportSheet = true }
+                                        )
+                                        }
+                                    }
+
+                                    // 3. Active library (directly on background, no cards, no lines, compact spaced)
+                                    if (recentImports.isNotEmpty()) {
+                                        item {
+                                            Text(
+                                                text = "Active library",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.staggeredEntrance(2).padding(top = 8.dp)
+                                            )
+                                        }
+                                        item {
+                                            Column(
+                                                verticalArrangement = Arrangement.spacedBy(5.dp),
+                                                modifier = Modifier.staggeredEntrance(3).fillMaxWidth()
+                                            ) {
+                                                recentImports.forEach { doc ->
+                                                    val isQueued = isQueued(doc)
+                                                    RecentImportItem(
+                                                        document = doc,
+                                                        isQueued = isQueued,
+                                                        onOpen = { onOpenDocument(doc) },
+                                                        onToggleFavorite = { onToggleFavorite(doc) },
+                                                        onToggleQueue = { onToggleQueue(doc) },
+                                                        onSetCollection = { onSetCollection(doc) },
+                                                        onManageLists = { manageListsDocument = doc },
+                                                        onRename = { onRenameDocument(doc) },
+                                                        onShowDetails = { onShowDetails(doc) },
+                                                        onDelete = { onDeleteDocument(doc) }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 4. Continue Reading now lives inside the hero card above.
+
+                                    // 5. Add Content card (No section heading, updated styling)
+                                    item {
+                                        Card(
+                                            modifier = Modifier.staggeredEntrance(4).fillMaxWidth(),
+                                            shape = VeritasPackStyle.cardShape(),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                                            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                                        ) {
+                                            Box {
+                                                HomeActionRow(
+                                                    icon = Icons.Filled.Add,
+                                                    title = "Add content",
+                                                    body = "Import file - Upload PDF, EPUB, DOCX, TXT, or HTML",
+                                                    iconBackground = Color(0xFFF0F3FF),
+                                                    iconForeground = Color(0xFF7C6FFF),
+                                                    onClick = { showImportSheet = true }
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // 6. Side-by-side Animated Donut Charts
+                                    item {
+                                        val displayTimeSlices = if (timeSlices.isEmpty()) {
+                                            listOf(
+                                                DonutSlice(
+                                                    label = "No reading yet",
+                                                    value = 0f,
+                                                    color = Color.Gray.copy(alpha = 0.4f),
+                                                    description = "Start reading to track your time allocation."
+                                                )
+                                            )
+                                        } else {
+                                            timeSlices
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.staggeredEntrance(5).fillMaxWidth().padding(vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            DashboardDonutChart(
+                                                title = "Library Source Distribution",
+                                                slices = formatSlices,
+                                                totalLabel = "Readings",
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            DashboardDonutChart(
+                                                title = "Time Allocation — This Month",
+                                                slices = displayTimeSlices,
+                                                totalLabel = "Minutes",
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            VeritasHomeTab.LIBRARY -> {
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    Row(
                             modifier = Modifier
+                                .staggeredEntrance(0)
                                 .fillMaxWidth()
                                 .padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 2.dp)
                                 .horizontalScroll(rememberScrollState()),
@@ -1147,311 +1516,286 @@ fun LibraryScreen(
                                 }
                             }
                         }
-                    }
 
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(libraryListState) {
-                                var pullDistance = 0f
-                                detectVerticalDragGestures(
-                                    onDragStart = { pullDistance = 0f },
-                                    onVerticalDrag = { _, dragAmount ->
-                                        val atTop = libraryListState.firstVisibleItemIndex == 0 && libraryListState.firstVisibleItemScrollOffset == 0
-                                        if (atTop && dragAmount > 0f) pullDistance += dragAmount
-                                    },
-                                    onDragEnd = {
-                                        val now = System.currentTimeMillis()
-                                        if (pullDistance > 120f && now - lastMainPageRefreshAt > 1500L) {
-                                            lastMainPageRefreshAt = now
-                                            onRefreshMainPage()
-                                        }
-                                        pullDistance = 0f
-                                    },
-                                    onDragCancel = { pullDistance = 0f }
-                                )
-                            }
-                            .padding(horizontal = 18.dp),
-                        state = libraryListState,
-                        contentPadding = PaddingValues(
-                            top = if (selectedHomeTab == VeritasHomeTab.LIBRARY) 0.dp else 10.dp,
-                            bottom = 22.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-
-        if (selectedHomeTab == VeritasHomeTab.HOME) {
-            item {
-                val tracker = uiState.readerTrackerSnapshot
-                val hasHeroCard = tracker.currentStreak >= 2 || tracker.documentsCompletedThisMonth >= 5
-                
-                if (hasHeroCard) {
-                    val streak = tracker.currentStreak
-                    val streakHeadline = when {
-                        tracker.documentsCompletedThisMonth >= 10 -> "Reading legend! 🏆"
-                        tracker.documentsCompletedThisMonth >= 5 -> "Unstoppable reader! 📚"
-                        streak >= 7 -> "You're doing amazing! 🌟"
-                        tracker.documentsCompletedThisMonth >= 3 -> "Reading superstar! 📚"
-                        tracker.weeklyUsageMillis > 120 * 60 * 1000L -> "In the zone! ⚡"
-                        else -> "Keep it going! 🔥"
-                    }
-                    val streakSubtitle = when {
-                        tracker.documentsCompletedThisMonth >= 10 -> "Outstanding achievement! You've completed ${tracker.documentsCompletedThisMonth} books this month."
-                        tracker.documentsCompletedThisMonth >= 5 -> "Superb! You've finished ${tracker.documentsCompletedThisMonth} books this month."
-                        streak >= 7 -> "Incredible $streak-day streak! You are a reading champion."
-                        tracker.documentsCompletedThisMonth >= 3 -> "You've finished ${tracker.documentsCompletedThisMonth} books this month."
-                        tracker.weeklyUsageMillis > 0 -> "You've read for ${(tracker.weeklyUsageMillis / 60000L)}m this week."
-                        else -> "$streak-day streak! Keep up the momentum."
-                    }
-                    val streakPrimary = MaterialTheme.colorScheme.primary
-                    val streakHsl = FloatArray(3)
-                    android.graphics.Color.colorToHSV(streakPrimary.toArgb(), streakHsl)
-                    val streakGradient = Brush.linearGradient(
-                        listOf(
-                            Color(android.graphics.Color.HSVToColor(floatArrayOf(streakHsl[0], (streakHsl[1] * 0.7f).coerceIn(0f, 1f), (streakHsl[2] * 1.15f).coerceIn(0f, 1f)))),
-                            Color(android.graphics.Color.HSVToColor(floatArrayOf((streakHsl[0] + 15f) % 360f, streakHsl[1].coerceIn(0f, 1f), (streakHsl[2] * 0.85f).coerceIn(0f, 1f))))
-                        )
-                    )
-                    val streakOnCard = if (streakPrimary.luminance() > 0.35f)
-                        Color(0xFF1A1A2E) else Color.White
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        shape = VeritasPackStyle.cardShape(),
-                        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-                    ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(streakGradient)
-                            .padding(20.dp)
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    modifier = Modifier.weight(1f),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Box(
+                                    LazyColumn(
                                         modifier = Modifier
-                                            .size(40.dp)
-                                            .background(streakOnCard.copy(alpha = 0.2f), CircleShape),
-                                        contentAlignment = Alignment.Center
+                                            .staggeredEntrance(1)
+                                            .fillMaxSize()
+                                            .pointerInput(libraryListState) {
+                                                var pullDistance = 0f
+                                                detectVerticalDragGestures(
+                                                    onDragStart = { pullDistance = 0f },
+                                                    onVerticalDrag = { _, dragAmount ->
+                                                        val atTop = libraryListState.firstVisibleItemIndex == 0 && libraryListState.firstVisibleItemScrollOffset == 0
+                                                        if (atTop && dragAmount > 0f) pullDistance += dragAmount
+                                                    },
+                                                    onDragEnd = {
+                                                        val now = System.currentTimeMillis()
+                                                        if (pullDistance > 120f && now - lastMainPageRefreshAt > 1500L) {
+                                                            lastMainPageRefreshAt = now
+                                                            onRefreshMainPage()
+                                                        }
+                                                        pullDistance = 0f
+                                                    },
+                                                    onDragCancel = { pullDistance = 0f }
+                                                )
+                                            }
+                                            .padding(horizontal = 18.dp),
+                                        state = libraryListState,
+                                        contentPadding = PaddingValues(top = 0.dp, bottom = 22.dp),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
                                     ) {
-                                        Text("⚡", fontSize = 20.sp)
-                                    }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            streakHeadline,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = streakOnCard
-                                        )
-                                        Text(
-                                            streakSubtitle,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = streakOnCard.copy(alpha = 0.75f)
-                                        )
-                                    }
+                                        if (selectedHomeTab == VeritasHomeTab.LIBRARY) item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (selectionMode) {
+                            "${selectedDocumentIds.size} selected • ${visibleDocuments.size} showing"
+                        } else {
+                            "${documents.size} total • $readingCount in progress • $completedCount completed"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (selectionMode) {
+                    Box {
+                        TextButton(onClick = { showBatchMenu = true }) {
+                            Icon(imageVector = Icons.Filled.MoreVert, contentDescription = "Batch actions")
+                        }
+                        DropdownMenu(expanded = showBatchMenu, onDismissRequest = { showBatchMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("All") },
+                                onClick = {
+                                    selectedDocumentIds = visibleDocuments.map { it.id }.toSet()
+                                    showBatchMenu = false
                                 }
-
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                val badgeText = when {
-                                    tracker.documentsCompletedThisMonth >= 5 -> "${tracker.documentsCompletedThisMonth} books completed 🏆"
-                                    else -> "${tracker.currentStreak}-day streak 🔥"
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                onClick = {
+                                    showBatchMenu = false
+                                    confirmBatchDelete = true
                                 }
-
-                                Box(
-                                    modifier = Modifier
-                                        .background(streakOnCard.copy(alpha = 0.15f), RoundedCornerShape(50))
-                                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = badgeText,
-                                        color = streakOnCard,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
-                                    )
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Add to favorites") },
+                                onClick = {
+                                    onBatchFavoriteDocuments(selectedDocumentIds)
+                                    selectedDocumentIds = emptySet()
+                                    showBatchMenu = false
                                 }
-                            }
-
-                            HorizontalDivider(color = streakOnCard.copy(alpha = 0.15f))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceEvenly,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    val weeklyMinutes = tracker.weeklyUsageMillis / 60000L
-                                    
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(
-                                            text = "${tracker.currentStreak}",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Black,
-                                            color = streakOnCard
-                                        )
-                                        Text(
-                                            text = "Streak",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = streakOnCard.copy(alpha = 0.7f)
-                                        )
-                                    }
-
-                                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(streakOnCard.copy(alpha = 0.15f)))
-
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(
-                                            text = "${weeklyMinutes}m",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Black,
-                                            color = streakOnCard
-                                        )
-                                        Text(
-                                            text = "This week",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = streakOnCard.copy(alpha = 0.7f)
-                                        )
-                                    }
-
-                                    Box(modifier = Modifier.width(1.dp).height(24.dp).background(streakOnCard.copy(alpha = 0.15f)))
-
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(
-                                            text = "${tracker.documentsCompletedThisMonth}",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Black,
-                                            color = streakOnCard
-                                        )
-                                        Text(
-                                            text = "Done",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = streakOnCard.copy(alpha = 0.7f)
-                                        )
-                                    }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Add to Queue") },
+                                onClick = {
+                                    onBatchQueueDocuments(selectedDocumentIds)
+                                    selectedDocumentIds = emptySet()
+                                    showBatchMenu = false
                                 }
-                            }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Move to collection") },
+                                onClick = {
+                                    batchCollectionDraft = ""
+                                    showBatchMenu = false
+                                    showBatchCollectionDialog = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Cancel") },
+                                onClick = {
+                                    selectedDocumentIds = emptySet()
+                                    showBatchMenu = false
+                                }
+                            )
                         }
                     }
                 } else {
-                    Column(
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            dashboardHeadline,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            dashboardSubtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SoftChip(sortMode)
+                        Box {
+                            TextButton(onClick = { showLibraryViewMenu = true }) { Text("${libraryViewMode.icon} ⋮") }
+                            DropdownMenu(expanded = showLibraryViewMenu, onDismissRequest = { showLibraryViewMenu = false }) {
+                                LibraryViewMode.entries.forEach { mode ->
+                                    DropdownMenuItem(
+                                        text = { Text("${mode.icon} ${mode.label}") },
+                                        onClick = {
+                                            libraryViewMode = mode
+                                            libraryPrefs.edit {
+                                                putString("library_view_mode", mode.name)
+                                            }
+                                            showLibraryViewMenu = false
+                                        }
+                                    )
+                                }
+                                HorizontalDivider()
+                FeatureDropdownMenuItem(
+                    feature = libraryFeature(VeritasFeatureId.READING_LISTS),
+                    label = "Reading lists",
+                    onClick = {
+                        showLibraryViewMenu = false
+                        onOpenReadingLists()
+                    }
+                )
+                FeatureDropdownMenuItem(
+                    feature = libraryFeature(VeritasFeatureId.READING_HISTORY),
+                    label = "Reading history",
+                                    onClick = {
+                                        showLibraryViewMenu = false
+                                        onOpenReadingHistory()
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
+        }
 
-            if (documents.isNotEmpty()) {
-                item {
-                    val collectionCount = remember(documents) { documents.map { it.collection.trim() }.filter { it.isNotBlank() }.distinct().size }
-                    val sourceCount = remember(documents) { documents.map { it.sourceLabel.trim().ifBlank { "Text" } }.distinct().size }
-                    val unreadCount = remember(documents) { documents.count { it.currentIndex <= 0 } }
-                    
-                    HomePanel(
-                        totalCount = documents.size,
-                        unreadCount = unreadCount,
-                        inProgressCount = readingCount,
-                        completedCount = completedCount,
-                        favoriteCount = favoriteCount,
-                        collectionCount = collectionCount,
-                        sourceCount = sourceCount
+        if (documents.isEmpty()) {
+            item { EmptyLibraryCard(onImportFile = onImportFile) }
+        } else if (visibleDocuments.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("No matching readings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                        Text("Clear the search or change filters to see more saved readings.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(
+                            onClick = {
+                                libraryQuery = ""
+                                statusFilter = "All"
+                                sourceFilter = "All"
+                                collectionFilter = "All"
+                                readingListFilter = "All"
+                            }
+                        ) {
+                            Text("Clear filters")
+                        }
+                    }
+                }
+            }
+        } else {
+            if (libraryViewMode == LibraryViewMode.TILES) {
+                itemsIndexed(visibleDocuments.chunked(columnCount), key = { index, row -> row.joinToString("-") { it.id }.ifBlank { "row-$index" } }) { _, rowDocs ->
+                    Row(
+                        modifier = Modifier
+                            .animateItem()
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        rowDocs.forEach { doc ->
+                            DocumentTileCard(
+                                document = doc,
+                                isQueued = isQueued(doc),
+                                selectionMode = selectionMode,
+                                selected = doc.id in selectedDocumentIds,
+                                onOpen = { onOpenDocument(doc) },
+                                onLongPress = { selectedDocumentIds = selectedDocumentIds + doc.id },
+                                onToggleSelected = {
+                                    selectedDocumentIds = if (doc.id in selectedDocumentIds) selectedDocumentIds - doc.id else selectedDocumentIds + doc.id
+                                },
+                                onDelete = { onDeleteDocument(doc) },
+                                onToggleQueue = { onToggleQueue(doc) },
+                                onToggleFavorite = { onToggleFavorite(doc) },
+                                onRename = { onRenameDocument(doc) },
+                                onSetCollection = { onSetCollection(doc) },
+                                onShowDetails = { onShowDetails(doc) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .then(
+                                        if (doc == visibleDocuments.firstOrNull()) {
+                                            Modifier.onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
+                                        } else {
+                                            Modifier
+                                        }
+                                    ),
+                                onManageLists = { manageListsDocument = doc },
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope
+                            )
+                        }
+                        val remainder = columnCount - rowDocs.size
+                        repeat(remainder) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            } else {
+                itemsIndexed(visibleDocuments, key = { _, doc -> doc.id }) { _, doc ->
+                    DocumentCard(
+                        document = doc,
+                        isQueued = isQueued(doc),
+                        viewMode = libraryViewMode,
+                        selectionMode = selectionMode,
+                        selected = doc.id in selectedDocumentIds,
+                        onOpen = { onOpenDocument(doc) },
+                        onLongPress = { selectedDocumentIds = selectedDocumentIds + doc.id },
+                        onToggleSelected = {
+                            selectedDocumentIds = if (doc.id in selectedDocumentIds) {
+                                selectedDocumentIds - doc.id
+                            } else {
+                                selectedDocumentIds + doc.id
+                            }
+                        },
+                        onDelete = { onDeleteDocument(doc) },
+                        onToggleQueue = { onToggleQueue(doc) },
+                        onToggleFavorite = { onToggleFavorite(doc) },
+                        onRename = { onRenameDocument(doc) },
+                        onSetCollection = { onSetCollection(doc) },
+                        onShowDetails = { onShowDetails(doc) },
+                        onManageLists = { manageListsDocument = doc },
+                        modifier = if (doc == visibleDocuments.firstOrNull()) {
+                            Modifier.animateItem().onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
+                        } else {
+                            Modifier.animateItem()
+                        },
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope
                     )
                 }
             }
         }
 
-        // Library search and filters block removed from middle.
+        item { Spacer(modifier = Modifier.height(22.dp)) }
+                                    }
+                                }
+                            }
 
-        if (selectedHomeTab == VeritasHomeTab.HOME) item {
-            if (documents.isEmpty()) {
-                EmbeddedOnboardingBlock(
-                    onOpenFileBrowser = onOpenFileBrowser,
-                    onPasteText = {
-                        showImportSheet = true
-                    }
-                )
-            } else {
-                HomeQuickActions(
-                    continueDocument = continueDocument,
-                    documentCount = documents.size,
-                    longestStreak = longestStreak,
-                    onOpenContinue = { document -> onOpenDocument(document) },
-                    onPlayPauseContinue = onPlayPauseContinue,
-                    onClearContinue = { document -> onClearContinueDocument(document) },
-                    onImportClick = { showImportSheet = true },
-                    importMenuExpanded = false,
-                    onDismissImportMenu = { },
-                    onOpenFile = {
-                        showImportSheet = true
-                    },
-                    onOpenFileBrowser = {
-                        onOpenFileBrowser()
-                    },
-                    onOpenImportSettings = {
-                        onAdvancedPdfImport()
-                    },
-                    onPasteText = {
-                        showImportSheet = true
-                    },
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope
-                )
-            }
-        }
-
-        if (selectedHomeTab == VeritasHomeTab.HOME && queuedDocuments.isNotEmpty()) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable { showQueue = true },
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(56.dp).background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.medium),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = "Play queue",
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Queue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                            Text("${queuedDocuments.size} queued reading${if (queuedDocuments.size == 1) "" else "s"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Button(onClick = onPlayQueue) { Text("Play") }
-                    }
-                }
-            }
-        }
-
-        if (selectedHomeTab == VeritasHomeTab.STUDY) {
-            when (annotationFilter) {
+                            VeritasHomeTab.STUDY -> {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pointerInput(studyListState) {
+                                            var pullDistance = 0f
+                                            detectVerticalDragGestures(
+                                                onDragStart = { pullDistance = 0f },
+                                                onVerticalDrag = { _, dragAmount ->
+                                                    val atTop = studyListState.firstVisibleItemIndex == 0 && studyListState.firstVisibleItemScrollOffset == 0
+                                                    if (atTop && dragAmount > 0f) pullDistance += dragAmount
+                                                },
+                                                onDragEnd = {
+                                                    val now = System.currentTimeMillis()
+                                                    if (pullDistance > 120f && now - lastMainPageRefreshAt > 1500L) {
+                                                        lastMainPageRefreshAt = now
+                                                        onRefreshMainPage()
+                                                    }
+                                                    pullDistance = 0f
+                                                },
+                                                onDragCancel = { pullDistance = 0f }
+                                            )
+                                        }
+                                        .padding(horizontal = 18.dp),
+                                    state = studyListState,
+                                    contentPadding = PaddingValues(top = 10.dp, bottom = 22.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    when (annotationFilter) {
                 "Bookmarks" -> {
                     if (bookmarksOnly.isEmpty()) {
                         item {
@@ -1554,7 +1898,7 @@ fun LibraryScreen(
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                         shape = VeritasPackStyle.compactShape(),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
                                     ) {
                                         Column(modifier = Modifier.fillMaxWidth()) {
                                             Row(
@@ -1743,7 +2087,7 @@ fun LibraryScreen(
                                 .clickable { onWriteGeneralNote() },
                             shape = VeritasPackStyle.cardShape(),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
                         ) {
                             Row(
                                 modifier = Modifier.padding(16.dp),
@@ -1757,7 +2101,7 @@ fun LibraryScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.Edit,
+                                        imageVector = Icons.Filled.Layers,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(22.dp)
@@ -1805,20 +2149,44 @@ fun LibraryScreen(
                             // Keep-style quick actions: long-press for color, pin, share, and
                             // delete without opening the editor.
                             var showNoteMenu by remember { mutableStateOf(false) }
+                            var confirmNoteDelete by remember { mutableStateOf(false) }
                             val noteShareContext = LocalContext.current
 
+                            if (confirmNoteDelete) {
+                                AlertDialog(
+                                    onDismissRequest = { confirmNoteDelete = false },
+                                    title = { Text(stringResource(R.string.delete_note_title)) },
+                                    text = { Text(stringResource(R.string.delete_note_message)) },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            confirmNoteDelete = false
+                                            onDeleteGeneralNote(generalNote.id)
+                                        }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { confirmNoteDelete = false }) {
+                                            Text(stringResource(R.string.action_cancel))
+                                        }
+                                    }
+                                )
+                            }
+
                             Box {
+                            val noteHaptic = LocalHapticFeedback.current
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .combinedClickable(
                                         onClick = { onEditGeneralNote(generalNote) },
-                                        onLongClick = { showNoteMenu = true }
+                                        onLongClick = {
+                                            noteHaptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            showNoteMenu = true
+                                        }
                                     )
                                     .padding(vertical = 4.dp),
                                 shape = VeritasPackStyle.compactShape(),
                                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
                             ) {
                                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(
@@ -1839,11 +2207,13 @@ fun LibraryScreen(
                                         
                                         IconButton(
                                             onClick = { onToggleGeneralNotePin(generalNote.id) },
-                                            modifier = Modifier.size(24.dp)
+                                            // 40dp touch target (was 24dp — too small to hit
+                                            // reliably); the icon itself stays 16dp.
+                                            modifier = Modifier.size(40.dp)
                                         ) {
                                             Icon(
                                                 imageVector = if (generalNote.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                                contentDescription = "Pin Note",
+                                                contentDescription = if (generalNote.pinned) "Unpin note" else "Pin note",
                                                 tint = if (generalNote.pinned) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.5f),
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -1971,7 +2341,7 @@ fun LibraryScreen(
                                 DropdownMenuItem(
                                     text = { Text("Delete") },
                                     leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                                    onClick = { showNoteMenu = false; onDeleteGeneralNote(generalNote.id) }
+                                    onClick = { showNoteMenu = false; confirmNoteDelete = true }
                                 )
                             }
                             }
@@ -2088,13 +2458,32 @@ fun LibraryScreen(
                         }
                     } else {
                         item {
+                            var confirmClearHistory by remember { mutableStateOf(false) }
+                            if (confirmClearHistory) {
+                                AlertDialog(
+                                    onDismissRequest = { confirmClearHistory = false },
+                                    title = { Text(stringResource(R.string.clear_history_title)) },
+                                    text = { Text(stringResource(R.string.clear_history_message)) },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            confirmClearHistory = false
+                                            onClearReadingHistory()
+                                        }) { Text(stringResource(R.string.action_clear), color = MaterialTheme.colorScheme.error) }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { confirmClearHistory = false }) {
+                                            Text(stringResource(R.string.action_cancel))
+                                        }
+                                    }
+                                )
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("Recent history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                TextButton(onClick = onClearReadingHistory) {
+                                TextButton(onClick = { confirmClearHistory = true }) {
                                     Text("Clear all", color = MaterialTheme.colorScheme.error)
                                 }
                             }
@@ -2332,7 +2721,7 @@ fun LibraryScreen(
                                         .padding(vertical = 4.dp),
                                     shape = VeritasPackStyle.compactShape(),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                    border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(14.dp),
@@ -2395,3718 +2784,7 @@ fun LibraryScreen(
                     }
                 }
             }
-        }
-
-        if (selectedHomeTab == VeritasHomeTab.LIBRARY) item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        if (selectionMode) {
-                            "${selectedDocumentIds.size} selected • ${visibleDocuments.size} showing"
-                        } else {
-                            "${documents.size} total • $readingCount in progress • $completedCount completed"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (selectionMode) {
-                    Box {
-                        TextButton(onClick = { showBatchMenu = true }) {
-                            Icon(imageVector = Icons.Filled.MoreVert, contentDescription = "Batch actions")
-                        }
-                        DropdownMenu(expanded = showBatchMenu, onDismissRequest = { showBatchMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("All") },
-                                onClick = {
-                                    selectedDocumentIds = visibleDocuments.map { it.id }.toSet()
-                                    showBatchMenu = false
                                 }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Delete") },
-                                onClick = {
-                                    showBatchMenu = false
-                                    confirmBatchDelete = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Add to favorites") },
-                                onClick = {
-                                    onBatchFavoriteDocuments(selectedDocumentIds)
-                                    selectedDocumentIds = emptySet()
-                                    showBatchMenu = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Add to Queue") },
-                                onClick = {
-                                    onBatchQueueDocuments(selectedDocumentIds)
-                                    selectedDocumentIds = emptySet()
-                                    showBatchMenu = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Move to collection") },
-                                onClick = {
-                                    batchCollectionDraft = ""
-                                    showBatchMenu = false
-                                    showBatchCollectionDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Cancel") },
-                                onClick = {
-                                    selectedDocumentIds = emptySet()
-                                    showBatchMenu = false
-                                }
-                            )
-                        }
-                    }
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SoftChip(sortMode)
-                        Box {
-                            TextButton(onClick = { showLibraryViewMenu = true }) { Text("${libraryViewMode.icon} ⋮") }
-                            DropdownMenu(expanded = showLibraryViewMenu, onDismissRequest = { showLibraryViewMenu = false }) {
-                                LibraryViewMode.entries.forEach { mode ->
-                                    DropdownMenuItem(
-                                        text = { Text("${mode.icon} ${mode.label}") },
-                                        onClick = {
-                                            libraryViewMode = mode
-                                            libraryPrefs.edit {
-                                                putString("library_view_mode", mode.name)
-                                            }
-                                            showLibraryViewMenu = false
-                                        }
-                                    )
-                                }
-                                HorizontalDivider()
-                FeatureDropdownMenuItem(
-                    feature = libraryFeature(VeritasFeatureId.READING_LISTS),
-                    label = "Reading lists",
-                    onClick = {
-                        showLibraryViewMenu = false
-                        onOpenReadingLists()
-                    }
-                )
-                FeatureDropdownMenuItem(
-                    feature = libraryFeature(VeritasFeatureId.READING_HISTORY),
-                    label = "Reading history",
-                                    onClick = {
-                                        showLibraryViewMenu = false
-                                        onOpenReadingHistory()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (selectedHomeTab == VeritasHomeTab.LIBRARY && documents.isEmpty()) {
-            item { EmptyLibraryCard(onImportFile = onImportFile) }
-        } else if (selectedHomeTab == VeritasHomeTab.LIBRARY && visibleDocuments.isEmpty()) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("No matching readings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                        Text("Clear the search or change filters to see more saved readings.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        OutlinedButton(
-                            onClick = {
-                                libraryQuery = ""
-                                statusFilter = "All"
-                                sourceFilter = "All"
-                                collectionFilter = "All"
-                                readingListFilter = "All"
-                            }
-                        ) {
-                            Text("Clear filters")
-                        }
-                    }
-                }
-            }
-        } else if (selectedHomeTab == VeritasHomeTab.LIBRARY) {
-            if (libraryViewMode == LibraryViewMode.TILES) {
-                itemsIndexed(visibleDocuments.chunked(columnCount), key = { index, row -> row.joinToString("-") { it.id }.ifBlank { "row-$index" } }) { _, rowDocs ->
-                    Row(
-                        modifier = Modifier
-                            .animateItem()
-                            .fillMaxWidth()
-                            .padding(bottom = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        rowDocs.forEach { doc ->
-                            DocumentTileCard(
-                                document = doc,
-                                isQueued = isQueued(doc),
-                                selectionMode = selectionMode,
-                                selected = doc.id in selectedDocumentIds,
-                                onOpen = { onOpenDocument(doc) },
-                                onLongPress = { selectedDocumentIds = selectedDocumentIds + doc.id },
-                                onToggleSelected = {
-                                    selectedDocumentIds = if (doc.id in selectedDocumentIds) selectedDocumentIds - doc.id else selectedDocumentIds + doc.id
-                                },
-                                onDelete = { onDeleteDocument(doc) },
-                                onToggleQueue = { onToggleQueue(doc) },
-                                onToggleFavorite = { onToggleFavorite(doc) },
-                                onRename = { onRenameDocument(doc) },
-                                onSetCollection = { onSetCollection(doc) },
-                                onShowDetails = { onShowDetails(doc) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .then(
-                                        if (doc == visibleDocuments.firstOrNull()) {
-                                            Modifier.onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
-                                        } else {
-                                            Modifier
-                                        }
-                                    ),
-                                onManageLists = { manageListsDocument = doc },
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope
-                            )
-                        }
-                        val remainder = columnCount - rowDocs.size
-                        repeat(remainder) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-            } else {
-                itemsIndexed(visibleDocuments, key = { _, doc -> doc.id }) { _, doc ->
-                    DocumentCard(
-                        document = doc,
-                        isQueued = isQueued(doc),
-                        viewMode = libraryViewMode,
-                        selectionMode = selectionMode,
-                        selected = doc.id in selectedDocumentIds,
-                        onOpen = { onOpenDocument(doc) },
-                        onLongPress = { selectedDocumentIds = selectedDocumentIds + doc.id },
-                        onToggleSelected = {
-                            selectedDocumentIds = if (doc.id in selectedDocumentIds) {
-                                selectedDocumentIds - doc.id
-                            } else {
-                                selectedDocumentIds + doc.id
-                            }
-                        },
-                        onDelete = { onDeleteDocument(doc) },
-                        onToggleQueue = { onToggleQueue(doc) },
-                        onToggleFavorite = { onToggleFavorite(doc) },
-                        onRename = { onRenameDocument(doc) },
-                        onSetCollection = { onSetCollection(doc) },
-                        onShowDetails = { onShowDetails(doc) },
-                        onManageLists = { manageListsDocument = doc },
-                        modifier = if (doc == visibleDocuments.firstOrNull()) {
-                            Modifier.animateItem().onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
-                        } else {
-                            Modifier.animateItem()
-                        },
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope
-                    )
-                }
-            }
-        }
-
-        item { Spacer(modifier = Modifier.height(22.dp)) }
-    }
-                }
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun HomeSidebarDialog(
-    name: String,
-    snapshot: ReaderTrackerSnapshot,
-    onDismiss: () -> Unit,
-    onOpenLibrary: () -> Unit,
-    onOpenStats: () -> Unit,
-    onOpenSettings: () -> Unit
-) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.36f))
-                    .clickable { onDismiss() }
-            )
-            Surface(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(318.dp),
-                shape = RoundedCornerShape(
-                    topEnd = 24.dp,
-                    bottomEnd = 24.dp,
-                    topStart = 0.dp,
-                    bottomStart = 0.dp
-                ),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
-                shadowElevation = 8.dp
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BrandMark(compact = true)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Veritas", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                            Text(name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        TextButton(onClick = onDismiss) {
-                            Icon(imageVector = Icons.Filled.Close, contentDescription = "Close")
-                        }
-                    }
-                    ReaderTrackerSidebarCard(snapshot = snapshot, onOpenStats = onOpenStats)
-                    HorizontalDivider()
-                    SidebarAction("Library", "Saved readings and filters", Icons.AutoMirrored.Filled.LibraryBooks, onOpenLibrary)
-                    SidebarAction("Settings", "Reader, voice, import, AI, and backup", Icons.Filled.Settings, onOpenSettings)
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        "All stats are stored locally on this device.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReaderTrackerSidebarCard(snapshot: ReaderTrackerSnapshot, onOpenStats: () -> Unit) {
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Reading Progress", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                    Text("Quick stats", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                TextButton(onClick = onOpenStats) { Text("View") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                CompactStat(value = "${snapshot.currentStreak}", label = "Streak", modifier = Modifier.weight(1f))
-                CompactStat(value = "${snapshot.longestStreak}", label = "Best", modifier = Modifier.weight(1f))
-            }
-            Text("Reading time", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            WeeklyReadingBarsPager(snapshot.weeklyHistory, barHeight = 56.dp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                CompactStat(value = formatTrackerDuration(snapshot.weeklyUsageMillis), label = "Total", modifier = Modifier.weight(1f))
-                CompactStat(value = formatTrackerDuration(snapshot.weeklyAverageMillis), label = "Average", modifier = Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                CompactStat(value = "${snapshot.documentsReadThisWeek}", label = "Read", modifier = Modifier.weight(1f))
-                CompactStat(value = "${snapshot.documentsCompletedThisMonth}", label = "Done", modifier = Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReadingStatsDashboardDialog(
-    snapshot: ReaderTrackerSnapshot,
-    documents: List<SavedDocument>,
-    documentReadingTimes: Map<String, Long>,
-    onDismiss: () -> Unit
-) {
-    // Animation for stats count-up
-    var targetCurrentStreak by remember { mutableStateOf(0) }
-    var targetLongestStreak by remember { mutableStateOf(0) }
-    var prevCurrentStreak by remember { mutableStateOf(0) }
-    var prevLongestStreak by remember { mutableStateOf(0) }
-    LaunchedEffect(snapshot) {
-        delay(100)
-        targetCurrentStreak = snapshot.currentStreak
-        targetLongestStreak = snapshot.longestStreak
-    }
-    // Scale the roll-up duration with the delta (~70ms per step) so a +1 increment animates
-    // quickly while the initial 0→N count-up still reads as a roll.
-    val currentStreakDuration = (kotlin.math.abs(targetCurrentStreak - prevCurrentStreak) * 70).coerceIn(220, 650)
-    val longestStreakDuration = (kotlin.math.abs(targetLongestStreak - prevLongestStreak) * 70).coerceIn(220, 650)
-    val currentStreakAnimated by animateIntAsState(
-        targetValue = targetCurrentStreak,
-        animationSpec = tween(durationMillis = currentStreakDuration, easing = FastOutSlowInEasing)
-    )
-    val longestStreakAnimated by animateIntAsState(
-        targetValue = targetLongestStreak,
-        animationSpec = tween(durationMillis = longestStreakDuration, easing = FastOutSlowInEasing)
-    )
-    LaunchedEffect(targetCurrentStreak) { prevCurrentStreak = targetCurrentStreak }
-    LaunchedEffect(targetLongestStreak) { prevLongestStreak = targetLongestStreak }
-
-    // Pulsing/floating emoji transition
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val emojiScale by infiniteTransition.animateFloat(
-        initialValue = 0.9f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scale"
-    )
-
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val secondaryColor = MaterialTheme.colorScheme.secondary
-    val tertiaryColor = MaterialTheme.colorScheme.tertiary
-    val errorColor = MaterialTheme.colorScheme.error
-    val pastedColor = MaterialTheme.colorScheme.inversePrimary
-
-    // Format Distribution slices — every document lands in exactly one bucket so the
-    // chart total always matches the library size. E-Books (EPUB) and Documents (Word/text/
-    // scanned) are split into their own slices rather than one combined bucket.
-    val formatSlices = remember(documents, primaryColor, secondaryColor, tertiaryColor, errorColor, pastedColor) {
-        var pdfCount = 0
-        var webCount = 0
-        var ebookCount = 0
-        var docCount = 0
-        var pastedCount = 0
-        documents.forEach { doc ->
-            val mime = doc.originalMimeType.lowercase(Locale.US)
-            val title = doc.title.lowercase(Locale.US)
-            val label = doc.sourceLabel.lowercase(Locale.US)
-            when {
-                // sourceLabel is the explicit, reliable classifier set at import time
-                // ("PDF", "DOCX", "EPUB", "OCR", "TXT", "Web", ...). Key off it first,
-                // then fall back to mime type / filename so older records still bucket.
-                label == "pdf" || mime.contains("pdf") || title.endsWith(".pdf") -> pdfCount++
-                label.contains("web") || label.contains("http") || label.contains("article") ||
-                    mime.contains("html") -> webCount++
-                label == "epub" || mime.contains("epub") || title.endsWith(".epub") -> ebookCount++
-                label in setOf("docx", "txt", "ocr") ||
-                    mime.contains("word") || mime.contains("wordprocessingml") ||
-                    mime.startsWith("image/") ||
-                    title.endsWith(".docx") || title.endsWith(".txt") -> docCount++
-                else -> pastedCount++
-            }
-        }
-        listOf(
-            DonutSlice(
-                label = "PDF Documents",
-                value = pdfCount.toFloat(),
-                color = primaryColor,
-                description = "PDFs imported from local file storage or other directories. Excellent for study outlines."
-            ),
-            DonutSlice(
-                label = "Web Articles",
-                value = webCount.toFloat(),
-                color = secondaryColor,
-                description = "Online articles, blogs, and papers saved via URL import. Perfect for quick news reading."
-            ),
-            DonutSlice(
-                label = "E-Books",
-                value = ebookCount.toFloat(),
-                color = tertiaryColor,
-                description = "EPUB e-books imported into your library."
-            ),
-            DonutSlice(
-                label = "Documents",
-                value = docCount.toFloat(),
-                color = errorColor,
-                description = "Word documents, text files, and scanned (OCR) documents."
-            ),
-            DonutSlice(
-                label = "Pasted Text",
-                value = pastedCount.toFloat(),
-                color = pastedColor,
-                description = "Text pasted directly into the reader interface or manually typed drafts."
-            )
-        ).filter { it.value > 0f }
-    }
-
-    // Time Allocation slices — real listening/reading time recorded per document for
-    // the current month, so the chart resets monthly instead of stacking up forever.
-    val timeSlices = remember(documents, documentReadingTimes, primaryColor, secondaryColor, tertiaryColor, errorColor) {
-        val docTimes = documents.mapNotNull { doc ->
-            val readingTime = documentReadingTimes[doc.id] ?: 0L
-            if (readingTime > 0L) doc to readingTime else null
-        }.sortedByDescending { it.second }
-
-        val totalTime = docTimes.sumOf { it.second }
-
-        if (docTimes.isEmpty()) {
-            emptyList()
-        } else {
-            val top4 = docTimes.take(4)
-            val othersTime = if (docTimes.size > 4) docTimes.drop(4).sumOf { it.second } else 0L
-            
-            val colors = listOf(
-                primaryColor,
-                secondaryColor,
-                tertiaryColor,
-                errorColor,
-                Color.Gray
-            )
-            
-            val list = mutableListOf<DonutSlice>()
-            top4.forEachIndexed { idx, (doc, time) ->
-                list.add(
-                    DonutSlice(
-                        label = doc.title,
-                        value = time.toFloat() / 60000f, // convert to minutes
-                        color = colors[idx % colors.size],
-                        description = "You spent ${time / 60000} minutes reading this document. That's ${(time * 100f / totalTime.coerceAtLeast(1)).toInt()}% of your total time."
-                    )
-                )
-            }
-            if (othersTime > 0L) {
-                list.add(
-                    DonutSlice(
-                        label = "Others",
-                        value = othersTime.toFloat() / 60000f,
-                        color = colors[4],
-                        description = "All other documents combined account for ${othersTime / 60000} minutes of your reading sessions."
-                    )
-                )
-            }
-            list
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
-    ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 24.dp)
-            ) {
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Reading Insights", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
-                            Text("Your local reading rhythm", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        TextButton(onClick = onDismiss) { Text("Close") }
-                    }
-                }
-
-                // Streaks & Stats Card (Glassmorphic design with gradient background)
-                item {
-                    Card(
-                        shape = MaterialTheme.shapes.large,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            // Streaks display
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                                // Current Streak Card
-                                Card(
-                                    modifier = Modifier.weight(1f),
-                                    shape = MaterialTheme.shapes.medium,
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.LocalFireDepartment,
-                                            contentDescription = "Current streak",
-                                            tint = Color(0xFFFF7043),
-                                            modifier = Modifier.size(30.dp).scale(emojiScale)
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "$currentStreakAnimated",
-                                            style = MaterialTheme.typography.headlineLarge,
-                                            fontWeight = FontWeight.Black,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Text(
-                                            text = "Current Streak",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
-
-                                // Longest Streak Card
-                                Card(
-                                    modifier = Modifier.weight(1f),
-                                    shape = MaterialTheme.shapes.medium,
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.EmojiEvents,
-                                            contentDescription = "Longest streak",
-                                            tint = Color(0xFFFFC107),
-                                            modifier = Modifier.size(30.dp).scale(emojiScale)
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "$longestStreakAnimated",
-                                            style = MaterialTheme.typography.headlineLarge,
-                                            fontWeight = FontWeight.Black,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Text(
-                                            text = "Longest Streak",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Weekly Usage Trend (swipe to see previous weeks)
-                            Text("Weekly Reading Time", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            WeeklyReadingBarsPager(snapshot.weeklyHistory, barHeight = 96.dp)
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                                BigStat(formatTrackerDuration(snapshot.weeklyUsageMillis), "This week", Modifier.weight(1f))
-                                BigStat(formatTrackerDuration(snapshot.weeklyAverageMillis), "Daily avg", Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-
-                // Heatmap and Distribution Donut Charts
-                item {
-                    CalendarHeatMap(snapshot.activeDateKeys)
-                }
-
-                item {
-                    InteractiveDonutChart(
-                        title = "Library Source Distribution",
-                        slices = formatSlices,
-                        totalLabel = "Readings",
-                        titleIcon = Icons.Filled.PieChart
-                    )
-                }
-
-                if (timeSlices.isNotEmpty()) {
-                    item {
-                        InteractiveDonutChart(
-                            title = "Time Allocation — This Month",
-                            slices = timeSlices,
-                            totalLabel = "Minutes",
-                            titleIcon = Icons.Filled.Timer
-                        )
-                    }
-                }
-
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        BigStat("${snapshot.documentsReadThisWeek}", "Docs read this week", Modifier.weight(1f))
-                        BigStat("${snapshot.documentsCompletedThisMonth}", "Completed this month", Modifier.weight(1f))
-                    }
-                }
-
-                item {
-                    Text("Recent completions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                }
-
-                if (snapshot.recentCompletions.isEmpty()) {
-                    item {
-                        Text("Finish a document and it will appear here.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    items(snapshot.recentCompletions, key = { it.documentId }) { completion ->
-                        Card(shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Filled.CheckCircle,
-                                    contentDescription = "Completed",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.width(32.dp).size(22.dp)
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(completion.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                                    Text(formatUpdated(completion.completedAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Onboarding tour card: the dashboard dialog window covers the main spotlight
-            // overlay, so the insights step renders its own card here.
-            if (OnboardingController.activeStep == OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT) {
-                Card(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .navigationBarsPadding(),
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT.body,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            TextButton(onClick = { OnboardingController.activeStep = OnboardingStep.INSIGHTS_SPOTLIGHT }) {
-                                Text("Back")
-                            }
-                            Button(onClick = { OnboardingController.activeStep = OnboardingStep.DOCUMENT_SPOTLIGHT }) {
-                                Text("Next")
-                            }
-                        }
-                    }
-                }
-            }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CalendarHeatMap(activeDateKeys: Set<String>) {
-    val context = LocalContext.current
-    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
-    
-    val months = remember {
-        val list = mutableListOf<MonthData>()
-        val cal = Calendar.getInstance()
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val monthNames = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
-        
-        for (m in 0..11) {
-            cal.set(currentYear, m, 1)
-            val firstDayOfWeek = cal.get(Calendar.DAY_OF_WEEK) // 1 = Sun, 7 = Sat
-            val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-            
-            val days = mutableListOf<DayData?>()
-            repeat(firstDayOfWeek - 1) {
-                days.add(null)
-            }
-            for (d in 1..maxDays) {
-                cal.set(currentYear, m, d)
-                val dateStr = sdf.format(cal.time)
-                days.add(DayData(dayOfMonth = d, dateKey = dateStr, timeMillis = cal.timeInMillis))
-            }
-            while (days.size % 7 != 0) {
-                days.add(null)
-            }
-            list.add(MonthData(name = monthNames[m], days = days))
-        }
-        list
-    }
-
-    val todayKey = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
-
-    var visibleMonths by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        for (i in 1..12) {
-            delay(30)
-            visibleMonths = i
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), MaterialTheme.shapes.medium)
-            .padding(14.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 12.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.CalendarMonth,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = "Reading Heatmap — Year $currentYear",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 320.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            months.forEachIndexed { mIdx, month ->
-                val alpha by animateFloatAsState(
-                    targetValue = if (visibleMonths >= mIdx + 1) 1f else 0f,
-                    animationSpec = tween(durationMillis = 400),
-                    label = "monthAlpha"
-                )
-
-                if (visibleMonths >= mIdx + 1) {
-                    // Sketch layout: month name on the left vertically centered against the
-                    // grid; weekday letters run across the top of the day cells. The whole
-                    // month block is centered in the card.
-                    val cellSize = 26.dp
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer { this.alpha = alpha },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
-                    ) {
-                        Text(
-                            text = month.name.take(3),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.width(36.dp),
-                            textAlign = TextAlign.Center
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                val weekdays = listOf("S", "M", "T", "W", "T", "F", "S")
-                                weekdays.forEach { day ->
-                                    Text(
-                                        text = day,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.width(cellSize),
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-
-                            val chunkedWeeks = month.days.chunked(7)
-                            chunkedWeeks.forEach { week ->
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    week.forEach { day ->
-                                        if (day == null) {
-                                            Box(modifier = Modifier.size(cellSize))
-                                        } else {
-                                            val isActive = activeDateKeys.contains(day.dateKey)
-                                            val isFuture = day.dateKey > todayKey
-                                            val color = when {
-                                                isActive -> MaterialTheme.colorScheme.primary
-                                                isFuture -> Color.Transparent
-                                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                            }
-                                            val borderStroke = if (isFuture) {
-                                                BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
-                                            } else if (!isActive) {
-                                                BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
-                                            } else null
-
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(cellSize)
-                                                    .clip(RoundedCornerShape(4.dp))
-                                                    .background(color)
-                                                    .then(
-                                                        if (borderStroke != null) Modifier.border(borderStroke, RoundedCornerShape(4.dp))
-                                                        else Modifier
-                                                    )
-                                                    .clickable {
-                                                        if (!isFuture) {
-                                                            val formattedDate = SimpleDateFormat("MMMM dd, yyyy", Locale.US).format(Date(day.timeMillis))
-                                                            val msg = if (isActive) "Logged reading on $formattedDate! 📖" else "No activity logged on $formattedDate."
-                                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private data class MonthData(
-    val name: String,
-    val days: List<DayData?>
-)
-
-private data class DayData(
-    val dayOfMonth: Int,
-    val dateKey: String,
-    val timeMillis: Long
-)
-
-@Composable
-private fun InteractiveDonutChart(
-    title: String,
-    slices: List<DonutSlice>,
-    totalLabel: String,
-    modifier: Modifier = Modifier,
-    titleIcon: ImageVector? = null
-) {
-    LocalContext.current
-    var selectedIndex by remember { mutableStateOf<Int?>(null) }
-    val totalVal = slices.sumOf { it.value.toDouble() }.toFloat()
-
-    val scaleFactors = slices.indices.map { idx ->
-        animateFloatAsState(
-            targetValue = if (selectedIndex == idx) 1.15f else 1.0f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-            label = "sliceScale_$idx"
-        )
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f), MaterialTheme.shapes.medium)
-            .padding(14.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 12.dp)
-        ) {
-            titleIcon?.let { icon ->
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(130.dp)
-                    .padding(8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                val density = LocalDensity.current
-                val strokeWidthPx = with(density) { 14.dp.toPx() }
-                
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(slices, totalVal) {
-                            detectTapGestures { offset ->
-                                if (totalVal > 0f) {
-                                    val centerX = size.width / 2f
-                                    val centerY = size.height / 2f
-                                    val x = offset.x - centerX
-                                    val y = offset.y - centerY
-                                    val dist = Math.sqrt((x * x + y * y).toDouble()).toFloat()
-                                    val radius = Math.min(size.width, size.height) / 2f
-                                    
-                                    if (dist in (radius - strokeWidthPx * 2.5f)..radius) {
-                                        var angle = Math.toDegrees(Math.atan2(y.toDouble(), x.toDouble())).toFloat()
-                                        angle = (angle + 90f + 360f) % 360f
-                                        
-                                        var currentAngle = 0f
-                                        var found: Int? = null
-                                        for (i in slices.indices) {
-                                            val sweep = (slices[i].value / totalVal) * 360f
-                                            if (angle in currentAngle..(currentAngle + sweep)) {
-                                                found = i
-                                                break
-                                            }
-                                            currentAngle += sweep
-                                        }
-                                        if (found != null) {
-                                            selectedIndex = if (selectedIndex == found) null else found
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                ) {
-                    val centerX = size.width / 2f
-                    val centerY = size.height / 2f
-                    val radius = Math.min(size.width, size.height) / 2f - strokeWidthPx / 2f
-                    
-                    if (totalVal == 0f) {
-                        drawCircle(
-                            color = Color.LightGray.copy(alpha = 0.3f),
-                            radius = radius,
-                            center = Offset(centerX, centerY),
-                            style = Stroke(width = strokeWidthPx)
-                        )
-                    } else {
-                        var startAngle = -90f
-                        slices.forEachIndexed { idx, slice ->
-                            val sweepAngle = (slice.value / totalVal) * 360f
-                            val scale = scaleFactors[idx].value
-                            val strokeWidth = strokeWidthPx * (if (selectedIndex == idx) 1.3f else 1.0f)
-                            val r = radius * scale
-                            
-                            drawArc(
-                                color = slice.color,
-                                startAngle = startAngle,
-                                sweepAngle = sweepAngle,
-                                useCenter = false,
-                                topLeft = Offset(centerX - r, centerY - r),
-                                size = Size(r * 2, r * 2),
-                                style = Stroke(width = strokeWidth)
-                            )
-                            startAngle += sweepAngle
-                        }
-                    }
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = if (totalVal >= 1000f) "%.1fk".format(totalVal / 1000f) else "${totalVal.toInt()}",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = totalLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                slices.forEachIndexed { idx, slice ->
-                    val isSelected = selectedIndex == idx
-                    val percentage = if (totalVal > 0f) (slice.value * 100f / totalVal).toInt() else 0
-                    
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { selectedIndex = if (isSelected) null else idx }
-                            .padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(if (isSelected) 10.dp else 7.dp)
-                                .background(slice.color, CircleShape)
-                        )
-                        Text(
-                            text = slice.label,
-                            style = if (isSelected) MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodySmall,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "$percentage%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        selectedIndex?.let { idx ->
-            val slice = slices[idx]
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, slice.color.copy(alpha = 0.4f))
-            ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = slice.label,
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                        color = slice.color
-                    )
-                    Text(
-                        text = slice.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-private data class DonutSlice(
-    val label: String,
-    val value: Float,
-    val color: Color,
-    val description: String
-)
-
-@Composable
-private fun SidebarAction(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column {
-            Text(title, fontWeight = FontWeight.Bold)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun CompactStat(value: String, label: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.small)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-            Text(value, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        }
-    }
-}
-
-@Composable
-private fun BigStat(value: String, label: String, modifier: Modifier = Modifier) {
-    Card(modifier = modifier, shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        }
-    }
-}
-
-// Monday-based index (Mon=0 … Sun=6) for today, used to emphasise today's capsule.
-private fun mondayBasedTodayIndex(): Int {
-    val cal = Calendar.getInstance()
-    return (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
-}
-
-/**
- * Resolves a Long milliseconds value into a day-of-week label (Mon–Sun).
- * `weekStartMonday` is the epoch-ms of Monday 00:00 for the displayed week.
- */
-private fun dayLabel(dayIndex: Int, weekStartMonday: Long): String {
-    val cal = Calendar.getInstance()
-    cal.timeInMillis = weekStartMonday + dayIndex * 86_400_000L
-    return SimpleDateFormat("EEE, d MMM", Locale.getDefault())
-        .format(Date(cal.timeInMillis))
-}
-
-/**
- * Floating tooltip shown above the selected day capsule.
- * Uses an `AnimatedVisibility` (fade + slide) for smooth entrance/exit.
- */
-@Composable
-private fun UsageTooltip(visible: Boolean, label: String, duration: String) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(180)) +
-                slideInVertically(tween(180)) { it / 2 },
-        exit = fadeOut(tween(140)) +
-               slideOutVertically(tween(140)) { it / 2 }
-    ) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 1f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)),
-            tonalElevation = 6.dp,
-            shadowElevation = 4.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = duration,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MiniWeekBars(
-    values: List<Long>,
-    height: androidx.compose.ui.unit.Dp = 64.dp,
-    todayIndex: Int = -1,
-    selectedIndex: Int = -1,
-    onSelectDay: (Int) -> Unit = {},
-    weekStartMonday: Long = 0L
-) {
-    val labels = listOf("M", "T", "W", "T", "F", "S", "S")
-    val max = (values.maxOrNull()?.coerceAtLeast(1L) ?: 1L) * 1.25f
-    val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
-    val primary = MaterialTheme.colorScheme.primary
-    val fillBrush = Brush.verticalGradient(
-        listOf(lerp(primary, Color.White, 0.45f), primary)
-    )
-    val dimBrush = Brush.verticalGradient(
-        listOf(lerp(primary, Color.White, 0.25f).copy(alpha = 0.7f), primary.copy(alpha = 0.7f))
-    )
-    val selectedBrush = Brush.verticalGradient(
-        listOf(lerp(primary, Color.White, 0.6f), primary)
-    )
-    val areaAlpha = if (MaterialTheme.colorScheme.primary.luminance() > 0.5f) 0.12f else 0.18f
-    Column(modifier = Modifier.fillMaxWidth()) {
-        val fracs = values.map { v ->
-            if (v > 0L) (v.toFloat() / max).coerceIn(0.14f, 1f) else 0f
-        }
-        val animatedFracs = fracs.mapIndexed { i, f ->
-            animateFloatAsState(f, tween(550, easing = FastOutSlowInEasing), label = "areaFrac$i").value
-        }
-        Box(modifier = Modifier.fillMaxWidth().height(height)) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                if (animatedFracs.size == 7 && size.width > 0f) {
-                    val barWidth = size.width / 7f
-                    val path = Path()
-                    val points = animatedFracs.mapIndexed { i, frac ->
-                        Offset(barWidth * i + barWidth / 2f, size.height * (1f - frac))
-                    }
-                    if (points.isNotEmpty()) {
-                        path.moveTo(0f, size.height)
-                        path.lineTo(0f, points.first().y)
-                        path.lineTo(points.first().x, points.first().y)
-                        for (k in 1 until points.size) {
-                            val prev = points[k - 1]
-                            val curr = points[k]
-                            val cx = (prev.x + curr.x) / 2f
-                            path.cubicTo(cx, prev.y, cx, curr.y, curr.x, curr.y)
-                        }
-                        path.lineTo(size.width, points.last().y)
-                        path.lineTo(size.width, size.height)
-                        path.close()
-                        drawPath(
-                            path = path,
-                            brush = Brush.verticalGradient(
-                                colors = listOf(primary.copy(alpha = areaAlpha), Color.Transparent),
-                                startY = 0f,
-                                endY = size.height
-                            )
-                        )
-                    }
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                values.forEachIndexed { i, value ->
-                    val isToday = i == todayIndex
-                    val isSelected = i == selectedIndex
-                    val targetFrac = if (value > 0L) (value.toFloat() / max).coerceIn(0.14f, 1f) else 0f
-                    val frac by animateFloatAsState(
-                        targetValue = targetFrac,
-                        animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing),
-                        label = "barFrac$i"
-                    )
-                    val dayDesc = if (weekStartMonday > 0L && value > 0L)
-                        "${labels.getOrElse(i) { "" }}: ${formatTrackerDuration(value)}"
-                    else labels.getOrElse(i) { "" }
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .semantics { contentDescription = dayDesc },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(if (isSelected) 18.dp else 14.dp)
-                                .height(height)
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (isSelected)
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    else trackColor
-                                )
-                                .clickable(
-                                    enabled = todayIndex == -1 || i <= todayIndex,
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() }
-                                ) { onSelectDay(if (isSelected) -1 else i) },
-                            contentAlignment = Alignment.BottomCenter
-                        ) {
-                            if (frac > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .fillMaxHeight(frac)
-                                        .clip(RoundedCornerShape(50))
-                                        .background(
-                                            when {
-                                                isSelected -> selectedBrush
-                                                isToday -> fillBrush
-                                                else -> dimBrush
-                                            }
-                                        )
-                                )
-                            }
-                        }
-                        Text(
-                            labels.getOrElse(i) { "" },
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = when {
-                                isSelected -> MaterialTheme.colorScheme.primary
-                                isToday -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Swipeable weekly chart: pages through `history` (oldest→newest), defaulting to the current
- * (last) week, with a small caption naming the week and its total. Falls back to a single
- * static week when no history is available. Tapping a bar shows a floating usage tooltip.
- */
-@Composable
-private fun WeeklyReadingBarsPager(
-    history: List<WeekBars>,
-    modifier: Modifier = Modifier,
-    barHeight: androidx.compose.ui.unit.Dp = 64.dp
-) {
-    if (history.isEmpty()) {
-        MiniWeekBars(List(7) { 0L }, height = barHeight)
-        return
-    }
-    val pagerState = rememberPagerState(initialPage = history.lastIndex) { history.size }
-    val todayIndex = remember { mondayBasedTodayIndex() }
-    var selectedBarIndex by remember { mutableIntStateOf(-1) }
-
-    LaunchedEffect(pagerState.currentPage) { selectedBarIndex = -1 }
-
-    val visibleWeek = history[pagerState.currentPage]
-    val chartDescription = "Weekly reading chart. ${visibleWeek.label}: " +
-        "${formatTrackerDuration(visibleWeek.totalMillis)} total. Swipe left or right to change week."
-
-    val weekStartMonday = remember(pagerState.currentPage) {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        val weeksBack = history.lastIndex - pagerState.currentPage
-        cal.add(Calendar.WEEK_OF_YEAR, -weeksBack)
-        cal.timeInMillis
-    }
-
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = chartDescription }
-    ) {
-        val width = maxWidth
-        
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            val tooltipVisible = selectedBarIndex >= 0 && selectedBarIndex < visibleWeek.values.size
-            val tooltipLabel = if (tooltipVisible && weekStartMonday > 0L)
-                dayLabel(selectedBarIndex, weekStartMonday) else ""
-            val tooltipDuration = if (tooltipVisible)
-                formatTrackerDuration(visibleWeek.values.getOrElse(selectedBarIndex) { 0L }) else ""
-
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.TopStart
-            ) {
-                HorizontalPager(state = pagerState) { page ->
-                    val week = history[page]
-                    MiniWeekBars(
-                        values = week.values,
-                        height = barHeight,
-                        todayIndex = if (week.isCurrentWeek) todayIndex else -1,
-                        selectedIndex = if (page == pagerState.currentPage) selectedBarIndex else -1,
-                        onSelectDay = { idx -> selectedBarIndex = idx },
-                        weekStartMonday = weekStartMonday
-                    )
-                }
-
-                if (tooltipVisible) {
-                    val colWidth = (width - 60.dp) / 7
-                    val colCenter = (colWidth * selectedBarIndex) + (10.dp * selectedBarIndex) + (colWidth / 2)
-                    Box(
-                        modifier = Modifier
-                            .offset(x = colCenter, y = (-38).dp)
-                            .width(0.dp)
-                            .wrapContentWidth(align = Alignment.CenterHorizontally, unbounded = true)
-                    ) {
-                        UsageTooltip(
-                            visible = tooltipVisible,
-                            label = tooltipLabel,
-                            duration = tooltipDuration
-                        )
-                    }
-                }
-            }
-
-            val week = history[pagerState.currentPage]
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    week.label,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    "‹ swipe ›",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
-        }
-    }
-}
-
-private fun shareGeneralNote(context: Context, note: GeneralNote) {
-    val body = if (note.isChecklist) {
-        note.content.lineSequence().joinToString("\n") { line ->
-            when {
-                line.startsWith("[x]") -> "☑ " + line.removePrefix("[x]").trim()
-                line.startsWith("[ ]") -> "☐ " + line.removePrefix("[ ]").trim()
-                else -> line
-            }
-        }
-    } else {
-        RichTextFormatter.stripMarkup(note.content)
-    }
-    val plain = buildString {
-        if (note.title.isNotBlank()) {
-            append(note.title)
-            append("\n\n")
-        }
-        append(body)
-    }.trim()
-    if (plain.isBlank()) {
-        Toast.makeText(context, "Nothing to share yet", Toast.LENGTH_SHORT).show()
-        return
-    }
-    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(android.content.Intent.EXTRA_SUBJECT, note.title.ifBlank { "Veritas note" })
-        putExtra(android.content.Intent.EXTRA_TEXT, plain)
-    }
-    runCatching { context.startActivity(android.content.Intent.createChooser(send, "Share note")) }
-}
-
-private fun formatTrackerDuration(millis: Long): String {
-    val minutes = (millis / 60_000L).coerceAtLeast(0L)
-    val hours = minutes / 60L
-    val remaining = minutes % 60L
-    return when {
-        hours > 0L && remaining > 0L -> "${hours}h ${remaining}m"
-        hours > 0L -> "${hours}h"
-        else -> "${remaining}m"
-    }
-}
-
-@Composable
-private fun HomeQuickActions(
-    continueDocument: SavedDocument?,
-    documentCount: Int,
-    longestStreak: Int,
-    onOpenContinue: (SavedDocument) -> Unit,
-    onPlayPauseContinue: (SavedDocument) -> Unit,
-    onClearContinue: (SavedDocument) -> Unit,
-    onImportClick: () -> Unit,
-    importMenuExpanded: Boolean,
-    onDismissImportMenu: () -> Unit,
-    onOpenFile: () -> Unit,
-    onOpenFileBrowser: () -> Unit,
-    onOpenImportSettings: () -> Unit,
-    onPasteText: () -> Unit,
-    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
-    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        val disabled = continueDocument == null
-        val context = LocalContext.current
-        val coverFile = remember(continueDocument?.id) { continueDocument?.id?.let { CoverExtractor.coverFile(context, it) } }
-        val coverBitmap = remember(coverFile) {
-            coverFile?.let { file ->
-                runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-            }
-        }
-
-        val isFirstDay = longestStreak <= 1
-        val headerTitle = if (continueDocument != null && isFirstDay) "First day of reading" else "Continue reading"
-
-        Text(
-            text = headerTitle,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                // Always clickable so an empty card still gives feedback instead of feeling
-                // broken: when there's nothing to resume, guide the user with a toast.
-                .clickable {
-                    if (continueDocument != null) {
-                        onOpenContinue(continueDocument)
-                    } else {
-                        val msg = if (documentCount == 0) {
-                            "No documents yet — tap Add to import a file or paste text."
-                        } else {
-                            "No recent reading yet — open a document from your Library to resume here."
-                        }
-                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                    }
-                },
-            shape = VeritasPackStyle.cardShape(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (disabled) {
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f * VeritasPackStyle.surfaceAlpha())
-                } else {
-                    MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
-                }
-            ),
-            border = BorderStroke(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-            )
-        ) {
-            Row(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Larger Premium Cover Thumbnail
-                Box(
-                    modifier = Modifier
-                        .width(72.dp)
-                        .height(96.dp)
-                        .clip(VeritasPackStyle.compactShape())
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .then(
-                            if (sharedTransitionScope != null && animatedVisibilityScope != null && continueDocument?.id != null) {
-                                with(sharedTransitionScope) {
-                                    Modifier.sharedElement(
-                                        sharedContentState = rememberSharedContentState(key = "recent_cover_${continueDocument.id}"),
-                                        animatedVisibilityScope = animatedVisibilityScope
-                                    )
-                                }
-                            } else Modifier
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (coverBitmap != null) {
-                        Image(
-                            bitmap = coverBitmap.asImageBitmap(),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Text("🎧", fontSize = 28.sp)
-                    }
-                }
-                
-                // Detailed Information
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (continueDocument == null) {
-                        Text(
-                            text = "Resume reading",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = if (documentCount == 0) "Open a file to start reading" else "Pick a document from your library to begin.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    } else {
-                        Text(
-                            text = continueDocument.title,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        
-                        val progressPercentVal = progressPercent(continueDocument)
-                        
-                        Text(
-                            text = "Sentence ${continueDocument.currentIndex + 1} of ${continueDocument.chunkCount} • $progressPercentVal% read",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        
-                        // Inline Progress Bar
-                        LinearProgressIndicator(
-                            progress = { progressFraction(continueDocument) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        )
-                    }
-                }
-                
-                // Audio controls inline
-                if (continueDocument != null) {
-                    val isActiveAndPlaying = PlaybackStateStore.activeDocumentId == continueDocument.id && PlaybackStateStore.isPlaying
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                .clickable { onPlayPauseContinue(continueDocument) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (isActiveAndPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isActiveAndPlaying) "Pause" else "Play",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-                        IconButton(
-                            onClick = { onClearContinue(continueDocument) },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = "Clear",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Text(
-            text = "Add content",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = VeritasPackStyle.cardShape(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-            border = BorderStroke(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-            )
-        ) {
-            Box {
-                HomeActionRow(
-                    icon = Icons.Filled.Add,
-                    title = "Import file",
-                    body = "Upload PDF, EPUB, DOCX, TXT, or HTML",
-                    iconBackground = Color(0xFFF0F3FF),
-                    iconForeground = Color(0xFF7C6FFF),
-                    onClick = onImportClick
-                )
-                DropdownMenu(expanded = importMenuExpanded, onDismissRequest = onDismissImportMenu) {
-                    DropdownMenuItem(text = { Text("Open file") }, onClick = onOpenFile)
-                    DropdownMenuItem(text = { Text("File browser") }, onClick = onOpenFileBrowser)
-                    DropdownMenuItem(text = { Text("Import settings") }, onClick = onOpenImportSettings)
-                    DropdownMenuItem(text = { Text("Paste text or URL") }, onClick = onPasteText)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeActionRow(
-    icon: ImageVector,
-    title: String,
-    body: String,
-    iconBackground: Color,
-    iconForeground: Color,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(iconBackground, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconForeground,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Icon(
-            imageVector = Icons.Filled.ChevronRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        )
-    }
-}
-
-
-
-
-
-
-@Composable
-fun HomePanel(
-    totalCount: Int,
-    unreadCount: Int,
-    inProgressCount: Int,
-    completedCount: Int,
-    favoriteCount: Int,
-    collectionCount: Int,
-    sourceCount: Int
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                text = "Reading Overview",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            StatTile(value = "$totalCount", label = "Saved", modifier = Modifier.width(84.dp))
-            StatTile(value = "$unreadCount", label = "Unread", modifier = Modifier.width(84.dp))
-            StatTile(value = "$inProgressCount", label = "Reading", modifier = Modifier.width(84.dp))
-            StatTile(value = "$completedCount", label = "Done", modifier = Modifier.width(72.dp))
-            StatTile(value = "$favoriteCount", label = "Starred", modifier = Modifier.width(72.dp))
-            StatTile(value = "$collectionCount", label = "Collections", modifier = Modifier.width(80.dp))
-            StatTile(value = "$sourceCount", label = "Formats", modifier = Modifier.width(72.dp))
-        }
-    }
-}
-
-
-@Composable
-private fun AnnotationDocumentCard(
-    document: SavedDocument,
-    annotations: List<ReaderAnnotation>,
-    documentNote: String,
-    selectedKeys: Set<String>,
-    selectionMode: Boolean,
-    onToggleDocumentNoteSelected: () -> Unit,
-    onLongPressDocumentNote: () -> Unit,
-    onToggleSelected: (ReaderAnnotation) -> Unit,
-    onLongPressAnnotation: (ReaderAnnotation) -> Unit,
-    onOpenDocumentNote: () -> Unit,
-    onOpenAt: (Int) -> Unit,
-    sentenceTextLookup: (Int) -> String?,
-    onDeleteAnnotations: (Set<String>) -> Unit
-) {
-    val hasDocumentNote = documentNote.isNotBlank()
-    val documentNoteKey = documentNoteStableKey(document.id)
-    val selectedDocumentNote = documentNoteKey in selectedKeys
-    val noteAnnotations = remember(annotations) { annotations.filter { it.type == AnnotationType.NOTE } }
-    
-    var expanded by rememberSaveable(document.id) { mutableStateOf(false) }
-    var expandedNoteKeys by remember { mutableStateOf(setOf<String>()) }
-    val context = LocalContext.current
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = VeritasPackStyle.cardShape(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        )
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.EditNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        text = document.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "${noteAnnotations.size + if (hasDocumentNote) 1 else 0} note${if (noteAnnotations.size + (if (hasDocumentNote) 1 else 0) == 1) "" else "s"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Icon(
-                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            if (expanded) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(horizontal = 14.dp))
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    if (hasDocumentNote || noteAnnotations.isNotEmpty()) {
-                        Text(
-                            text = "Notes",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        if (hasDocumentNote) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        if (selectedDocumentNote) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .pointerInput(selectionMode, selectedDocumentNote, documentNoteKey) {
-                                        detectTapGestures(
-                                            onLongPress = { onLongPressDocumentNote() },
-                                            onTap = {
-                                                if (selectionMode) onToggleDocumentNoteSelected() else onOpenDocumentNote()
-                                            }
-                                        )
-                                    }
-                                    .padding(vertical = 6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .background(if (selectedDocumentNote) Color(0xFFE2F0D9) else Color(0xFFFFF7F0), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (selectedDocumentNote) Icons.Filled.Check else Icons.Filled.Edit,
-                                        contentDescription = null,
-                                        tint = if (selectedDocumentNote) Color(0xFF137333) else Color(0xFFF2994A),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("General document note", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                    Text(documentNote, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50))
-                                        .clickable { if (selectionMode) onToggleDocumentNoteSelected() else onOpenDocumentNote() }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = if (selectionMode) (if (selectedDocumentNote) "Selected" else "Select") else "Open",
-                                        color = MaterialTheme.colorScheme.primary,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                        
-                        val noteGroups = remember(noteAnnotations) { groupNotes(document, noteAnnotations) }
-                        
-                        noteGroups.forEach { noteGroup ->
-                            val keys = noteGroup.annotations.map { it.stableKey }.toSet()
-                            NoteGroupCard(
-                                group = noteGroup,
-                                sentenceTextLookup = sentenceTextLookup,
-                                onOpenAt = onOpenAt,
-                                onDeleteGroup = {
-                                    onDeleteAnnotations(keys)
-                                }
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-@Composable
-fun QueueSection(
-    queuedDocuments: List<SavedDocument>,
-    onPlayQueue: () -> Unit,
-    onOpenDocument: (SavedDocument) -> Unit,
-    onMoveUp: (SavedDocument) -> Unit,
-    onMoveDown: (SavedDocument) -> Unit,
-    onRemove: (SavedDocument) -> Unit,
-    onClearQueue: () -> Unit
-) {
-    Card(
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Queue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
-                    Text(
-                        if (queuedDocuments.isEmpty()) "Build a playlist from your library." else "${queuedDocuments.size} queued item${if (queuedDocuments.size == 1) "" else "s"} ready for continuous playback.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                OutlinedButton(onClick = onClearQueue, enabled = queuedDocuments.isNotEmpty()) { Text("Clear") }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = onPlayQueue, enabled = queuedDocuments.isNotEmpty()) { Text("Play") }
-            }
-
-            if (queuedDocuments.isEmpty()) {
-                Card(
-                    shape = MaterialTheme.shapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Text(
-                        "Use Queue on any document card to add it here. Queue order controls what plays next in the background service.",
-                        modifier = Modifier.padding(14.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                queuedDocuments.forEachIndexed { index, document ->
-                    QueueItemRow(
-                        position = index + 1,
-                        document = document,
-                        canMoveUp = index > 0,
-                        canMoveDown = index < queuedDocuments.lastIndex,
-                        onOpen = { onOpenDocument(document) },
-                        onMoveUp = { onMoveUp(document) },
-                        onMoveDown = { onMoveDown(document) },
-                        onRemove = { onRemove(document) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun QueueItemRow(
-    position: Int,
-    document: SavedDocument,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
-    onOpen: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onRemove: () -> Unit
-) {
-    val progress = progressFraction(document)
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = MaterialTheme.shapes.medium
-    ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.small),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("$position", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f).clickable { onOpen() }) {
-                    Text(document.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                    Text("${document.sourceLabel} • ${progressPercent(document)}% • sentence ${document.currentIndex + 1}/${document.chunkCount.coerceAtLeast(1)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                SourceBadge(document.sourceLabel)
-            }
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onMoveUp, enabled = canMoveUp) { Text("Up") }
-                OutlinedButton(onClick = onMoveDown, enabled = canMoveDown) { Text("Down") }
-                TextButton(onClick = onRemove) { Text("Remove") }
-            }
-        }
-    }
-}
-
-@Composable
-fun EmptyLibraryCard(onImportFile: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-        shape = VeritasPackStyle.cardShape(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            BrandMark(compact = true)
-            Text("No saved readings yet", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text(
-                "Import a file or paste text to create your first local reading item. Progress, annotations, and queue state will be saved automatically.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Button(onClick = onImportFile) { Text("Import first file") }
-        }
-    }
-}
-
-@Composable
-fun DocumentCard(
-    document: SavedDocument,
-    isQueued: Boolean,
-    viewMode: LibraryViewMode,
-    selectionMode: Boolean,
-    selected: Boolean,
-    onOpen: () -> Unit,
-    onLongPress: () -> Unit,
-    onToggleSelected: () -> Unit,
-    onDelete: () -> Unit,
-    onToggleQueue: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onRename: () -> Unit,
-    onSetCollection: () -> Unit,
-    onShowDetails: () -> Unit,
-    onManageLists: () -> Unit = {},
-    modifier: Modifier = Modifier,
-    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
-    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
-) {
-    val progress = progressFraction(document)
-    var showActions by remember { mutableStateOf(false) }
-    val selectionScale by animateFloatAsState(
-        targetValue = if (selected) 0.965f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "documentCardSelectionScale"
-    )
-    val coverSize = when (viewMode) {
-        LibraryViewMode.SMALL, LibraryViewMode.LIST -> 48.dp
-        LibraryViewMode.DETAILS -> 72.dp
-        else -> 64.dp
-    }
-    val showChips = viewMode == LibraryViewMode.MEDIUM || viewMode == LibraryViewMode.DETAILS
-    val showPreview = viewMode == LibraryViewMode.DETAILS
-
-    val context = LocalContext.current
-    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
-    val coverBitmap = remember(coverFile) {
-        coverFile?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-        }
-    }
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .graphicsLayer(scaleX = selectionScale, scaleY = selectionScale)
-            .pointerInput(selectionMode, selected, document.id) {
-                detectTapGestures(
-                    onLongPress = { onLongPress() },
-                    onTap = {
-                        if (selectionMode) onToggleSelected() else onOpen()
-                    }
-                )
-            },
-        shape = VeritasPackStyle.compactShape(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
-            } else {
-                MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
-            }
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(if (viewMode == LibraryViewMode.LIST) 10.dp else 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(coverSize)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                when {
-                                    selected -> MaterialTheme.colorScheme.primary
-                                    document.favorite -> MaterialTheme.colorScheme.tertiaryContainer
-                                    else -> MaterialTheme.colorScheme.primaryContainer
-                                },
-                                if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        )
-                    )
-                    .then(
-                        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                            with(sharedTransitionScope) {
-                                Modifier.sharedElement(
-                                    sharedContentState = rememberSharedContentState(key = "cover_${document.id}"),
-                                    animatedVisibilityScope = animatedVisibilityScope
-                                )
-                            }
-                        } else Modifier
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (coverBitmap != null && !selected) {
-                    Image(
-                        bitmap = coverBitmap.asImageBitmap(),
-                        contentDescription = "Cover",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        when {
-                            selected -> "✓"
-                            document.favorite -> "★"
-                            else -> document.sourceLabel.take(3).uppercase()
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    document.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    "${document.sourceLabel} • ${progressPercent(document)}% read • ${document.chunkCount} sentences",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (showPreview) {
-                    Text(document.preview, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
-                if (viewMode != LibraryViewMode.LIST) {
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                }
-                if (showChips) {
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (document.collection.isNotBlank()) SoftChip(document.collection, emphasis = true)
-                        if (isQueued) SoftChip("Queued")
-                        if (document.favorite) SoftChip("Favorite")
-                        SoftChip("Updated ${formatUpdated(document.updatedAt)}")
-                    }
-                }
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (selectionMode) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
-                                CircleShape
-                            )
-                            .clickable { onToggleSelected() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(if (selected) "✓" else "+", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(
-                                if (isQueued) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                                CircleShape
-                            )
-                            .clickable { onToggleQueue() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (isQueued) "✓" else "+",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                    }
-                    Box {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), CircleShape)
-                                .clickable { showActions = true },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.MoreVert,
-                                contentDescription = "Document actions",
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showActions,
-                            onDismissRequest = { showActions = false },
-                            modifier = Modifier.width(260.dp)
-                        ) {
-                            DropdownMenuItem(text = { Text("Open reading") }, onClick = { showActions = false; onOpen() })
-                            DropdownMenuItem(text = { Text(if (document.favorite) "Remove from favorites" else "Add to favorites") }, onClick = { showActions = false; onToggleFavorite() })
-                            DropdownMenuItem(text = { Text(if (isQueued) "Remove from Queue" else "Add to Queue") }, onClick = { showActions = false; onToggleQueue() })
-                            DropdownMenuItem(text = { Text("Move to collection") }, onClick = { showActions = false; onSetCollection() })
-                            DropdownMenuItem(text = { Text("Save to lists") }, onClick = { showActions = false; onManageLists() })
-                            DropdownMenuItem(text = { Text("Rename") }, onClick = { showActions = false; onRename() })
-                            DropdownMenuItem(text = { Text("Details") }, onClick = { showActions = false; onShowDetails() })
-                            DropdownMenuItem(text = { Text("Delete") }, onClick = { showActions = false; onDelete() })
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DocumentTileCard(
-    document: SavedDocument,
-    isQueued: Boolean,
-    selectionMode: Boolean,
-    selected: Boolean,
-    onOpen: () -> Unit,
-    onLongPress: () -> Unit,
-    onToggleSelected: () -> Unit,
-    onDelete: () -> Unit,
-    onToggleQueue: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onRename: () -> Unit,
-    onSetCollection: () -> Unit,
-    onShowDetails: () -> Unit,
-    modifier: Modifier = Modifier,
-    onManageLists: () -> Unit = {},
-    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
-    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
-) {
-    var showActions by remember { mutableStateOf(false) }
-    val selectionScale by animateFloatAsState(
-        targetValue = if (selected) 0.965f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-        label = "documentTileSelectionScale"
-    )
-    val context = LocalContext.current
-    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
-    val coverBitmap = remember(coverFile) {
-        coverFile?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-        }
-    }
-    val isUnread = document.currentIndex == 0
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .graphicsLayer(scaleX = selectionScale, scaleY = selectionScale),
-        shape = VeritasPackStyle.cardShape(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
-            } else {
-                MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
-            }
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
-            }
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { if (selectionMode) onToggleSelected() else onOpen() }
-                .pointerInput(selectionMode, selected, document.id) {
-                    detectTapGestures(
-                        onLongPress = { onLongPress() },
-                        onTap = { if (selectionMode) onToggleSelected() else onOpen() }
-                    )
-                }
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(0.75f)
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                    .then(
-                        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                            with(sharedTransitionScope) {
-                                Modifier.sharedElement(
-                                    sharedContentState = rememberSharedContentState(key = "cover_${document.id}"),
-                                    animatedVisibilityScope = animatedVisibilityScope
-                                )
-                            }
-                        } else Modifier
-                    )
-            ) {
-                if (coverBitmap != null) {
-                    Image(
-                        bitmap = coverBitmap.asImageBitmap(),
-                        contentDescription = "Cover",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = document.sourceLabel.take(3).uppercase(),
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 20.sp
-                        )
-                    }
-                }
-
-                if (selectionMode) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (selected) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Check,
-                                    contentDescription = "Selected",
-                                    tint = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (isUnread) {
-                            Box(
-                                modifier = Modifier
-                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    "NEW",
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                        if (document.favorite) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Color.Yellow.copy(alpha = 0.9f), CircleShape)
-                                    .size(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Star,
-                                    contentDescription = "Favorite",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(11.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Box {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                                .clickable { showActions = true },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.MoreVert,
-                                contentDescription = "Document actions",
-                                tint = Color.White,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                        DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }) {
-                            DropdownMenuItem(text = { Text("Open reading") }, onClick = { showActions = false; onOpen() })
-                            DropdownMenuItem(text = { Text(if (document.favorite) "Remove favorite" else "Add favorite") }, onClick = { showActions = false; onToggleFavorite() })
-                            DropdownMenuItem(text = { Text(if (isQueued) "Remove from Queue" else "Add to Queue") }, onClick = { showActions = false; onToggleQueue() })
-                            DropdownMenuItem(text = { Text("Move to collection") }, onClick = { showActions = false; onSetCollection() })
-                            DropdownMenuItem(text = { Text("Save to lists") }, onClick = { showActions = false; onManageLists() })
-                            DropdownMenuItem(text = { Text("Rename") }, onClick = { showActions = false; onRename() })
-                            DropdownMenuItem(text = { Text("Details") }, onClick = { showActions = false; onShowDetails() })
-                            DropdownMenuItem(text = { Text("Delete") }, onClick = { showActions = false; onDelete() })
-                        }
-                    }
-                }
-            }
-
-            Column(
-                modifier = Modifier.padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = document.title,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${progressPercent(document)}% read",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "${document.chunkCount} sent",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                LinearProgressIndicator(
-                    progress = { progressFraction(document) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun EmbeddedOnboardingBlock(
-    onOpenFileBrowser: () -> Unit,
-    onPasteText: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.medium),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("🎧", fontSize = 40.sp)
-            }
-            Text(
-                "Listen to anything, eyes-free.",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "Import PDFs, EPUBs, documents, or paste web articles to get started.",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Button(
-                    onClick = onOpenFileBrowser,
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Text("Browse Files")
-                }
-                FilledTonalButton(
-                    onClick = onPasteText,
-                    modifier = Modifier.weight(1f),
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Text("Paste Text")
-                }
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun RowScope.BottomNavItem(
-    selected: Boolean,
-    onClick: () -> Unit,
-    icon: @Composable (Color) -> Unit,
-    label: String
-) {
-    val contentColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    Column(
-        modifier = Modifier
-            .weight(1f)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        icon(contentColor)
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-            color = contentColor,
-            maxLines = 1
-        )
-    }
-}
-
-@Composable
-private fun ImportSheetMenu(
-    onSelectOption: (ImportOption) -> Unit,
-    onDismiss: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Add something", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            IconButton(onClick = onDismiss) {
-                Icon(imageVector = Icons.Filled.Close, contentDescription = "Close")
-            }
-        }
-        
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ImportSheetOptionCard(
-                icon = Icons.Filled.FolderOpen,
-                title = "File browser",
-                subtitle = "Browse and batch import local files",
-                onClick = { onSelectOption(ImportOption.BROWSE) }
-            )
-            ImportSheetOptionCard(
-                icon = Icons.Filled.ContentPaste,
-                title = "Paste text",
-                subtitle = "Copy and paste any content",
-                onClick = { onSelectOption(ImportOption.PASTE) }
-            )
-            ImportSheetOptionCard(
-                icon = Icons.Filled.Language,
-                title = "From web",
-                subtitle = "Paste a link to an article",
-                onClick = { onSelectOption(ImportOption.WEB) }
-            )
-            ImportSheetOptionCard(
-                icon = Icons.Filled.PhotoCamera,
-                title = "Scan / OCR",
-                subtitle = "Take a photo of printed text",
-                onClick = { onSelectOption(ImportOption.SCAN) }
-            )
-            ImportSheetOptionCard(
-                icon = Icons.Filled.Description,
-                title = "Browse phone folders",
-                subtitle = "Open system file chooser",
-                onClick = { onSelectOption(ImportOption.FILE) }
-            )
-            ImportSheetOptionCard(
-                icon = Icons.Filled.EditNote,
-                title = "Write note",
-                subtitle = "Create a freeform reading note",
-                onClick = { onSelectOption(ImportOption.WRITE_NOTE) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun ImportSheetOptionCard(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(26.dp)
-            )
-            Column {
-                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ImportSheetWeb(
-    urlText: String,
-    onUrlChange: (String) -> Unit,
-    onImport: (String) -> Unit,
-    onBack: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            IconButton(onClick = onBack) {
-                Text("←", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            }
-            Text("Import link", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        }
-        
-        Text("Paste a link to any web article, report, or blog post below:", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        
-        OutlinedTextField(
-            value = urlText,
-            onValueChange = onUrlChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Article Link") },
-            placeholder = { Text("https://example.com/article...") },
-            singleLine = true
-        )
-        
-        Button(
-            onClick = { onImport(urlText) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = urlText.isNotBlank() && WebArticleExtractor.looksLikeUrl(urlText)
-        ) {
-            Text("Import web article")
-        }
-    }
-}
-
-@Composable
-private fun ImportSheetPaste(
-    pastedText: String,
-    onTextChange: (String) -> Unit,
-    onSave: () -> Unit,
-    onBack: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            IconButton(onClick = onBack) {
-                Text("←", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            }
-            Text("Paste text", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        }
-        
-        Text("Paste loose text, a document snippet, or email contents below:", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        
-        OutlinedTextField(
-            value = pastedText,
-            onValueChange = onTextChange,
-            modifier = Modifier.fillMaxWidth().height(180.dp),
-            label = { Text("Content") },
-            placeholder = { Text("Paste text here...") }
-        )
-        
-        Button(
-            onClick = onSave,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = pastedText.isNotBlank()
-        ) {
-            Text("Save reading")
-        }
-    }
-}
-
-@Composable
-private fun StudyEmptyState(
-    icon: ImageVector,
-    title: String,
-    description: String,
-    onGoToLibrary: () -> Unit,
-    onImportFile: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-        shape = MaterialTheme.shapes.large,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-    ) {
-        Column(
-            modifier = Modifier.padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            horizontalAlignment = Alignment.Start
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(
-                description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(onClick = onImportFile) {
-                    Text("Import file")
-                }
-                OutlinedButton(onClick = onGoToLibrary) {
-                    Text("Go to Library")
-                }
-            }
-        }
-    }
-}
-
-private fun renderMarkdown(text: String): androidx.compose.ui.text.AnnotatedString {
-    return androidx.compose.ui.text.buildAnnotatedString {
-        var i = 0
-        while (i < text.length) {
-            when {
-                text.startsWith("**", i) -> {
-                    val end = text.indexOf("**", i + 2)
-                    if (end != -1) {
-                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold))
-                        append(text.substring(i + 2, end))
-                        pop()
-                        i = end + 2
-                    } else {
-                        append("**")
-                        i += 2
-                    }
-                }
-                text.startsWith("*", i) -> {
-                    val end = text.indexOf("*", i + 1)
-                    if (end != -1) {
-                        pushStyle(androidx.compose.ui.text.SpanStyle(fontStyle = FontStyle.Italic))
-                        append(text.substring(i + 1, end))
-                        pop()
-                        i = end + 1
-                    } else {
-                        append("*")
-                        i += 1
-                    }
-                }
-                text.startsWith("##", i) -> {
-                    pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 15.sp))
-                    val end = text.indexOf("\n", i)
-                    if (end != -1) {
-                        append(text.substring(i + 2, end).trim())
-                        pop()
-                        i = end
-                    } else {
-                        append(text.substring(i + 2).trim())
-                        pop()
-                        i = text.length
-                    }
-                }
-                text.startsWith("__", i) -> {
-                    val end = text.indexOf("__", i + 2)
-                    if (end != -1) {
-                        pushStyle(androidx.compose.ui.text.SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
-                        append(text.substring(i + 2, end))
-                        pop()
-                        i = end + 2
-                    } else {
-                        append("__")
-                        i += 2
-                    }
-                }
-                else -> {
-                    append(text[i])
-                    i++
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FlashcardReviewDialog(
-    dueCards: List<FlashcardProgress>,
-    onGrade: (String, Int) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var currentIndex by remember { mutableStateOf(0) }
-    var showAnswer by remember { mutableStateOf(false) }
-
-    if (currentIndex >= dueCards.size) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            confirmButton = { Button(onClick = onDismiss) { Text("Awesome") } },
-            title = { Text("Session Completed") },
-            text = { Text("You've finished reviewing all due cards for now!") }
-        )
-    } else {
-        val card = dueCards[currentIndex]
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = onDismiss) { Text("Exit Review") }
-            },
-            title = { Text("Reviewing Card ${currentIndex + 1} of ${dueCards.size}") },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .clickable { showAnswer = !showAnswer },
-                        shape = VeritasPackStyle.cardShape(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize().padding(18.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                if (!showAnswer) {
-                                    Text(card.front, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text("Tap to flip", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                                } else {
-                                    Text(card.back, style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text("Tap to show question", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                                }
-                            }
-                        }
-                    }
-
-                    if (showAnswer) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Text("Rate your recall:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        onGrade(card.id, 1)
-                                        showAnswer = false
-                                        currentIndex++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Again", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                                }
-                                Button(
-                                    onClick = {
-                                        onGrade(card.id, 2)
-                                        showAnswer = false
-                                        currentIndex++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF97316)),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Hard", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                                }
-                                Button(
-                                    onClick = {
-                                        onGrade(card.id, 3)
-                                        showAnswer = false
-                                        currentIndex++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Good", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                                }
-                                Button(
-                                    onClick = {
-                                        onGrade(card.id, 4)
-                                        showAnswer = false
-                                        currentIndex++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Easy", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        )
-    }
-}
-
-data class BookmarkGroup(
-    val id: String,
-    val document: SavedDocument,
-    val annotations: List<ReaderAnnotation>,
-    val highlightColor: String?,
-    val startSentence: Int,
-    val endSentence: Int
-)
-
-fun groupBookmarks(
-    document: SavedDocument,
-    annotations: List<ReaderAnnotation>
-): List<BookmarkGroup> {
-    val sorted = annotations.sortedBy { it.chunkIndex }
-    val groups = mutableListOf<BookmarkGroup>()
-    
-    val withGroup = sorted.filter { !it.selectionGroupId.isNullOrBlank() }
-    val withoutGroup = sorted.filter { it.selectionGroupId.isNullOrBlank() }
-    
-    val groupedById = withGroup.groupBy { it.selectionGroupId }
-    groupedById.forEach { (groupId, groupAnnots) ->
-        val sortedAnnots = groupAnnots.sortedBy { it.chunkIndex }
-        val start = sortedAnnots.first().chunkIndex
-        val end = sortedAnnots.last().chunkIndex
-        val color = sortedAnnots.first().highlightColor ?: "#FFE082"
-        groups.add(
-            BookmarkGroup(
-                id = groupId ?: UUID.randomUUID().toString(),
-                document = document,
-                annotations = sortedAnnots,
-                highlightColor = color,
-                startSentence = start,
-                endSentence = end
-            )
-        )
-    }
-    
-    if (withoutGroup.isNotEmpty()) {
-        var currentRun = mutableListOf<ReaderAnnotation>()
-        for (ann in withoutGroup) {
-            if (currentRun.isEmpty()) {
-                currentRun.add(ann)
-            } else {
-                val lastAnn = currentRun.last()
-                if (ann.chunkIndex == lastAnn.chunkIndex + 1 && ann.highlightColor == lastAnn.highlightColor) {
-                    currentRun.add(ann)
-                } else {
-                    val start = currentRun.first().chunkIndex
-                    val end = currentRun.last().chunkIndex
-                    val color = currentRun.first().highlightColor ?: "#FFE082"
-                    groups.add(
-                        BookmarkGroup(
-                            id = "legacy-${document.id}-$start-$end",
-                            document = document,
-                            annotations = currentRun,
-                            highlightColor = color,
-                            startSentence = start,
-                            endSentence = end
-                        )
-                    )
-                    currentRun = mutableListOf(ann)
-                }
-            }
-        }
-        if (currentRun.isNotEmpty()) {
-            val start = currentRun.first().chunkIndex
-            val end = currentRun.last().chunkIndex
-            val color = currentRun.first().highlightColor ?: "#FFE082"
-            groups.add(
-                BookmarkGroup(
-                    id = "legacy-${document.id}-$start-$end",
-                    document = document,
-                    annotations = currentRun,
-                    highlightColor = color,
-                    startSentence = start,
-                    endSentence = end
-                )
-            )
-        }
-    }
-    
-    return groups.sortedBy { it.startSentence }
-}
-
-data class NoteGroup(
-    val id: String,
-    val document: SavedDocument,
-    val annotations: List<ReaderAnnotation>,
-    val noteText: String,
-    val highlightColor: String?,
-    val startSentence: Int,
-    val endSentence: Int
-)
-
-fun groupNotes(
-    document: SavedDocument,
-    annotations: List<ReaderAnnotation>
-): List<NoteGroup> {
-    val sorted = annotations.sortedBy { it.chunkIndex }
-    val groups = mutableListOf<NoteGroup>()
-    
-    val withGroup = sorted.filter { !it.selectionGroupId.isNullOrBlank() }
-    val withoutGroup = sorted.filter { it.selectionGroupId.isNullOrBlank() }
-    
-    val groupedById = withGroup.groupBy { it.selectionGroupId }
-    groupedById.forEach { (groupId, groupAnnots) ->
-        val sortedAnnots = groupAnnots.sortedBy { it.chunkIndex }
-        val start = sortedAnnots.first().chunkIndex
-        val end = sortedAnnots.last().chunkIndex
-        val text = sortedAnnots.first().note
-        val color = sortedAnnots.first().highlightColor
-        groups.add(
-            NoteGroup(
-                id = groupId ?: java.util.UUID.randomUUID().toString(),
-                document = document,
-                annotations = sortedAnnots,
-                noteText = text,
-                highlightColor = color,
-                startSentence = start,
-                endSentence = end
-            )
-        )
-    }
-    
-    withoutGroup.forEach { ann ->
-        groups.add(
-            NoteGroup(
-                id = "single-${document.id}-${ann.chunkIndex}",
-                document = document,
-                annotations = listOf(ann),
-                noteText = ann.note,
-                highlightColor = ann.highlightColor,
-                startSentence = ann.chunkIndex,
-                endSentence = ann.chunkIndex
-            )
-        )
-    }
-    
-    return groups.sortedBy { it.startSentence }
-}
-
-@Composable
-private fun BookmarkDocumentCard(
-    document: SavedDocument,
-    groups: List<BookmarkGroup>,
-    sentenceTextLookup: (Int) -> String?,
-    onOpenAt: (Int) -> Unit,
-    onDeleteAnnotations: (Set<String>) -> Unit
-) {
-    var expanded by rememberSaveable(document.id) { mutableStateOf(false) }
-    
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = VeritasPackStyle.cardShape(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        )
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Bookmark,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        text = document.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "${groups.size} bookmark${if (groups.size == 1) "" else "s"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Icon(
-                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            if (expanded) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(horizontal = 14.dp))
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    groups.forEach { group ->
-                        BookmarkGroupCard(
-                            group = group,
-                            sentenceTextLookup = sentenceTextLookup,
-                            onOpenAt = onOpenAt,
-                            onDeleteGroup = {
-                                onDeleteAnnotations(group.annotations.map { it.stableKey }.toSet())
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BookmarkGroupCard(
-    group: BookmarkGroup,
-    sentenceTextLookup: (Int) -> String?,
-    onOpenAt: (Int) -> Unit,
-    onDeleteGroup: () -> Unit
-) {
-    val context = LocalContext.current
-    var expanded by rememberSaveable(group.id) { mutableStateOf(false) }
-    var showMenu by remember { mutableStateOf(false) }
-    
-    val bookTitle = group.document.title
-    val (cleanTitle, authorName) = remember(bookTitle) { getBookAndAuthor(bookTitle) }
-    
-    val collapsedText = remember(group, sentenceTextLookup) {
-        val firstAnn = group.annotations.firstOrNull()
-        val firstText = firstAnn?.let { sentenceTextLookup(it.chunkIndex) }
-        if (firstText.isNullOrBlank()) {
-            if (group.startSentence == group.endSentence) "Sentence ${group.startSentence + 1}"
-            else "Sentences ${group.startSentence + 1}–${group.endSentence + 1}"
-        } else {
-            if (firstText.length > 60) firstText.take(57) + "..." else firstText
-        }
-    }
-    
-    val highlightColor = remember(group.highlightColor) {
-        runCatching { Color(android.graphics.Color.parseColor(group.highlightColor)) }
-            .getOrDefault(Color(0xFFFFE082))
-    }
-    
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .animateContentSize(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(color = highlightColor, shape = CircleShape)
-                )
-                
-                Spacer(modifier = Modifier.width(10.dp))
-                
-                Text(
-                    text = collapsedText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                
-                Icon(
-                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-            
-            if (expanded) {
-                Spacer(modifier = Modifier.height(10.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Spacer(modifier = Modifier.height(10.dp))
-                
-                val sentencesText = remember(group.annotations, sentenceTextLookup) {
-                    group.annotations.map { ann ->
-                        sentenceTextLookup(ann.chunkIndex) ?: ""
-                    }
-                }
-                
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    group.annotations.forEachIndexed { idx, ann ->
-                        val text = sentencesText.getOrNull(idx)?.ifBlank { null } ?: "Loading sentence text..."
-                        
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(4.dp)
-                                    .height(36.dp)
-                                    .background(color = highlightColor, shape = RoundedCornerShape(2.dp))
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(6.dp))
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .clickable { onOpenAt(group.startSentence) }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Open in document ↗",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        
-                        Box {
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(
-                                    imageVector = Icons.Filled.MoreVert,
-                                    contentDescription = "Actions",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    onClick = {
-                                        showMenu = false
-                                        val fullText = sentencesText.joinToString(" ")
-                                        shareBookmarkAsImage(
-                                            context = context,
-                                            bookTitle = cleanTitle,
-                                            authorName = authorName,
-                                            highlightedText = fullText,
-                                            highlightColorHex = group.highlightColor ?: "#FFE082"
-                                        )
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Copy") },
-                                    onClick = {
-                                        showMenu = false
-                                        val fullText = sentencesText.joinToString(" ")
-                                        copyTextToClipboard(context, "Bookmark Text", fullText)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                    onClick = {
-                                        showMenu = false
-                                        onDeleteGroup()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NoteGroupCard(
-    group: NoteGroup,
-    sentenceTextLookup: (Int) -> String?,
-    onOpenAt: (Int) -> Unit,
-    onDeleteGroup: () -> Unit
-) {
-    val context = LocalContext.current
-    var expanded by rememberSaveable(group.id) { mutableStateOf(false) }
-    var showMenu by remember { mutableStateOf(false) }
-    
-    val bookTitle = group.document.title
-    val (cleanTitle, authorName) = remember(bookTitle) { getBookAndAuthor(bookTitle) }
-    
-    val collapsedText = remember(group, sentenceTextLookup) {
-        val firstAnn = group.annotations.firstOrNull()
-        val firstText = firstAnn?.let { sentenceTextLookup(it.chunkIndex) }
-        if (firstText.isNullOrBlank()) {
-            if (group.startSentence == group.endSentence) "Sentence ${group.startSentence + 1}"
-            else "Sentences ${group.startSentence + 1}–${group.endSentence + 1}"
-        } else {
-            if (firstText.length > 60) firstText.take(57) + "..." else firstText
-        }
-    }
-    
-    val highlightColor = remember(group.highlightColor) {
-        runCatching { Color(android.graphics.Color.parseColor(group.highlightColor)) }
-            .getOrDefault(Color(0xFFFFE082))
-    }
-    
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .animateContentSize(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .background(color = highlightColor, shape = CircleShape)
-                )
-                
-                Spacer(modifier = Modifier.width(10.dp))
-                
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = collapsedText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (group.noteText.isNotBlank()) {
-                        Text(
-                            text = group.noteText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                
-                Icon(
-                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-            
-            if (expanded) {
-                Spacer(modifier = Modifier.height(10.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Spacer(modifier = Modifier.height(10.dp))
-                
-                val sentencesText = remember(group.annotations, sentenceTextLookup) {
-                    group.annotations.map { ann ->
-                        sentenceTextLookup(ann.chunkIndex) ?: ""
-                    }
-                }
-                
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    group.annotations.forEachIndexed { idx, ann ->
-                        val text = sentencesText.getOrNull(idx)?.ifBlank { null } ?: "Loading sentence text..."
-                        
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(4.dp)
-                                    .height(36.dp)
-                                    .background(color = highlightColor, shape = RoundedCornerShape(2.dp))
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                    
-                    if (group.noteText.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Filled.EditNote,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Note",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = group.noteText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(6.dp))
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .clickable { onOpenAt(group.startSentence) }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Open in document ↗",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        
-                        Box {
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(
-                                    imageVector = Icons.Filled.MoreVert,
-                                    contentDescription = "Actions",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    onClick = {
-                                        showMenu = false
-                                        val fullText = sentencesText.joinToString(" ") + "\n\nNote: " + group.noteText
-                                        shareBookmarkAsImage(
-                                            context = context,
-                                            bookTitle = cleanTitle,
-                                            authorName = authorName,
-                                            highlightedText = fullText,
-                                            highlightColorHex = group.highlightColor ?: "#FFE082"
-                                        )
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Copy") },
-                                    onClick = {
-                                        showMenu = false
-                                        val fullText = sentencesText.joinToString(" ") + "\n\nNote: " + group.noteText
-                                        copyTextToClipboard(context, "Note & Context Text", fullText)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                    onClick = {
-                                        showMenu = false
-                                        onDeleteGroup()
-                                    }
-                                )
                             }
                         }
                     }

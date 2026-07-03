@@ -16,10 +16,13 @@ if (keystorePropertiesFile.exists()) {
 android {
     signingConfigs {
         create("release") {
+            // Credentials live ONLY in untracked local.properties — never hardcode
+            // fallbacks here; this file is public on GitHub. Empty string (not error())
+            // keeps debug builds working on machines without release credentials.
             storeFile = file("../keystore/veritas-reader-test-release.jks")
-            storePassword = keystoreProperties.getProperty("RELEASE_STORE_PASSWORD") ?: "1st2usjan"
+            storePassword = keystoreProperties.getProperty("RELEASE_STORE_PASSWORD") ?: ""
             keyAlias = "veritasreader"
-            keyPassword = keystoreProperties.getProperty("RELEASE_KEY_PASSWORD") ?: "1st2usjan"
+            keyPassword = keystoreProperties.getProperty("RELEASE_KEY_PASSWORD") ?: ""
         }
     }
 
@@ -104,6 +107,7 @@ dependencies {
     }
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20231013")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")

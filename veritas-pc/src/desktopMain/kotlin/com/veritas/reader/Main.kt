@@ -14,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
 import com.veritas.reader.ui.ReaderViewModel
 import com.veritas.reader.ui.VeritasTheme
@@ -79,13 +81,47 @@ fun main() {
     java.util.logging.Logger.getLogger("org.apache.pdfbox").level = java.util.logging.Level.SEVERE
     java.util.logging.Logger.getLogger("org.apache.fontbox").level = java.util.logging.Level.SEVERE
     application {
-        Window(
-            onCloseRequest = ::exitApplication,
-        title = "Veritas Reader PC"
-    ) {
         val application = remember { Application() }
         val viewModel = remember { ReaderViewModel(application) }
         val uiState by viewModel.uiState.collectAsState()
+
+        // Desktop-sized window: sensible default, centered, with a floor so the phone-first
+        // layouts never collapse below usable width.
+        val windowState = androidx.compose.ui.window.rememberWindowState(
+            width = 1280.dp,
+            height = 860.dp,
+            position = androidx.compose.ui.window.WindowPosition(Alignment.Center)
+        )
+
+        Window(
+            onCloseRequest = ::exitApplication,
+            state = windowState,
+            title = "Veritas Reader",
+            // PC affordances: Space toggles play/pause, ←/→ step sentences while a document
+            // is open. Bubble-phase, so text fields keep their keys.
+            onKeyEvent = { event ->
+                val doc = uiState.activeDocument
+                if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && doc != null &&
+                    !uiState.showGeneralNotesEditor && !uiState.showTextEditor
+                ) {
+                    when (event.key) {
+                        androidx.compose.ui.input.key.Key.Spacebar -> {
+                            viewModel.playOrPause(); true
+                        }
+                        androidx.compose.ui.input.key.Key.DirectionRight -> {
+                            viewModel.moveTo(PlaybackStateStore.currentIndex + 1, autoPlay = PlaybackStateStore.isPlaying); true
+                        }
+                        androidx.compose.ui.input.key.Key.DirectionLeft -> {
+                            viewModel.moveTo((PlaybackStateStore.currentIndex - 1).coerceAtLeast(0), autoPlay = PlaybackStateStore.isPlaying); true
+                        }
+                        else -> false
+                    }
+                } else {
+                    false
+                }
+            }
+        ) {
+        SideEffect { window.minimumSize = java.awt.Dimension(960, 640) }
         val coroutineScope = rememberCoroutineScope()
         val documentRepository = remember(application) { DocumentRepository(application) }
 

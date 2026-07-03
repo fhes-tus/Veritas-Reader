@@ -247,11 +247,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         startActiveDocSessionTime()
         viewModelScope.launch(Dispatchers.IO) {
             val tracker = repository.recordAppOpen(appSessionStartedAt)
-            // Pick up reading time the PlaybackService accrued while we were backgrounded.
+            // Pick up everything the PlaybackService wrote while we were backgrounded:
+            // accrued reading time AND per-document progress (currentIndex). Without the
+            // documents reload, the home hero card kept showing stale progress until a
+            // full process restart.
             val readingTimes = repository.loadDocReadingTimes()
+            val docs = repository.loadDocuments()
             withContext(Dispatchers.Main) {
                 _uiState.update {
-                    it.copy(readerTrackerSnapshot = tracker, documentReadingTimes = readingTimes)
+                    it.copy(
+                        readerTrackerSnapshot = tracker,
+                        documentReadingTimes = readingTimes,
+                        documents = docs
+                    )
                 }
             }
         }
@@ -2847,6 +2855,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     destinationFile.delete()
                 }
 
+                if (!apkUrl.startsWith("https://", ignoreCase = true)) {
+                    throw Exception("Update download refused (non-HTTPS URL)")
+                }
                 val url = java.net.URL(apkUrl)
                 var connection = url.openConnection() as java.net.HttpURLConnection
                 connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")
@@ -2861,6 +2872,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         responseCode == 307 || responseCode == 308) && redirectCount < 5) {
                     val newUrl = connection.getHeaderField("Location")
                     connection.disconnect()
+                    // An APK download must never be redirected to plain HTTP — a network
+                    // attacker could swap the binary in transit.
+                    if (newUrl.isNullOrBlank() || !newUrl.startsWith("https://", ignoreCase = true)) {
+                        throw Exception("Update redirect refused (non-HTTPS location)")
+                    }
                     val nextUrl = java.net.URL(newUrl)
                     connection = nextUrl.openConnection() as java.net.HttpURLConnection
                     connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")

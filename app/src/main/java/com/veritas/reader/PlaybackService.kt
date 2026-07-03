@@ -557,8 +557,11 @@ class PlaybackService : MediaSessionService() {
         // unrelated UI actions (opening/closing a document, recomposition, a stray tap)
         // while an utterance is in flight; reading it here is the root cause of playback
         // jumping to the wrong place ("rat bug"). The internal index is the source of truth.
-        val current = activeChunkIndex.takeIf { it in 0..chunks.lastIndex }
-            ?: PlaybackStateStore.currentIndex.coerceIn(0, chunks.lastIndex)
+        val current = PlaybackAdvance.resolveCurrentIndex(
+            activeChunkIndex = activeChunkIndex,
+            sharedIndex = PlaybackStateStore.currentIndex,
+            lastIndex = chunks.lastIndex
+        )
 
         // Section sleep timer check
         if (timer != null && timer.stopAtEndOfSection) {
