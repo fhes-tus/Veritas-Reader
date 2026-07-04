@@ -302,14 +302,16 @@ internal fun ReadingStatsDashboardDialog(
     val tertiaryColor = MaterialTheme.colorScheme.tertiary
     val errorColor = MaterialTheme.colorScheme.error
     val pastedColor = MaterialTheme.colorScheme.inversePrimary
+    val slidesColor = blendColors(secondaryColor, errorColor, 0.5f)
 
     // Format Distribution slices — every document lands in exactly one bucket so the
-    // chart total always matches the library size. E-Books (EPUB) and Documents (Word/text/
-    // scanned) are split into their own slices rather than one combined bucket.
-    val formatSlices = remember(documents, primaryColor, secondaryColor, tertiaryColor, errorColor, pastedColor) {
+    // chart total always matches the library size. E-Books (EPUB), Slide Decks (PPTX),
+    // and Documents (Word/text/scanned) are split into their own slices.
+    val formatSlices = remember(documents, primaryColor, secondaryColor, tertiaryColor, errorColor, pastedColor, slidesColor) {
         var pdfCount = 0
         var webCount = 0
         var ebookCount = 0
+        var slidesCount = 0
         var docCount = 0
         var pastedCount = 0
         documents.forEach { doc ->
@@ -318,12 +320,13 @@ internal fun ReadingStatsDashboardDialog(
             val label = doc.sourceLabel.lowercase(Locale.US)
             when {
                 // sourceLabel is the explicit, reliable classifier set at import time
-                // ("PDF", "DOCX", "EPUB", "OCR", "TXT", "Web", ...). Key off it first,
-                // then fall back to mime type / filename so older records still bucket.
+                // ("PDF", "DOCX", "PPTX", "EPUB", "OCR", "TXT", "Web", ...). Key off it
+                // first, then fall back to mime type / filename so older records still bucket.
                 label == "pdf" || mime.contains("pdf") || title.endsWith(".pdf") -> pdfCount++
                 label.contains("web") || label.contains("http") || label.contains("article") ||
                     mime.contains("html") -> webCount++
                 label == "epub" || mime.contains("epub") || title.endsWith(".epub") -> ebookCount++
+                label == "pptx" || mime.contains("presentationml") || title.endsWith(".pptx") -> slidesCount++
                 label in setOf("docx", "txt", "ocr") ||
                     mime.contains("word") || mime.contains("wordprocessingml") ||
                     mime.startsWith("image/") ||
@@ -349,6 +352,12 @@ internal fun ReadingStatsDashboardDialog(
                 value = ebookCount.toFloat(),
                 color = tertiaryColor,
                 description = "EPUB e-books imported into your library."
+            ),
+            DonutSlice(
+                label = "Slide Decks",
+                value = slidesCount.toFloat(),
+                color = slidesColor,
+                description = "PowerPoint presentations read slide by slide with titles, bullets, and speaker notes."
             ),
             DonutSlice(
                 label = "Documents",

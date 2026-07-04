@@ -684,7 +684,7 @@ fun ReaderScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         if (readerSettings.showSectionNumbers) {
                                             Text(
-                                                "Section ${part.index + 1} of ${readerModel.parts.size} • pages ${part.pageRange.startPage}-${part.pageRange.endPage}",
+                                                "Section ${part.index + 1} of ${readerModel.parts.size} • ${if (document.sourceLabel == "PPTX") "slides" else "pages"} ${part.pageRange.startPage}-${part.pageRange.endPage}",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.weight(1f)
@@ -1072,7 +1072,7 @@ fun ReaderScreen(
                         }
                     }
                     
-                    val partLabel = currentPart?.let { "Section ${it.index + 1} (Pages ${it.pageRange.startPage}-${it.pageRange.endPage})" } ?: "Current Section"
+                    val partLabel = currentPart?.let { "Section ${it.index + 1} (${if (document.sourceLabel == "PPTX") "Slides" else "Pages"} ${it.pageRange.startPage}-${it.pageRange.endPage})" } ?: "Current Section"
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier

@@ -1097,6 +1097,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             } else 0
 
             withContext(Dispatchers.Main) {
+                val isPptx = mimeType.contains("presentationml", ignoreCase = true) ||
+                    name.endsWith(".pptx", ignoreCase = true)
                 val pending = VeritasPendingImport(
                     uri = uri,
                     name = name,
@@ -1109,6 +1111,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         endPage = if (pageCount > 0) pageCount else null
                     ),
                     textOptions = TextImportOptions(),
+                    isPptx = isPptx,
+                    pptxOptions = PptxImportOptions(),
                     sourceNameHint = sourceNameHint
                 )
                 _uiState.update {
@@ -1125,13 +1129,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(pendingImport = null) }
     }
 
-    fun executePendingImport(title: String, pdfOptions: PdfImportOptions, textOptions: TextImportOptions) {
+    fun executePendingImport(
+        title: String,
+        pdfOptions: PdfImportOptions,
+        textOptions: TextImportOptions,
+        pptxOptions: PptxImportOptions = PptxImportOptions()
+    ) {
         val pending = uiState.value.pendingImport ?: return
         _uiState.update { it.copy(pendingImport = null) }
         importDocumentFromUri(
             uri = pending.uri,
             pdfOptions = pdfOptions,
             textOptions = textOptions,
+            pptxOptions = pptxOptions,
             sourceNameHint = pending.sourceNameHint,
             customTitle = title
         )
@@ -1141,6 +1151,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         uri: Uri,
         pdfOptions: PdfImportOptions = PdfImportOptions(),
         textOptions: TextImportOptions = TextImportOptions(),
+        pptxOptions: PptxImportOptions = PptxImportOptions(),
         sourceNameHint: String? = null,
         customTitle: String? = null,
         queueAfterImport: Boolean = false,
@@ -1188,7 +1199,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             "pdf_cropTop" to (pdfOptions.cropRect?.top ?: -1f),
             "pdf_cropRight" to (pdfOptions.cropRect?.right ?: -1f),
             "pdf_cropBottom" to (pdfOptions.cropRect?.bottom ?: -1f),
-            "text_encodingId" to textOptions.encodingId
+            "text_encodingId" to textOptions.encodingId,
+            "pptx_includeSpeakerNotes" to pptxOptions.includeSpeakerNotes,
+            "pptx_autoPunctuate" to pptxOptions.autoPunctuate,
+            "pptx_ocrSlideImages" to pptxOptions.ocrSlideImages
         )
         
         val request = androidx.work.OneTimeWorkRequestBuilder<DocumentImportWorker>()

@@ -2971,12 +2971,13 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
 @Composable
 fun VeritasImportPreviewDialog(
     pendingImport: VeritasPendingImport,
-    onConfirm: (String, PdfImportOptions, TextImportOptions) -> Unit,
+    onConfirm: (String, PdfImportOptions, TextImportOptions, PptxImportOptions) -> Unit,
     onCancel: () -> Unit
 ) {
     var title by remember { mutableStateOf(pendingImport.name.substringBeforeLast(".")) }
     var pdfOptions by remember { mutableStateOf(pendingImport.pdfOptions) }
     var textOptions by remember { mutableStateOf(pendingImport.textOptions) }
+    var pptxOptions by remember { mutableStateOf(pendingImport.pptxOptions) }
 
     var startPageDraft by remember { mutableStateOf(pdfOptions.startPage?.toString().orEmpty()) }
     var endPageDraft by remember { mutableStateOf(pdfOptions.endPage?.toString().orEmpty()) }
@@ -3035,6 +3036,48 @@ fun VeritasImportPreviewDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+
+                if (pendingImport.isPptx) {
+                    item {
+                        Text("Slides options", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                    }
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Speaker notes", fontWeight = FontWeight.SemiBold)
+                                Text("Read presenter notes after each slide.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = pptxOptions.includeSpeakerNotes,
+                                onCheckedChange = { pptxOptions = pptxOptions.copy(includeSpeakerNotes = it) }
+                            )
+                        }
+                    }
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-punctuate", fontWeight = FontWeight.SemiBold)
+                                Text("Add end punctuation to unpunctuated lines for smoother listening.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = pptxOptions.autoPunctuate,
+                                onCheckedChange = { pptxOptions = pptxOptions.copy(autoPunctuate = it) }
+                            )
+                        }
+                    }
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Read text in slide images", fontWeight = FontWeight.SemiBold)
+                                Text("OCR screenshots and figures. Large decks import slower.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = pptxOptions.ocrSlideImages,
+                                onCheckedChange = { pptxOptions = pptxOptions.copy(ocrSlideImages = it) }
+                            )
+                        }
+                    }
                 }
 
                 if (pendingImport.isPdf) {
@@ -3204,7 +3247,7 @@ fun VeritasImportPreviewDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onConfirm(title.ifBlank { pendingImport.name }, pdfOptions, textOptions)
+                    onConfirm(title.ifBlank { pendingImport.name }, pdfOptions, textOptions, pptxOptions)
                 },
                 enabled = !isPageRangeInvalid
             ) {

@@ -13,6 +13,8 @@ data class VeritasPendingImport(
     val pageCount: Int,
     val pdfOptions: PdfImportOptions,
     val textOptions: TextImportOptions,
+    val isPptx: Boolean = false,
+    val pptxOptions: PptxImportOptions = PptxImportOptions(),
     val sourceNameHint: String? = null
 )
 

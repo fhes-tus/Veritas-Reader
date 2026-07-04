@@ -201,8 +201,17 @@ object CoverExtractor {
                 options.outWidth > 0 && options.outHeight > 0
             }.getOrDefault(false)
 
+            // "isEpub" above is really an is-ZIP check (PK header) — a .pptx matches it
+            // too, so decks are routed by their zip contents before the EPUB parser runs.
+            val isPptx = isEpub && runCatching {
+                java.util.zip.ZipInputStream(originalFile.inputStream()).use { zip ->
+                    generateSequence { zip.nextEntry }.any { PptxExtractor.isPptxEntryName(it.name.trimStart('/')) }
+                }
+            }.getOrDefault(false)
+
             when {
                 isPdf -> extractPdfCover(context, documentId, uri)
+                isPptx -> extractPptxCover(context, documentId, originalFile)
                 isEpub -> extractEpubCover(context, documentId, uri)
                 isImage -> extractImageCover(context, documentId, uri)
                 else -> null
@@ -341,6 +350,45 @@ object CoverExtractor {
             null
         } catch (e: Exception) {
             Log.w(TAG, "Failed to extract EPUB cover for $documentId", e)
+            null
+        }
+    }
+
+    /**
+     * PowerPoint decks embed a thumbnail of the first slide at docProps/thumbnail.*;
+     * it becomes the document cover so decks get real covers (and adaptive theming).
+     */
+    private fun extractPptxCover(context: Context, documentId: String, originalFile: File): String? {
+        return try {
+            var imageBytes: ByteArray? = null
+            java.util.zip.ZipInputStream(originalFile.inputStream()).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    val name = entry.name.trimStart('/').lowercase(Locale.getDefault())
+                    if (!entry.isDirectory && name.startsWith("docprops/thumbnail")) {
+                        imageBytes = zip.readBytes()
+                        break
+                    }
+                }
+            }
+            val bytes = imageBytes ?: return null
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                Bitmap.CompressFormat.WEBP_LOSSY
+            } else {
+                @Suppress("DEPRECATION")
+                Bitmap.CompressFormat.WEBP
+            }
+            val fileName = "$documentId.cover.webp"
+            val coverFile = File(coversDir(context), fileName)
+            coverFile.outputStream().use { out ->
+                bitmap.compress(format, COVER_QUALITY, out)
+            }
+            bitmap.recycle()
+            Log.i(TAG, "Successfully extracted PPTX cover for $documentId")
+            fileName
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract PPTX cover for $documentId", e)
             null
         }
     }

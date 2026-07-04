@@ -370,7 +370,7 @@ internal fun HomeQuickActions(
                 HomeActionRow(
                     icon = Icons.Filled.Add,
                     title = "Import file",
-                    body = "Upload PDF, EPUB, DOCX, TXT, or HTML",
+                    body = "Upload PDF, EPUB, DOCX, PPTX, TXT, or HTML",
                     iconBackground = Color(0xFFF0F3FF),
                     iconForeground = Color(0xFF7C6FFF),
                     onClick = onImportClick

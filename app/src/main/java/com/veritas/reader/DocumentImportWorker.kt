@@ -90,6 +90,11 @@ class DocumentImportWorker(
             val textOptions = TextImportOptions(
                 encodingId = inputData.getString("text_encodingId") ?: TextImportEncodingCatalog.AUTO_DETECT_ID
             )
+            val pptxOptions = PptxImportOptions(
+                includeSpeakerNotes = inputData.getBoolean("pptx_includeSpeakerNotes", true),
+                autoPunctuate = inputData.getBoolean("pptx_autoPunctuate", false),
+                ocrSlideImages = inputData.getBoolean("pptx_ocrSlideImages", true)
+            )
 
             val mimeType = applicationContext.contentResolver.getType(uri).orEmpty().lowercase(java.util.Locale.getDefault())
             val extension = title.substringAfterLast('.', missingDelimiterValue = "").lowercase(java.util.Locale.getDefault())
@@ -183,6 +188,7 @@ class DocumentImportWorker(
                 displayName = title,
                 pdfOptions = pdfOptions,
                 textOptions = textOptions,
+                pptxOptions = pptxOptions,
                 foregroundBudgetMillis = null
             )
 

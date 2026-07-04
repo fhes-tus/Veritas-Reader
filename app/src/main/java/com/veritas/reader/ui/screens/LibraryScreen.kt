@@ -422,11 +422,13 @@ fun LibraryScreen(
     val tertiaryColor = MaterialTheme.colorScheme.tertiary
     val errorColor = MaterialTheme.colorScheme.error
     val pastedColor = MaterialTheme.colorScheme.inversePrimary
+    val slidesColor = blendColors(secondaryColor, errorColor, 0.5f)
 
-    val formatSlices = remember(documents, primaryColor, secondaryColor, tertiaryColor, errorColor, pastedColor) {
+    val formatSlices = remember(documents, primaryColor, secondaryColor, tertiaryColor, errorColor, pastedColor, slidesColor) {
         var pdfCount = 0
         var webCount = 0
         var ebookCount = 0
+        var slidesCount = 0
         var docCount = 0
         var pastedCount = 0
         documents.forEach { doc ->
@@ -438,6 +440,7 @@ fun LibraryScreen(
                 label.contains("web") || label.contains("http") || label.contains("article") ||
                     mime.contains("html") -> webCount++
                 label == "epub" || mime.contains("epub") || title.endsWith(".epub") -> ebookCount++
+                label == "pptx" || mime.contains("presentationml") || title.endsWith(".pptx") -> slidesCount++
                 label in setOf("docx", "txt", "ocr") ||
                     mime.contains("word") || mime.contains("wordprocessingml") ||
                     mime.startsWith("image/") ||
@@ -463,6 +466,12 @@ fun LibraryScreen(
                 value = ebookCount.toFloat(),
                 color = tertiaryColor,
                 description = "EPUB e-books imported into your library."
+            ),
+            DonutSlice(
+                label = "Slide Decks",
+                value = slidesCount.toFloat(),
+                color = slidesColor,
+                description = "PowerPoint presentations read slide by slide."
             ),
             DonutSlice(
                 label = "Documents",
@@ -1437,7 +1446,7 @@ fun LibraryScreen(
                                                 HomeActionRow(
                                                     icon = Icons.Filled.Add,
                                                     title = "Add content",
-                                                    body = "Import file - Upload PDF, EPUB, DOCX, TXT, or HTML",
+                                                    body = "Import file - Upload PDF, EPUB, DOCX, PPTX, TXT, or HTML",
                                                     iconBackground = Color(0xFFF0F3FF),
                                                     iconForeground = Color(0xFF7C6FFF),
                                                     onClick = { showImportSheet = true }

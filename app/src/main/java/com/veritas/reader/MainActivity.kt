@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Article
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Slideshow
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -609,6 +610,7 @@ enum class VeritasBrowserTab(val label: String, val emoji: String) {
     BOOKS("EPUB", "📕"),
     PDF("PDF", "📄"),
     DOC("DOCX", "📘"),
+    SLIDES("PPTX", "📙"),
     HTML("WEB", "🌐"),
     TXT("TXT", "📝"),
     OCR("OCR", "📷");
@@ -619,6 +621,7 @@ enum class VeritasBrowserTab(val label: String, val emoji: String) {
             BOOKS -> Icons.Outlined.Book
             PDF -> Icons.Outlined.PictureAsPdf
             DOC -> Icons.Outlined.Description
+            SLIDES -> Icons.Outlined.Slideshow
             HTML -> Icons.Outlined.Language
             TXT -> Icons.Outlined.Article
             OCR -> Icons.Outlined.PhotoCamera
@@ -1001,6 +1004,7 @@ object VeritasFileBrowserScanner {
         return when {
             lowerMime.contains("pdf") || lowerName.endsWith(".pdf") -> VeritasBrowserTab.PDF
             lowerMime.contains("wordprocessingml") || lowerName.endsWith(".docx") -> VeritasBrowserTab.DOC
+            lowerMime.contains("presentationml") || lowerName.endsWith(".pptx") -> VeritasBrowserTab.SLIDES
             lowerMime.contains("epub") || lowerName.endsWith(".epub") -> VeritasBrowserTab.BOOKS
             lowerMime.contains("html") || lowerName.endsWith(".html") || lowerName.endsWith(".htm") -> VeritasBrowserTab.HTML
             lowerMime.startsWith("text/") || lowerName.endsWith(".txt") || lowerName.endsWith(".md") || lowerName.endsWith(
@@ -1022,6 +1026,7 @@ object VeritasFileBrowserScanner {
         return when {
             lowerName.endsWith(".pdf") -> "application/pdf"
             lowerName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            lowerName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
             lowerName.endsWith(".epub") -> "application/epub+zip"
             lowerName.endsWith(".html") || lowerName.endsWith(".htm") -> "text/html"
             lowerName.endsWith(".txt") || lowerName.endsWith(".md") || lowerName.endsWith(".csv") -> "text/plain"
@@ -1067,6 +1072,7 @@ internal fun readableImportMimeTypes(): Array<String> = arrayOf(
     "text/html",
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/epub+zip",
     "application/octet-stream",
     "image/*"

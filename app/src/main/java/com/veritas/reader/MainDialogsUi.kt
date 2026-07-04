@@ -806,7 +806,7 @@ internal fun FileBrowserDialog(
                                             modifier = Modifier.weight(1f)
                                         )
                                         Text(
-                                            "PDF, DOCX, TXT, EPUB, HTML",
+                                            "PDF, DOCX, PPTX, TXT, EPUB, HTML",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )

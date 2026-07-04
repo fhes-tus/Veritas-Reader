@@ -2,6 +2,7 @@ package com.veritas.reader
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.RectF
@@ -390,6 +391,7 @@ object DocumentExtractor {
         displayName: String,
         pdfOptions: PdfImportOptions = PdfImportOptions(),
         textOptions: TextImportOptions = TextImportOptions(),
+        pptxOptions: PptxImportOptions = PptxImportOptions(),
         foregroundBudgetMillis: Long? = DEFAULT_IMPORT_TIMEOUT_MS
     ): ExtractedImport {
         coroutineContext.ensureActive()
@@ -399,15 +401,24 @@ object DocumentExtractor {
         val sourceLabel = when {
             mimeType.contains("pdf") || extension == "pdf" || uri.path?.lowercase(Locale.getDefault())?.endsWith(".pdf") == true -> "PDF"
             mimeType.contains("wordprocessingml") || extension == "docx" || uri.path?.lowercase(Locale.getDefault())?.endsWith(".docx") == true -> "DOCX"
+            mimeType.contains("presentationml") || extension == "pptx" || uri.path?.lowercase(Locale.getDefault())?.endsWith(".pptx") == true -> "PPTX"
+            extension == "ppt" || mimeType.contains("ms-powerpoint") -> "PPT_LEGACY"
             mimeType.contains("epub") || extension == "epub" || uri.path?.lowercase(Locale.getDefault())?.endsWith(".epub") == true -> "EPUB"
             mimeType.startsWith("image/") || extension in imageExtensions || imageExtensions.any { uri.path?.lowercase(Locale.getDefault())?.endsWith(".$it") == true } -> "OCR"
             else -> "TXT"
+        }
+
+        if (sourceLabel == "PPT_LEGACY") {
+            throw IllegalArgumentException(
+                "Legacy PowerPoint (.ppt) files aren't supported. Open the file in PowerPoint or Google Slides, save it as .pptx, and import again."
+            )
         }
 
         val extracted = when (sourceLabel) {
             "OCR" -> extractImageOcr(context, uri)
             "PDF" -> extractPdf(context, uri, pdfOptions, foregroundBudgetMillis)
             "DOCX" -> ExtractionBody(extractDocx(readAllBytes(context, uri)))
+            "PPTX" -> extractPptx(readAllBytes(context, uri), pptxOptions, foregroundBudgetMillis)
             "EPUB" -> ExtractionBody(extractEpub(readAllBytes(context, uri)))
             else -> extractPlainText(context, uri, textOptions, isHtmlish(displayName) || mimeType.contains("html"))
         }
@@ -418,6 +429,13 @@ object DocumentExtractor {
         val baseNote = when (sourceLabel) {
             "PDF" -> "PDF text was extracted with the current import options. If very little text was found, OCR may have been attempted depending on your settings."
             "DOCX" -> "DOCX body text was extracted. Images, footnotes, comments, and advanced layout are not fully modeled yet."
+            "PPTX" -> buildString {
+                append("PowerPoint slide text was extracted (titles, bullets, tables")
+                if (pptxOptions.includeSpeakerNotes) append(", speaker notes")
+                append("). Charts, SmartArt, and slide design are not included")
+                if (pptxOptions.ocrSlideImages) append("; text found inside slide images was read with OCR")
+                append(". Use Open original for the visual deck.")
+            }
             "EPUB" -> "EPUB spine text was extracted. DRM-protected books are not supported."
             "OCR" -> "OCR extracted text from this image-based file."
             else -> null
@@ -773,6 +791,89 @@ object DocumentExtractor {
         return documentXml?.let { xmlBodyToText(it) }.orEmpty()
     }
 
+    private suspend fun extractPptx(
+        bytes: ByteArray,
+        options: PptxImportOptions,
+        foregroundBudgetMillis: Long?
+    ): ExtractionBody {
+        val deck = PptxExtractor.parseDeck(bytes, includeSpeakerNotes = options.includeSpeakerNotes)
+        if (deck.slides.isEmpty()) {
+            return ExtractionBody("", listOf("No slides were found in this presentation."))
+        }
+        val diagnostics = mutableListOf<String>()
+        var partial = false
+
+        val ocrLinesBySlide = if (options.ocrSlideImages) {
+            val deadlineMillis = foregroundBudgetMillis?.let { System.currentTimeMillis() + it }
+            // One second pass over the zip pulls only the images slides reference.
+            val wantedPaths = deck.slides.flatMap { it.mediaPaths }
+                .distinct()
+                .take(MAX_PPTX_OCR_IMAGES)
+                .toSet()
+            val mediaBytes = mutableMapOf<String, ByteArray>()
+            if (wantedPaths.isNotEmpty()) {
+                ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
+                    while (true) {
+                        val entry = zip.nextEntry ?: break
+                        val name = entry.name.trimStart('/')
+                        if (!entry.isDirectory && name in wantedPaths) {
+                            mediaBytes[name] = zip.readBytes()
+                            if (mediaBytes.size == wantedPaths.size) break
+                        }
+                    }
+                }
+            }
+            val ocrByPath = mutableMapOf<String, List<String>>()
+            for ((path, imageBytes) in mediaBytes) {
+                coroutineContext.ensureActive()
+                if (!hasImportTimeRemaining(deadlineMillis)) {
+                    partial = true
+                    diagnostics.add("Some slide images ran out of time during OCR; re-import to retry.")
+                    break
+                }
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, bounds)
+                // Decoration filter: logos, icons, and dividers aren't worth reading.
+                if (minOf(bounds.outWidth, bounds.outHeight) < MIN_PPTX_OCR_IMAGE_DIMENSION) continue
+                val sampled = BitmapFactory.Options().apply {
+                    inSampleSize = (bounds.outWidth / OCR_RENDER_TARGET_WIDTH).coerceAtLeast(1)
+                }
+                val bitmap = runCatching {
+                    BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, sampled)
+                }.getOrNull() ?: continue
+                try {
+                    val recognized = runCatching {
+                        formatRecognizedText(recognizeText(InputImage.fromBitmap(bitmap, 0)))
+                    }.getOrDefault("")
+                    val lines = recognized.lines().map { it.trim() }.filter { it.isNotBlank() }
+                    if (lines.isNotEmpty()) ocrByPath[path] = lines
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+            if (ocrByPath.isNotEmpty()) {
+                diagnostics.add("OCR read text from ${ocrByPath.size} slide image${if (ocrByPath.size == 1) "" else "s"}.")
+            }
+            deck.slides.associate { slide ->
+                slide.number to slide.mediaPaths.flatMap { ocrByPath[it].orEmpty() }
+            }
+        } else {
+            emptyMap()
+        }
+
+        val text = PptxExtractor.renderDeckText(
+            deck = deck,
+            ocrLinesBySlide = ocrLinesBySlide,
+            autoPunctuate = options.autoPunctuate
+        )
+        return ExtractionBody(
+            text = text,
+            diagnostics = diagnostics,
+            pageCount = deck.slideCount,
+            partial = partial
+        )
+    }
+
     private fun extractEpub(bytes: ByteArray): String {
         val entries = linkedMapOf<String, String>()
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
@@ -935,6 +1036,8 @@ object DocumentExtractor {
 
     private const val OCR_RENDER_TARGET_WIDTH = 1600
     private const val MAX_PDF_OCR_PAGES = 150 // Increased to support longer scanned documents
+    private const val MAX_PPTX_OCR_IMAGES = 80
+    private const val MIN_PPTX_OCR_IMAGE_DIMENSION = 200 // px; skips logos/icons/dividers
     private val imageExtensions = setOf("png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff")
 }
 

@@ -125,7 +125,7 @@ fun UserManualDialog(
                         title = "Integrated File Browser",
                         emoji = "📂",
                         subtitle = "Scan and import device storage files",
-                        content = "Browse your device's directories locally with the integrated file navigator. It automatically highlights and filters compatible document formats such as EPUB, PDF, DOCX, and TXT, making imports quick and easy.",
+                        content = "Browse your device's directories locally with the integrated file navigator. It automatically highlights and filters compatible document formats such as EPUB, PDF, DOCX, PPTX, and TXT, making imports quick and easy.",
                         ctaText = "Start File Import",
                         ctaAction = "file_browser",
                         flowSteps = listOf(

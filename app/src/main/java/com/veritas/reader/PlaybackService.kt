@@ -50,6 +50,9 @@ class PlaybackService : MediaSessionService() {
     private var activeEnginePackage: String? = null
 
     private var activeDocument: SavedDocument? = null
+    // Slide number per chunk for PPTX docs (null otherwise): drives the short
+    // silence beats at slide transitions and after slide titles.
+    private var chunkPageNumbers: IntArray? = null
     private var chunks: List<String> = emptyList()
     private var artworkDocumentId: String? = null
     private var notificationArtwork: Bitmap? = null
@@ -261,6 +264,12 @@ class PlaybackService : MediaSessionService() {
         if (!existingLoaded) {
             val rawText = repository.readText(doc)
             chunks = TextChunker.chunk(rawText)
+            chunkPageNumbers = if (doc.sourceLabel == "PPTX") {
+                val model = ReaderTextModelCache.get(doc.id, rawText, doc.pageCount)
+                if (model.sentences.size == chunks.size) {
+                    IntArray(model.sentences.size) { model.sentences[it].pageNumber }
+                } else null
+            } else null
             activeDocument = doc
             clearResumePoint()
             if (artworkDocumentId != doc.id) {
@@ -502,6 +511,17 @@ class PlaybackService : MediaSessionService() {
         } else {
             "Reading in background."
         }
+        // Silence decorative glyphs (bullets, arrows, dot leaders). Replacements are
+        // length-preserving, so word-highlight offsets from onRangeStart stay valid.
+        val speakText = SpeechSanitizer.forSpeech(text)
+        if (speakText.isBlank()) {
+            // Pure decoration (a line of glyphs): treat it as already spoken.
+            activeChunkIndex = index
+            PlaybackStateStore.currentIndex = index
+            clearResumePoint()
+            advanceAfterSection()
+            return
+        }
         activeChunkUtteranceId = "$CHUNK_UTTERANCE_PREFIX${UUID.randomUUID()}"
         activeChunkIndex = index
         activeChunkStartedAt = System.currentTimeMillis()
@@ -515,11 +535,30 @@ class PlaybackService : MediaSessionService() {
         updateMediaSessionMetadata()
         updateMediaSessionState()
         refreshForegroundNotification()
-        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, activeChunkUtteranceId)
+        // Slide decks get a breathing beat at slide changes and after titles, so the
+        // narration has a presenter's cadence instead of an unbroken stream. The
+        // silence utterance's onDone is ignored by the activeChunkUtteranceId guard.
+        val silenceMs = leadingSilenceMsFor(index)
+        val silenceQueued = silenceMs > 0L && tts?.playSilentUtterance(
+            silenceMs, TextToSpeech.QUEUE_FLUSH, "silence-${UUID.randomUUID()}"
+        ) == TextToSpeech.SUCCESS
+        val queueMode = if (silenceQueued) TextToSpeech.QUEUE_ADD else TextToSpeech.QUEUE_FLUSH
+        val result = tts?.speak(speakText, queueMode, null, activeChunkUtteranceId)
             ?: TextToSpeech.ERROR
         if (result == TextToSpeech.ERROR) {
             handleTtsFailure("The voice engine rejected this sentence.", activeChunkUtteranceId)
         }
+    }
+
+    private fun leadingSilenceMsFor(index: Int): Long {
+        val pages = chunkPageNumbers ?: return 0L
+        if (index !in 0 until pages.size) return 0L
+        val page = pages[index]
+        val firstOfSlide = index == 0 || pages[index - 1] != page
+        if (firstOfSlide) return SLIDE_TRANSITION_SILENCE_MS
+        val secondOfSlide = index == 1 || pages[index - 2] != page
+        if (secondOfSlide) return TITLE_BEAT_SILENCE_MS
+        return 0L
     }
 
     private fun speakSelectionText(rawText: String) {
@@ -1222,6 +1261,10 @@ class PlaybackService : MediaSessionService() {
         private const val NOTIFICATION_ID = 41
         private const val SELECTION_UTTERANCE_PREFIX = "selection:"
         private const val CHUNK_UTTERANCE_PREFIX = "chunk:"
+        // Slide-deck cadence: a beat when a new slide starts, a shorter one after
+        // its title line. Snappy on purpose — the user asked for rhythm, not lag.
+        private const val SLIDE_TRANSITION_SILENCE_MS = 300L
+        private const val TITLE_BEAT_SILENCE_MS = 250L
         private const val RESUME_WORD_THRESHOLD = 8
         private const val RESUME_SKIP_CHARS = ".,;:!?)]}\"'»›—–-"
     }
