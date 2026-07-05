@@ -1600,7 +1600,10 @@ fun getDisplayName(context: Context, uri: Uri): String {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null).use { cursor ->
             if (cursor != null && cursor.moveToFirst()) {
                 val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (index >= 0) cursor.getString(index) else fallback
+                // Cursor.getString is a platform type and IS null for some share
+                // providers (crash report 2026-07-05: NPE in prepareImport when a
+                // file was shared into Veritas). Never let that null escape.
+                if (index >= 0) cursor.getString(index) ?: fallback else fallback
             } else {
                 fallback
             }
