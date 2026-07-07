@@ -2347,8 +2347,14 @@ internal fun AppHealthDialog(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Black
                         )
+                        val context = LocalContext.current
+                        val appVersion = remember(context) {
+                            runCatching {
+                                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                            }.getOrNull() ?: "1.1.0"
+                        }
                         Text(
-                            "Version: 1.0.1",
+                            "Version: $appVersion",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(

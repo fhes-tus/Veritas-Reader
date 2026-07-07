@@ -1,6 +1,6 @@
 # Known Limitations
 
-This document outlines the technical boundaries, platform constraints, and design limitations for **Veritas Reader Android v1.0.1**.
+This document outlines the technical boundaries, platform constraints, and design limitations for **Veritas Reader Android v1.1.0**.
 
 ---
 

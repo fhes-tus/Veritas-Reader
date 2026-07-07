@@ -2874,7 +2874,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 val localVersion = runCatching {
                     val context = getApplication<Application>()
                     context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                }.getOrNull() ?: "1.0.1"
+                }.getOrNull() ?: "1.1.0"
                 if (isVersionNewer(localVersion, cleanTagName)) {
                     val htmlUrl = json.optString("html_url", "https://github.com/fhes-tus/Veritas-Reader/releases")
                     val body = json.optString("body", "")
