@@ -357,6 +357,31 @@ internal fun FileBrowserDialog(
         sorted.sortedBy { it.isDirectory }
     }
 
+    val folders = remember(visibleEntries, canGoUp, query) {
+        val list = visibleEntries.filter { it.isDirectory }
+        if (canGoUp && query.isBlank()) {
+            listOf(
+                VeritasBrowserFile(
+                    uri = Uri.parse("veritas://parent_directory"),
+                    name = ".. (Go up)",
+                    mimeType = "",
+                    sizeBytes = 0L,
+                    modifiedAt = 0L,
+                    rootLabel = "",
+                    relativePath = "",
+                    isDirectory = true,
+                    isSupported = true,
+                    targetLocation = VeritasBrowserLocation(rootLabel = "Parent")
+                )
+            ) + list
+        } else {
+            list
+        }
+    }
+    val files = remember(visibleEntries) {
+        visibleEntries.filter { !it.isDirectory }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -789,8 +814,7 @@ internal fun FileBrowserDialog(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             contentPadding = PaddingValues(vertical = 12.dp)
                         ) {
-                            val folders = visibleEntries.filter { it.isDirectory }
-                            val files = visibleEntries.filter { !it.isDirectory }
+
                             if (files.isNotEmpty()) {
                                 item("files-header") {
                                     Row(
@@ -889,7 +913,13 @@ internal fun FileBrowserDialog(
                                             FileBrowserFileTileCard(
                                                 file = folder,
                                                 importing = importing,
-                                                onOpenDirectory = { onEnterDirectory(folder) },
+                                                onOpenDirectory = {
+                                                    if (folder.name == ".. (Go up)") {
+                                                        onGoUp()
+                                                    } else {
+                                                        onEnterDirectory(folder)
+                                                    }
+                                                },
                                                 onImport = { onImportFile(folder) },
                                                 modifier = Modifier.weight(1f)
                                             )
@@ -906,7 +936,13 @@ internal fun FileBrowserDialog(
                                         file = folder,
                                         viewMode = viewMode,
                                         importing = importing,
-                                        onOpenDirectory = { onEnterDirectory(folder) },
+                                        onOpenDirectory = {
+                                            if (folder.name == ".. (Go up)") {
+                                                onGoUp()
+                                            } else {
+                                                onEnterDirectory(folder)
+                                            }
+                                        },
                                         onImport = { onImportFile(folder) }
                                     )
                                 }
@@ -1028,12 +1064,15 @@ internal fun ImportProgressOverlay(title: String) {
 
 internal fun getFileColorAndIcon(file: VeritasBrowserFile): Triple<androidx.compose.ui.graphics.vector.ImageVector, Color, Color> {
     if (file.isDirectory) {
+        if (file.name == ".. (Go up)") {
+            return Triple(Icons.AutoMirrored.Filled.ArrowBack, Color(0xFF2F80ED), Color(0xFFEBF3FF))
+        }
         return Triple(Icons.Outlined.Folder, Color(0xFFF2994A), Color(0xFFFFF7F0))
     }
     return when (file.type) {
         VeritasBrowserTab.PDF -> Triple(Icons.Outlined.PictureAsPdf, Color(0xFFE24B4A), Color(0xFFFFF0F0))
         VeritasBrowserTab.DOC -> Triple(Icons.Outlined.Description, Color(0xFF7C6FFF), Color(0xFFF0F3FF))
-        VeritasBrowserTab.BOOKS -> Triple(Icons.Outlined.Book, Color(0xFF1D9E75), Color(0xFFF0FAF5))
+        VeritasBrowserTab.BOOKS -> Triple(Icons.Outlined.Book, Color(0xFF0288D1), Color(0xFFE1F5FE))
         VeritasBrowserTab.HTML -> Triple(Icons.Outlined.Language, Color(0xFF2F80ED), Color(0xFFEBF3FF))
         VeritasBrowserTab.TXT -> Triple(Icons.Outlined.Article, Color(0xFF888888), Color(0xFFF5F5F5))
         else -> Triple(Icons.Outlined.Article, Color(0xFF888888), Color(0xFFF5F5F5))
@@ -1157,6 +1196,7 @@ internal fun FileBrowserFileRow(
                 }
                 Text(
                     text = when {
+                        file.name == ".. (Go up)" -> "Go up one folder level"
                         file.isDirectory && file.targetLocation != null -> "Folder • ${formatBrowserModified(file.modifiedAt)}"
                         file.isDirectory -> "Protected folder • Android may block this path"
                         file.isSupported -> "${formatBrowserFileSize(file.sizeBytes)} • ${formatBrowserModified(file.modifiedAt)}"
@@ -1273,6 +1313,7 @@ internal fun FileBrowserFileTileCard(
             )
             Text(
                 text = when {
+                    file.name == ".. (Go up)" -> "Parent directory"
                     file.isDirectory && file.targetLocation != null -> "Folder • ${formatBrowserModified(file.modifiedAt)}"
                     file.isDirectory -> "Protected folder"
                     file.isSupported -> "${formatBrowserFileSize(file.sizeBytes)} • ${formatBrowserModified(file.modifiedAt)}"
@@ -1300,7 +1341,7 @@ internal fun FileBrowserFileTileCard(
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Text(
-                        text = if (file.isDirectory) "Open" else if (file.isSupported) "Import" else "Unsupported",
+                        text = if (file.name == ".. (Go up)") "Go Up" else if (file.isDirectory) "Open" else if (file.isSupported) "Import" else "Unsupported",
                         color = if (buttonEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold
@@ -1369,6 +1410,7 @@ internal fun FileBrowserSortDialog(
 }
 
 internal fun fileBrowserFolderLine(file: VeritasBrowserFile): String {
+    if (file.name == ".. (Go up)") return "Parent directory"
     val folderPath = file.relativePath.substringBeforeLast('/', missingDelimiterValue = "")
     return if (folderPath.isBlank()) file.rootLabel else "${file.rootLabel}/$folderPath"
 }

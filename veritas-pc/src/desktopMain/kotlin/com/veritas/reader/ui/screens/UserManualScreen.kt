@@ -56,7 +56,7 @@ fun UserManualDialog(
                 title = "Importing Documents",
                 emoji = "📥",
                 subtitle = "Adding content to your library",
-                content = "Veritas supports importing EPUB, PDF, DOCX, TXT files, and Web articles. You can import files from local storage, Google Drive, or shared system links. Web articles are scraped automatically to extract clean content without ads or popups.",
+                content = "Veritas supports importing EPUB, PDF, DOCX, PPTX, TXT files, and Web articles. You can import files from local storage, Google Drive, or shared system links. Web articles are scraped automatically to extract clean content without ads or popups.",
                 flowSteps = listOf(
                     "Open File Browser in the app",
                     "Scan directories or tap '+' to import files",

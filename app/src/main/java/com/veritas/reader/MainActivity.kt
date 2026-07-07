@@ -167,6 +167,8 @@ import com.veritas.reader.ui.screens.ReaderScreenState
 import com.veritas.reader.ui.screens.ReaderSettingsDialog
 import com.veritas.reader.ui.screens.ReadingListsDialog
 import com.veritas.reader.ui.screens.SettingsHubDialog
+import com.veritas.reader.ui.screens.StorageDialog
+import com.veritas.reader.ui.screens.formatVeritasBytes
 import com.veritas.reader.ui.screens.UserManualDialog
 import com.veritas.reader.ui.screens.SleepTimerDialog
 import com.veritas.reader.ui.screens.UpdateAvailableDialog
@@ -280,6 +282,35 @@ class MainActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    // Background TTS is the app's core promise, and Doze/aggressive OEM battery
+    // managers kill un-whitelisted background audio. One-time prompt, never nags.
+    private fun maybeShowBatteryOptimizationHint() {
+        val prefs = getSharedPreferences("veritas_reader_library", MODE_PRIVATE)
+        if (prefs.getBoolean("battery_hint_shown", false)) return
+        val powerManager = getSystemService(POWER_SERVICE) as android.os.PowerManager
+        if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
+        prefs.edit().putBoolean("battery_hint_shown", true).apply()
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Keep listening in the background")
+            .setMessage("Android's battery optimization can stop Veritas mid-sentence when the screen is off. Allow unrestricted battery use so playback keeps running.")
+            .setPositiveButton("Allow") { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            android.net.Uri.parse("package:$packageName")
+                        )
+                    )
+                }.onFailure {
+                    runCatching {
+                        startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    }
+                }
+            }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
     private fun maybeShowTtsEngineHint() {
         val prefs = getSharedPreferences("veritas_reader_library", MODE_PRIVATE)
         if (prefs.getBoolean("tts_engine_hint_shown", false)) return
@@ -323,6 +354,11 @@ class MainActivity : ComponentActivity() {
         CrashReporter.install(this)
         CrashReporter.offerPendingReport(this)
         maybeShowTtsEngineHint()
+        maybeShowBatteryOptimizationHint()
+        // Weekly data-only safety-net backup (worker checks the setting itself).
+        AutoBackupWorker.schedule(this)
+        // Evening streak-protection nudge (worker checks the setting itself).
+        StreakReminderWorker.schedule(this)
 
         val incomingAction = intent?.action
         val openVoiceStudioOnStart = intent?.getBooleanExtra(EXTRA_OPEN_VOICE_STUDIO, false) == true
@@ -418,6 +454,8 @@ object VeritasThemeState {
     var themePackId by mutableStateOf(VeritasThemePackCatalog.DEFAULT_ID)
     var activeDocumentId by mutableStateOf<String?>(null)
     var adaptiveCover by mutableStateOf(false)
+    // Accessibility: composables consult this to skip decorative animation.
+    var reduceMotion by mutableStateOf(false)
 }
 
 @Composable
@@ -1090,6 +1128,7 @@ internal fun VeritasReaderApp(
     val viewModel: ReaderViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
+    var showStorageTools by remember { mutableStateOf(false) }
     val documentRepository = remember(context) { DocumentRepository(context.applicationContext) }
     val folderPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -1135,6 +1174,15 @@ internal fun VeritasReaderApp(
             viewModel.exportLibraryBackup(uri)
         }
     }
+    val fullBackupExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri == null) {
+            viewModel.updateState { it.copy(backupMessage = "Backup export cancelled.") }
+        } else {
+            viewModel.exportFullBackup(uri)
+        }
+    }
     val backupImportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -1164,6 +1212,7 @@ internal fun VeritasReaderApp(
         VeritasThemeState.themeId = uiState.readerSettings.themeId
         VeritasThemeState.themePackId = uiState.readerSettings.themePackId
         VeritasThemeState.adaptiveCover = uiState.readerSettings.adaptiveCover
+        VeritasThemeState.reduceMotion = uiState.readerSettings.reduceMotion
         VeritasThemeState.activeDocumentId = activeDocId
     }
 
@@ -1412,7 +1461,9 @@ internal fun VeritasReaderApp(
                     onChangeGeneralNoteColor = viewModel::changeGeneralNoteColor,
                     onDeleteGeneralNote = viewModel::deleteGeneralNote,
                     onGradeFlashcard = viewModel::gradeFlashcard,
-                    onDeleteFlashcard = viewModel::deleteFlashcard
+                    onDeleteFlashcard = viewModel::deleteFlashcard,
+                    onImportFlashcards = { cards -> viewModel.importFlashcards("pasted", cards) },
+                    onSearchLibraryContent = viewModel::searchLibraryContent
                 )
                 if (uiState.showTutorial) {
                     OnboardingQuestChecklist(
@@ -1817,7 +1868,36 @@ internal fun VeritasReaderApp(
                 onOpenFileBrowser = { viewModel.openFileBrowser() },
                 onOpenSleepTimer = { viewModel.updateState { it.copy(showSleepTimerDialog = true) } },
                 onOpenReadingLists = { viewModel.updateState { it.copy(showReadingLists = true) } },
-                onOpenUserManual = { viewModel.updateState { it.copy(showUserManual = true) } }
+                onOpenUserManual = { viewModel.updateState { it.copy(showUserManual = true) } },
+                onOpenStorage = { showStorageTools = true }
+            )
+        }
+
+        if (showStorageTools) {
+            var breakdown by remember { mutableStateOf<StorageBreakdown?>(null) }
+            var candidates by remember { mutableStateOf<List<Pair<SavedDocument, Long>>>(emptyList()) }
+            var cleanupMessage by remember { mutableStateOf<String?>(null) }
+            var refreshTick by remember { mutableStateOf(0) }
+            val storageScope = rememberCoroutineScope()
+            LaunchedEffect(refreshTick) {
+                val (computedBreakdown, computedCandidates) = viewModel.computeStorage()
+                breakdown = computedBreakdown
+                candidates = computedCandidates
+            }
+            StorageDialog(
+                breakdown = breakdown,
+                candidates = candidates,
+                cleanupMessage = cleanupMessage,
+                onSmartCleanup = {
+                    val ids = candidates.map { it.first.id }.toSet()
+                    val count = candidates.size
+                    storageScope.launch {
+                        val freed = viewModel.cleanupOriginals(ids)
+                        cleanupMessage = "Freed ${formatVeritasBytes(freed)} from $count document${if (count == 1) "" else "s"}."
+                        refreshTick++
+                    }
+                },
+                onDismiss = { showStorageTools = false }
             )
         }
 
@@ -2050,6 +2130,19 @@ internal fun VeritasReaderApp(
                             vibrantHero = !uiState.readerSettings.vibrantHero
                         )
                     )
+                },
+                onGoalMinutesChange = { minutes ->
+                    viewModel.saveReaderSettings(uiState.readerSettings.copy(dailyGoalMinutes = minutes))
+                },
+                onToggleStreakReminder = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(streakReminderEnabled = !uiState.readerSettings.streakReminderEnabled)
+                    )
+                },
+                onToggleReduceMotion = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(reduceMotion = !uiState.readerSettings.reduceMotion)
+                    )
                 }
             )
         }
@@ -2173,7 +2266,10 @@ internal fun VeritasReaderApp(
                             scope = scope,
                             customPageRange = range,
                             settings = uiState.askAiSettings,
-                            noPrompt = true
+                            // false: the study-tool prompt must be copied to the clipboard
+                            // and prepended to the share body — noPrompt=true silently
+                            // dropped the user's edited instructions entirely.
+                            noPrompt = false
                         )
                         viewModel.recordAiPrompt(document.title, type.label, scope.label, prompt)
                     },
@@ -2195,27 +2291,9 @@ internal fun VeritasReaderApp(
                         }
                         viewModel.saveSentenceNote()
                     },
-                    onOpenOfflineStudyTools = {
-                        viewModel.updateState {
-                            it.copy(
-                                showAiStudyTools = false,
-                                showOfflineStudyTools = true
-                            )
-                        }
+                    onImportFlashcards = { cards ->
+                        viewModel.importFlashcards(document.id ?: "pasted", cards)
                     }
-                )
-            }
-        }
-
-        uiState.activeDocument?.let { document ->
-            if (uiState.showOfflineStudyTools) {
-                StudyToolsDialog(
-                    studyPack = StudyAssistant.buildStudyPack(
-                        document.title,
-                        document.chunks,
-                        PlaybackStateStore.currentIndex
-                    ),
-                    onDismiss = { viewModel.updateState { it.copy(showOfflineStudyTools = false) } }
                 )
             }
         }
@@ -2650,14 +2728,28 @@ internal fun VeritasReaderApp(
         }
 
         if (uiState.showBackupTools) {
+            var fullBackupEstimate by remember { mutableStateOf(0L) }
+            LaunchedEffect(Unit) {
+                fullBackupEstimate = viewModel.estimateFullBackupBytes()
+            }
             BackupRestoreDialog(
                 documentCount = uiState.documents.size,
                 annotationCount = uiState.annotationCount,
                 queueCount = uiState.queuedDocuments.size,
                 inProgress = uiState.backupInProgress,
                 message = uiState.backupMessage,
+                fullBackupEstimateBytes = fullBackupEstimate,
+                autoBackupEnabled = uiState.readerSettings.autoBackupWeekly,
+                onToggleAutoBackup = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(autoBackupWeekly = !uiState.readerSettings.autoBackupWeekly)
+                    )
+                },
                 onExport = {
                     backupExportLauncher.launch(veritasBackupFileName("veritas_backup"))
+                },
+                onExportFull = {
+                    fullBackupExportLauncher.launch(veritasBackupZipFileName("veritas_full_backup"))
                 },
                 onImport = {
                     backupImportLauncher.launch(veritasBackupMimeTypes())

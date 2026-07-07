@@ -100,7 +100,13 @@ internal class VeritasMediaSessionPlayer(
             .setAvailableCommands(availableCommands)
             .setPlaylist(listOf(itemData))
             .setCurrentMediaItemIndex(0)
-            .setPlaybackState(if (current.isForegroundActive || current.isPlaying) STATE_READY else STATE_IDLE)
+            // A document is loaded whenever we reach this point (the early-return
+            // above already handled the true "nothing loaded" idle case). Paused
+            // is a valid, resumable state — reporting STATE_IDLE here demoted the
+            // session on every pause, which drops its priority for Bluetooth/
+            // headset hardware buttons: Android stops routing play/pause/next/
+            // previous to a session it considers idle.
+            .setPlaybackState(STATE_READY)
             .setPlayWhenReady(current.isPlaying, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
             .setPlaybackSuppressionReason(PLAYBACK_SUPPRESSION_REASON_NONE)
             .setContentPositionMs(current.positionMs.coerceAtLeast(0L))

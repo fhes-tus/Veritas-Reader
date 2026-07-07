@@ -107,7 +107,7 @@ private fun getFileColorAndIcon(file: VeritasBrowserFile): Triple<String, Color,
     return when (file.type) {
         VeritasBrowserTab.PDF -> Triple("📄", Color(0xFFE24B4A), Color(0xFFFFF0F0))
         VeritasBrowserTab.DOC -> Triple("📘", Color(0xFF7C6FFF), Color(0xFFF0F3FF))
-        VeritasBrowserTab.BOOKS -> Triple("📕", Color(0xFF1D9E75), Color(0xFFF0FAF5))
+        VeritasBrowserTab.BOOKS -> Triple("📕", Color(0xFF0288D1), Color(0xFFE1F5FE))
         VeritasBrowserTab.HTML -> Triple("🌐", Color(0xFF2F80ED), Color(0xFFEBF3FF))
         VeritasBrowserTab.TXT -> Triple("📝", Color(0xFF888888), Color(0xFFF5F5F5))
         else -> Triple("📄", Color(0xFF888888), Color(0xFFF5F5F5))
@@ -3376,7 +3376,7 @@ fun FileBrowserDialog(
                                             modifier = Modifier.weight(1f)
                                         )
                                         Text(
-                                            "PDF, DOCX, TXT, EPUB, HTML",
+                                            "PDF, DOCX, PPTX, TXT, EPUB, HTML",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )

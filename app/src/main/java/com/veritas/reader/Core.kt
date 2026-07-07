@@ -291,7 +291,6 @@ enum class VeritasScreen {
     VOICE_STUDIO,
     NARRATION_STUDIO,
     AI_STUDY_TOOLS,
-    OFFLINE_STUDY_TOOLS,
     AI_CENTER,
     ASK_AI_SETTINGS,
     TRANSLATION_TOOLS,
@@ -524,7 +523,16 @@ data class ReaderSettings(
     val adaptiveCover: Boolean = false,
     // false = subtle container-tone hero card (theme-matched); true = the original
     // vivid accent-gradient "poster" style. User-selectable — neither is imposed.
-    val vibrantHero: Boolean = false
+    val vibrantHero: Boolean = false,
+    // Weekly data-only backup written to app storage (last 4 kept), so there is
+    // always a recent backup even if the user never exports manually.
+    val autoBackupWeekly: Boolean = true,
+    // Daily reading target in minutes; drives the hero goal bar and the evening
+    // streak-protection reminder.
+    val dailyGoalMinutes: Int = 20,
+    val streakReminderEnabled: Boolean = true,
+    // Accessibility: collapse decorative motion (entrances, pulses) to instants.
+    val reduceMotion: Boolean = false
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("fontSizeSp", fontSizeSp)
@@ -535,6 +543,10 @@ data class ReaderSettings(
         .put("themePackId", themePackId)
         .put("adaptiveCover", adaptiveCover)
         .put("vibrantHero", vibrantHero)
+        .put("autoBackupWeekly", autoBackupWeekly)
+        .put("dailyGoalMinutes", dailyGoalMinutes)
+        .put("streakReminderEnabled", streakReminderEnabled)
+        .put("reduceMotion", reduceMotion)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderSettings {
@@ -549,7 +561,11 @@ data class ReaderSettings(
                 themeId = VeritasThemeCatalog.normalizeThemeId(migratedTheme),
                 themePackId = VeritasThemePackCatalog.normalizePackId(migratedPack),
                 adaptiveCover = obj.optBoolean("adaptiveCover", false),
-                vibrantHero = obj.optBoolean("vibrantHero", false)
+                vibrantHero = obj.optBoolean("vibrantHero", false),
+                autoBackupWeekly = obj.optBoolean("autoBackupWeekly", true),
+                dailyGoalMinutes = obj.optInt("dailyGoalMinutes", 20).coerceIn(5, 180),
+                streakReminderEnabled = obj.optBoolean("streakReminderEnabled", true),
+                reduceMotion = obj.optBoolean("reduceMotion", false)
             )
         }
     }
@@ -711,6 +727,21 @@ data class DocumentCreateResult(
 )
 
 
+data class StorageBreakdown(
+    val textBytes: Long,
+    val originalsBytes: Long,
+    val coversBytes: Long,
+    val documentCount: Int
+) {
+    val totalBytes: Long get() = textBytes + originalsBytes + coversBytes
+}
+
+data class LibrarySearchHit(
+    val document: SavedDocument,
+    val sentenceIndex: Int,
+    val snippet: String
+)
+
 data class BackupRestoreResult(
     val documentCount: Int,
     val annotationCount: Int,
@@ -718,7 +749,10 @@ data class BackupRestoreResult(
     val readingListCount: Int,
     val pronunciationRuleCount: Int,
     val restoredReaderSettings: Boolean,
-    val restoredVoiceSettings: Boolean
+    val restoredVoiceSettings: Boolean,
+    val generalNoteCount: Int = 0,
+    val trackerDayCount: Int = 0,
+    val flashcardCount: Int = 0
 )
 
 data class AiPromptTemplate(
@@ -1030,6 +1064,99 @@ class DocumentRepository(context: Context) {
         return map
     }
 
+    fun computeStorageBreakdown(): StorageBreakdown {
+        var text = 0L
+        var originals = 0L
+        var covers = 0L
+        val docs = loadDocuments()
+        docs.forEach { doc ->
+            text += File(docsDir, doc.fileName).length()
+            originalFile(doc)?.let { originals += it.length() }
+            CoverExtractor.coverFile(appContext, doc.id)?.let { covers += it.length() }
+        }
+        return StorageBreakdown(textBytes = text, originalsBytes = originals, coversBytes = covers, documentCount = docs.size)
+    }
+
+    /**
+     * Smart-cleanup candidates: documents whose ORIGINAL file (the heavy part) can
+     * be safely dropped — fully read or untouched for 90+ days, and not favorited.
+     * Extracted text, progress, notes, and highlights are never touched; losing the
+     * original only costs Original View until a re-import.
+     */
+    fun findCleanupCandidates(nowMillis: Long = System.currentTimeMillis()): List<Pair<SavedDocument, Long>> {
+        val cutoff = nowMillis - 90L * 24 * 60 * 60 * 1000
+        return loadDocuments().mapNotNull { doc ->
+            if (doc.favorite) return@mapNotNull null
+            val original = originalFile(doc) ?: return@mapNotNull null
+            val fullyRead = doc.chunkCount > 0 && doc.currentIndex >= doc.chunkCount - 1
+            val stale = doc.updatedAt < cutoff
+            if (fullyRead || stale) doc to original.length() else null
+        }.sortedByDescending { it.second }
+    }
+
+    fun removeOriginals(documentIds: Set<String>): Long {
+        var freed = 0L
+        loadDocuments().filter { it.id in documentIds }.forEach { doc ->
+            originalFile(doc)?.let { file ->
+                freed += file.length()
+                runCatching { file.delete() }
+            }
+        }
+        return freed
+    }
+
+    /**
+     * Full-text search across every document's extracted text. Returns sentence-level
+     * hits so a tap can jump straight to the match. Caps per-document and total hits
+     * to keep the scan bounded on large libraries.
+     */
+    fun searchLibraryContent(query: String, maxPerDocument: Int = 3, maxTotal: Int = 60): List<LibrarySearchHit> {
+        val needle = query.trim()
+        if (needle.length < 3) return emptyList()
+        val hits = mutableListOf<LibrarySearchHit>()
+        for (document in loadDocuments()) {
+            if (hits.size >= maxTotal) break
+            val text = runCatching { readText(document) }.getOrDefault("")
+            if (!text.contains(needle, ignoreCase = true)) continue
+            val sentences = TextChunker.chunk(text)
+            var found = 0
+            for ((index, sentence) in sentences.withIndex()) {
+                if (found >= maxPerDocument || hits.size >= maxTotal) break
+                val at = sentence.indexOf(needle, ignoreCase = true)
+                if (at < 0) continue
+                val start = (at - 60).coerceAtLeast(0)
+                val snippet = buildString {
+                    if (start > 0) append("…")
+                    append(sentence.substring(start, (at + needle.length + 90).coerceAtMost(sentence.length)).trim())
+                    if (at + needle.length + 90 < sentence.length) append("…")
+                }
+                hits.add(LibrarySearchHit(document, index, snippet))
+                found++
+            }
+        }
+        return hits
+    }
+
+    // Per-document narration memory: the rate/pitch last used while reading a
+    // document follow it (novel fast, textbook slow) instead of one global dial.
+    // Voice selection deliberately stays global — per-doc voices proved confusing.
+    fun saveDocVoiceMemory(documentId: String, rate: Float, pitch: Float) {
+        if (documentId.isBlank()) return
+        synchronized(LIBRARY_WRITE_LOCK) {
+            val raw = prefs.getString("doc_voice_memory", "{}") ?: "{}"
+            val json = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
+            json.put(documentId, JSONObject().put("rate", rate.toDouble()).put("pitch", pitch.toDouble()))
+            prefs.edit().putString("doc_voice_memory", json.toString()).apply()
+        }
+    }
+
+    fun loadDocVoiceMemory(documentId: String): Pair<Float, Float>? {
+        val raw = prefs.getString("doc_voice_memory", "{}") ?: "{}"
+        val json = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
+        val entry = json.optJSONObject(documentId) ?: return null
+        return entry.optDouble("rate", 1.0).toFloat() to entry.optDouble("pitch", 1.0).toFloat()
+    }
+
     fun loadDocuments(): List<SavedDocument> {
         val array = readResilientJsonArray(KEY_DOCUMENTS)
         val docs = mutableListOf<SavedDocument>()
@@ -1257,7 +1384,12 @@ class DocumentRepository(context: Context) {
         val root = JSONObject()
             .put("schema", "veritas.reader.backup.v1")
             .put("createdAt", System.currentTimeMillis())
-            .put("appVersion", "1.0.1")
+            .put(
+                "appVersion",
+                runCatching {
+                    appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+                }.getOrNull() ?: "unknown"
+            )
             .put("syncPeer", "android")
 
         val documentArray = JSONArray()
@@ -1309,10 +1441,144 @@ class DocumentRepository(context: Context) {
         val aiHistoryArray = JSONArray()
         loadAiPromptHistory().forEach { aiHistoryArray.put(it.toJson()) }
         root.put("aiPromptHistory", aiHistoryArray)
+
+        // General Notes: includes vocabulary automatically — vocab entries are
+        // stored as hidden notes titled "__vocab__<documentId>".
+        val generalNotesArray = JSONArray()
+        loadGeneralNotes().forEach { generalNotesArray.put(it.toJson()) }
+        root.put("generalNotes", generalNotesArray)
+
+        // Per-day reading data behind streaks, the heatmap, and weekly stats.
+        val trackerDaysArray = JSONArray()
+        loadTrackerDays().values.forEach { trackerDaysArray.put(it.toJson()) }
+        root.put("trackerDays", trackerDaysArray)
+
+        // Spaced-repetition deck including scheduling state.
+        val flashcardsArray = JSONArray()
+        loadAllFlashcards().forEach { flashcardsArray.put(it.toJson()) }
+        root.put("flashcards", flashcardsArray)
+
+        // Current month's per-document reading time (Time Allocation donut).
+        val readingTimes = JSONObject()
+        loadDocReadingTimes().forEach { (docId, millis) -> readingTimes.put(docId, millis) }
+        root.put("docReadingTimesThisMonth", readingTimes)
         return root.toString(2)
     }
 
-    fun restoreBackupJson(rawJson: String, replaceExisting: Boolean = false): BackupRestoreResult {
+    fun restoreBackupJson(rawJson: String, replaceExisting: Boolean = false): BackupRestoreResult =
+        restoreBackupJsonWithMap(rawJson, replaceExisting).first
+
+    /** Restores either a plain JSON backup or a full .zip backup (sniffed by PK magic). */
+    fun restoreBackupAuto(input: java.io.InputStream, replaceExisting: Boolean = false): BackupRestoreResult {
+        val buffered = java.io.BufferedInputStream(input)
+        buffered.mark(4)
+        val magic = ByteArray(4)
+        val read = buffered.read(magic)
+        buffered.reset()
+        val isZip = read >= 2 && magic[0] == 'P'.code.toByte() && magic[1] == 'K'.code.toByte()
+        return if (isZip) {
+            restoreFullBackupZip(buffered, replaceExisting)
+        } else {
+            restoreBackupJson(buffered.readBytes().toString(Charsets.UTF_8), replaceExisting)
+        }
+    }
+
+    /** Rough size of a full backup so the UI can warn before writing a large zip. */
+    fun estimateFullBackupBytes(): Long {
+        var total = 0L
+        loadDocuments().forEach { doc ->
+            total += File(docsDir, doc.fileName).length()
+            originalFile(doc)?.let { total += it.length() }
+            CoverExtractor.coverFile(appContext, doc.id)?.let { total += it.length() }
+        }
+        return total
+    }
+
+    /**
+     * Full backup: backup.json plus every stored original document and cover, so a
+     * restore brings back Original View and covers — which the JSON-only backup
+     * cannot. Can be large; callers should surface [estimateFullBackupBytes] first.
+     */
+    fun writeFullBackupZip(output: java.io.OutputStream) {
+        java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(output)).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("backup.json"))
+            zip.write(buildBackupJson().toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+            val seenOriginals = mutableSetOf<String>()
+            loadDocuments().forEach { doc ->
+                originalFile(doc)?.takeIf { it.exists() }?.let { file ->
+                    if (seenOriginals.add(file.name)) {
+                        zip.putNextEntry(java.util.zip.ZipEntry("originals/${file.name}"))
+                        file.inputStream().use { it.copyTo(zip) }
+                        zip.closeEntry()
+                    }
+                }
+                CoverExtractor.coverFile(appContext, doc.id)?.let { cover ->
+                    zip.putNextEntry(java.util.zip.ZipEntry("covers/${cover.name}"))
+                    cover.inputStream().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                }
+            }
+        }
+    }
+
+    private fun restoreFullBackupZip(input: java.io.InputStream, replaceExisting: Boolean): BackupRestoreResult {
+        var backupJson: String? = null
+        val stagedOriginals = mutableListOf<Pair<String, File>>()
+        val stagedCovers = mutableListOf<Pair<String, File>>()
+        val stagingDir = File(appContext.cacheDir, "restore_staging_${System.currentTimeMillis()}").apply { mkdirs() }
+        try {
+            java.util.zip.ZipInputStream(input).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.isDirectory) continue
+                    val name = entry.name.trimStart('/')
+                    when {
+                        name == "backup.json" -> backupJson = zip.readBytes().toString(Charsets.UTF_8)
+                        name.startsWith("originals/") -> {
+                            // File(...).name strips any path segments — zip-slip guard.
+                            val fileName = File(name).name
+                            if (fileName.isNotBlank()) {
+                                val temp = File(stagingDir, "orig_${stagedOriginals.size}")
+                                temp.outputStream().use { zip.copyTo(it) }
+                                stagedOriginals.add(fileName to temp)
+                            }
+                        }
+                        name.startsWith("covers/") -> {
+                            val fileName = File(name).name
+                            if (fileName.isNotBlank()) {
+                                val temp = File(stagingDir, "cover_${stagedCovers.size}")
+                                temp.outputStream().use { zip.copyTo(it) }
+                                stagedCovers.add(fileName to temp)
+                            }
+                        }
+                    }
+                }
+            }
+            val json = backupJson
+                ?: throw IllegalArgumentException("This zip does not contain a Veritas backup.json.")
+            val (result, idMap) = restoreBackupJsonWithMap(json, replaceExisting)
+            // Originals are keyed by originalFileName (carried inside the restored
+            // documents), so they drop straight into place.
+            stagedOriginals.forEach { (fileName, temp) ->
+                val target = File(originalsDir, fileName)
+                if (!target.exists()) runCatching { temp.copyTo(target, overwrite = false) }
+            }
+            // Covers are keyed by document id — rename through the restore id map.
+            stagedCovers.forEach { (fileName, temp) ->
+                val oldId = fileName.substringBefore(".cover.")
+                val suffix = fileName.removePrefix(oldId)
+                val newName = "${idMap[oldId] ?: oldId}$suffix"
+                val target = File(CoverExtractor.coversDir(appContext), newName)
+                if (!target.exists()) runCatching { temp.copyTo(target, overwrite = false) }
+            }
+            return result
+        } finally {
+            runCatching { stagingDir.deleteRecursively() }
+        }
+    }
+
+    private fun restoreBackupJsonWithMap(rawJson: String, replaceExisting: Boolean = false): Pair<BackupRestoreResult, Map<String, String>> {
         val root = runCatching { JSONObject(rawJson) }
             .getOrElse { throw IllegalArgumentException("This is not a valid Veritas backup file.") }
         val documentArray = root.optJSONArray("documents")
@@ -1493,6 +1759,87 @@ class DocumentRepository(context: Context) {
             }
         }
 
+        // General Notes (includes hidden "__vocab__<docId>" vocabulary notes —
+        // their titles are rewritten through the document id map so restored
+        // vocab reattaches to the right documents even when ids were remapped).
+        var importedGeneralNotes = 0
+        root.optJSONArray("generalNotes")?.let { array ->
+            val imported = mutableListOf<GeneralNote>()
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val note = runCatching { GeneralNote.fromJson(obj) }.getOrNull() ?: continue
+                if (note.id.isBlank()) continue
+                val remapped = if (note.title.startsWith("__vocab__")) {
+                    val oldDocId = note.title.removePrefix("__vocab__")
+                    note.copy(title = "__vocab__${idMap[oldDocId] ?: oldDocId}")
+                } else note
+                imported.add(remapped)
+            }
+            if (imported.isNotEmpty() || replaceExisting) {
+                val existing = if (replaceExisting) emptyList() else loadGeneralNotes()
+                // Existing notes win on id collision (they may be newer edits).
+                saveGeneralNotes((existing + imported).distinctBy { it.id })
+                importedGeneralNotes = imported.size
+            }
+        }
+
+        // Tracker days: merge by date, keeping the richer record per day so a
+        // restore never lowers an existing streak. Read-document ids are remapped.
+        var importedTrackerDays = 0
+        root.optJSONArray("trackerDays")?.let { array ->
+            val imported = mutableListOf<ReaderTrackerDay>()
+            for (i in 0 until array.length()) {
+                val day = array.optJSONObject(i)?.let(ReaderTrackerDay::fromJson) ?: continue
+                if (day.dateKey.isBlank()) continue
+                imported.add(day.copy(readDocumentIds = day.readDocumentIds.map { idMap[it] ?: it }.toSet()))
+            }
+            if (imported.isNotEmpty()) {
+                val merged = loadTrackerDays().toMutableMap()
+                imported.forEach { day ->
+                    val existing = merged[day.dateKey]
+                    merged[day.dateKey] = if (existing == null) day else ReaderTrackerDay(
+                        dateKey = day.dateKey,
+                        appOpenCount = maxOf(existing.appOpenCount, day.appOpenCount),
+                        usageMillis = maxOf(existing.usageMillis, day.usageMillis),
+                        readDocumentIds = existing.readDocumentIds + day.readDocumentIds
+                    )
+                }
+                saveTrackerDays(merged.values)
+                importedTrackerDays = imported.size
+            }
+        }
+
+        // Flashcards: existing cards win on id collision (local scheduling state
+        // is the live one); document references are remapped like annotations.
+        var importedFlashcards = 0
+        root.optJSONArray("flashcards")?.let { array ->
+            val imported = mutableListOf<FlashcardProgress>()
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val card = runCatching { FlashcardProgress.fromJson(obj) }.getOrNull() ?: continue
+                imported.add(card.copy(documentId = idMap[card.documentId] ?: card.documentId))
+            }
+            if (imported.isNotEmpty() || replaceExisting) {
+                val existing = if (replaceExisting) emptyList() else loadAllFlashcards()
+                saveAllFlashcards((existing + imported).distinctBy { it.id })
+                importedFlashcards = imported.size
+            }
+        }
+
+        // Monthly reading time: per-document max (not sum) so re-restoring the
+        // same backup on the same device never double-counts.
+        root.optJSONObject("docReadingTimesThisMonth")?.let { obj ->
+            val current = loadDocReadingTimes().toMutableMap()
+            obj.keys().forEach { docId ->
+                val mapped = idMap[docId] ?: docId
+                val incoming = obj.optLong(docId, 0L)
+                if (incoming > (current[mapped] ?: 0L)) {
+                    recordDocReadingTime(mapped, incoming - (current[mapped] ?: 0L))
+                    current[mapped] = incoming
+                }
+            }
+        }
+
         return BackupRestoreResult(
             documentCount = importedDocuments.size,
             annotationCount = importedAnnotations.size,
@@ -1500,8 +1847,11 @@ class DocumentRepository(context: Context) {
             readingListCount = importedReadingLists,
             pronunciationRuleCount = importedRules.size,
             restoredReaderSettings = restoredReaderSettings,
-            restoredVoiceSettings = restoredVoiceSettings
-        )
+            restoredVoiceSettings = restoredVoiceSettings,
+            generalNoteCount = importedGeneralNotes,
+            trackerDayCount = importedTrackerDays,
+            flashcardCount = importedFlashcards
+        ) to idMap
     }
 
     fun loadAiPromptTemplates(): List<AiPromptTemplate> {
@@ -2378,7 +2728,7 @@ class DocumentRepository(context: Context) {
         return days
     }
 
-    private fun saveTrackerDays(days: Collection<ReaderTrackerDay>) {
+    fun saveTrackerDays(days: Collection<ReaderTrackerDay>) {
         val array = JSONArray()
         days.sortedByDescending { it.dateKey }
             .take(MAX_TRACKER_DAYS)

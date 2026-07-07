@@ -49,8 +49,8 @@ android {
         applicationId = "com.veritas.reader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 26
-        versionName = "1.0.1.1"
+        versionCode = 27
+        versionName = "1.1.0"
 
         ndk {
             abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a"))

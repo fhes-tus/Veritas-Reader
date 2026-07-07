@@ -100,6 +100,7 @@ fun VeritasHomeHeroCard(
     onCardColor: Color,
     weeklyMinutes: Long,
     todayMinutes: Long,
+    dailyGoalMinutes: Int = 20,
     onOpen: (SavedDocument) -> Unit,
     onPlayPause: (SavedDocument) -> Unit,
     onClear: (SavedDocument) -> Unit,
@@ -329,6 +330,26 @@ fun VeritasHomeHeroCard(
                             HeroPill(text = "🔥 ${heroCountUp(tracker.currentStreak)} streak", color = onCardColor)
                         }
                         HeroPill(text = "${heroCountUp(weeklyMinutes.toInt())}m this week", color = onCardColor)
+                    }
+
+                    // Daily reading goal: thin progress line under the pills.
+                    if (dailyGoalMinutes > 0) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { (todayMinutes.toFloat() / dailyGoalMinutes).coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp),
+                            color = onCardColor,
+                            trackColor = onCardColor.copy(alpha = 0.25f)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (todayMinutes >= dailyGoalMinutes) "Goal met — ${todayMinutes}m today"
+                            else "Today ${todayMinutes} / ${dailyGoalMinutes} min",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = onCardColor.copy(alpha = 0.85f)
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))

@@ -243,11 +243,21 @@ class PlaybackService(private val context: Context) {
         PlaybackStateStore.isPlaying = true
         PlaybackStateStore.statusMessage = "Reading section..."
         
+        // Silence decorative glyphs (bullets, arrows, dot leaders) before the
+        // engine sees them; replacements are length-preserving. Pure-decoration
+        // chunks are skipped like an already-finished utterance.
+        val speakText = SpeechSanitizer.forSpeech(text)
+        if (speakText.isBlank()) {
+            activeChunkIndex = index
+            PlaybackStateStore.currentIndex = index
+            advanceAfterSection()
+            return
+        }
         activeChunkUtteranceId = UUID.randomUUID().toString()
         activeChunkIndex = index
 
         activeDocument?.let { repository.updateProgress(it.id, index, chunks.size) }
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, activeChunkUtteranceId!!)
+        tts?.speak(speakText, TextToSpeech.QUEUE_FLUSH, null, activeChunkUtteranceId!!)
     }
 
     private fun speakSelectionText(rawText: String) {

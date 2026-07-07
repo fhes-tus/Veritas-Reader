@@ -889,13 +889,13 @@ internal fun AnnotationDocumentCard(
                                 Box(
                                     modifier = Modifier
                                         .size(36.dp)
-                                        .background(if (selectedDocumentNote) Color(0xFFE2F0D9) else Color(0xFFFFF7F0), CircleShape),
+                                        .background(if (selectedDocumentNote) Color(0xFFE3F2FD) else Color(0xFFFFF7F0), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = if (selectedDocumentNote) Icons.Filled.Check else Icons.Filled.Edit,
                                         contentDescription = null,
-                                        tint = if (selectedDocumentNote) Color(0xFF137333) else Color(0xFFF2994A),
+                                        tint = if (selectedDocumentNote) Color(0xFF1565C0) else Color(0xFFF2994A),
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -1613,6 +1613,7 @@ internal fun EmbeddedOnboardingBlock(
 // can therefore never run during scroll frames.
 @Composable
 internal fun Modifier.staggeredEntrance(position: Int): Modifier {
+    if (VeritasThemeState.reduceMotion) return this
     var played by rememberSaveable { mutableStateOf(false) }
     val progress = remember { Animatable(if (played) 1f else 0f) }
     if (!played) {
@@ -2109,7 +2110,7 @@ internal fun FlashcardReviewDialog(
                                         showAnswer = false
                                         currentIndex++
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00BCD4)),
                                     modifier = Modifier.weight(1f),
                                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                                 ) {

@@ -582,7 +582,7 @@ fun OnboardingQuestChecklist(
                     .fillMaxWidth()
                     .height(6.dp)
                     .clip(RoundedCornerShape(50)),
-                color = if (progress == 1f) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                color = if (progress == 1f) Color(0xFF2196F3) else MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
 
@@ -655,7 +655,7 @@ fun QuestItemRow(
         Icon(
             imageVector = if (done) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
             contentDescription = if (done) "Completed" else "Incomplete",
-            tint = if (done) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            tint = if (done) Color(0xFF2196F3) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
             modifier = Modifier
                 .padding(top = 2.dp)
                 .size(18.dp)

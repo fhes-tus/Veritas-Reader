@@ -188,8 +188,8 @@ object AiPromptLauncher {
                 AiPromptType.STUDY_NOTES -> "Turn this document into organized study notes. Use headings, bullet points, definitions, examples, likely exam areas, and a short final revision checklist."
                 AiPromptType.SIMPLIFY -> "Rewrite and explain the document in simpler language without removing important meaning. Define difficult words and give short examples where useful."
                 AiPromptType.SECTION_BY_SECTION -> "This is part of a long-document workflow. Summarize this section or page range only, give 3-6 key points, define difficult terms, and end with a short note saying what the user should send next."
-                AiPromptType.QUIZ -> "Create an exam-style revision quiz from this document. Include multiple choice questions, short answer questions, and answers with explanations."
-                AiPromptType.FLASHCARDS -> "Create flashcards from this document. Use a question on the front and a concise answer on the back. Focus on definitions, processes, comparisons, and important facts."
+                AiPromptType.QUIZ -> "Create an exam-style multiple-choice revision quiz from this document. Format every question EXACTLY like this, with one blank line between questions:\nQ: <question>\nA) <option>\nB) <option>\nC) <option>\nD) <option>\nAnswer: <letter>\nExplanation: <one short sentence>"
+                AiPromptType.FLASHCARDS -> "Create flashcards from this document. Focus on definitions, processes, comparisons, and important facts. Format every card EXACTLY like this, with one blank line between cards:\nQ: <question>\nA: <concise answer>"
                 AiPromptType.CUSTOM -> "Help me study this document."
             }
         }

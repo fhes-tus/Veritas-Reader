@@ -4,6 +4,26 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ---
 
+## [1.1.0] - 2026-07-07
+
+### Added
+*   **PPTX Document Import & Extraction:** Added full support for importing and extracting text from PowerPoint presentations (`.pptx`) in both the Android app and KMP desktop client.
+*   **Background Auto-Backups:** Integrated a scheduled background service using WorkManager to auto-backup library documents and notes.
+*   **Daily Streak Reminders:** Added local notifications to remind users to maintain their reading habits.
+*   **In-App Self-Updater:** Added automatic check-for-updates and post-update release notes popup.
+*   **Background TTS Battery Exemption:** Added a request/settings hook for battery optimization exemptions to prevent Android from killing background TTS playback.
+*   **Highlight Customization & AI Prompts:** Highlight coloring and grouping, selection sharing scopes, and advanced AI assistant prompts with page markers.
+
+### Changed
+*   **Vibrant Hero Card Toggle:** Added a toggle to settings to switch between subtle and vibrant accent gradient styles on the main dashboard.
+*   **Overhaul & Reliability:** General performance improvements in rendering, theming, and layout animations.
+
+### Fixed
+*   **Share-Import NPE:** Resolved a crash occurring when importing from specific external share providers.
+*   **Version Comparison Logic:** Corrected issues with parsing and comparing version strings for update prompts.
+
+---
+
 ## [1.0.1] - 2026-06-16
 
 ### Added

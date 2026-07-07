@@ -2154,7 +2154,7 @@ fun LibraryScreen(
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 val isDue = card.nextReviewTime <= System.currentTimeMillis()
-                                                val badgeColor = if (isDue) Color(0xFFEF4444) else Color(0xFF10B981)
+                                                val badgeColor = if (isDue) Color(0xFFEF4444) else Color(0xFF29B6F6)
                                                 val badgeText = if (isDue) "Due" else {
                                                     val diff = card.nextReviewTime - System.currentTimeMillis()
                                                     val days = (diff / (1000 * 60 * 60 * 24)).coerceAtLeast(0L)
@@ -2741,14 +2741,16 @@ private fun ReadingStatsDashboardDialog(
     val tertiaryColor = MaterialTheme.colorScheme.tertiary
     val errorColor = MaterialTheme.colorScheme.error
     val pastedColor = MaterialTheme.colorScheme.inversePrimary
+    val slidesColor = androidx.compose.ui.graphics.lerp(secondaryColor, errorColor, 0.5f)
 
     // Format Distribution slices — every document lands in exactly one bucket so the
-    // chart total always matches the library size. E-Books (EPUB) and Documents (Word/text/
-    // scanned) are split into their own slices rather than one combined bucket.
-    val formatSlices = remember(documents, primaryColor, secondaryColor, tertiaryColor, errorColor, pastedColor) {
+    // chart total always matches the library size. E-Books (EPUB), Slide Decks (PPTX),
+    // and Documents (Word/text/scanned) are split into their own slices.
+    val formatSlices = remember(documents, primaryColor, secondaryColor, tertiaryColor, errorColor, pastedColor, slidesColor) {
         var pdfCount = 0
         var webCount = 0
         var ebookCount = 0
+        var slidesCount = 0
         var docCount = 0
         var pastedCount = 0
         documents.forEach { doc ->
@@ -2757,12 +2759,13 @@ private fun ReadingStatsDashboardDialog(
             val label = doc.sourceLabel.lowercase(Locale.US)
             when {
                 // sourceLabel is the explicit, reliable classifier set at import time
-                // ("PDF", "DOCX", "EPUB", "OCR", "TXT", "Web", ...). Key off it first,
-                // then fall back to mime type / filename so older records still bucket.
+                // ("PDF", "DOCX", "PPTX", "EPUB", "OCR", "TXT", "Web", ...). Key off it
+                // first, then fall back to mime type / filename so older records still bucket.
                 label == "pdf" || mime.contains("pdf") || title.endsWith(".pdf") -> pdfCount++
                 label.contains("web") || label.contains("http") || label.contains("article") ||
                     mime.contains("html") -> webCount++
                 label == "epub" || mime.contains("epub") || title.endsWith(".epub") -> ebookCount++
+                label == "pptx" || mime.contains("presentationml") || title.endsWith(".pptx") -> slidesCount++
                 label in setOf("docx", "txt", "ocr") ||
                     mime.contains("word") || mime.contains("wordprocessingml") ||
                     mime.startsWith("image/") ||
@@ -2788,6 +2791,12 @@ private fun ReadingStatsDashboardDialog(
                 value = ebookCount.toFloat(),
                 color = tertiaryColor,
                 description = "EPUB e-books imported into your library."
+            ),
+            DonutSlice(
+                label = "Slide Decks",
+                value = slidesCount.toFloat(),
+                color = slidesColor,
+                description = "PowerPoint presentations read slide by slide with titles, bullets, and speaker notes."
             ),
             DonutSlice(
                 label = "Documents",
@@ -4056,7 +4065,7 @@ private fun HomeQuickActions(
                 HomeActionRow(
                     icon = Icons.Filled.Add,
                     title = "Import file",
-                    body = "Upload PDF, EPUB, DOCX, TXT, or HTML",
+                    body = "Upload PDF, EPUB, DOCX, PPTX, TXT, or HTML",
                     iconBackground = Color(0xFFF0F3FF),
                     iconForeground = Color(0xFF7C6FFF),
                     onClick = onImportClick
@@ -5518,7 +5527,7 @@ private fun FlashcardReviewDialog(
                                         showAnswer = false
                                         currentIndex++
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF10B981)),
+                                    colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF00BCD4)),
                                     modifier = Modifier.weight(1f),
                                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
                                 ) {

@@ -17,7 +17,7 @@ class ActivityInfo {
 }
 
 class PackageInfo {
-    val versionName: String = "1.0.1.1"
+    val versionName: String = "1.1.0"
 }
 
 class PackageManager {

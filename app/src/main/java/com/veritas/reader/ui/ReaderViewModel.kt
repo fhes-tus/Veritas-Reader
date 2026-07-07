@@ -1095,6 +1095,26 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val pageCount = if (isPdf) {
                 DocumentExtractor.getPdfPageCount(app, uri)
             } else 0
+            // Same name AND same byte size as a stored original = the same file:
+            // open the existing reading instead of importing a second copy.
+            val baseName = name.substringBeforeLast('.').trim()
+            val duplicate = repository.loadDocuments().firstOrNull { doc ->
+                val titleMatches = doc.title.trim().equals(baseName, ignoreCase = true) ||
+                    doc.title.trim().equals(name.trim(), ignoreCase = true)
+                titleMatches && sizeBytes > 0L && repository.originalFile(doc)?.length() == sizeBytes
+            }
+            if (duplicate != null) {
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            isOpeningDocument = false,
+                            importMessage = "Already in your library — opening “${duplicate.title}”."
+                        )
+                    }
+                    openSavedDocument(duplicate)
+                }
+                return@launch
+            }
 
             withContext(Dispatchers.Main) {
                 val isPptx = mimeType.contains("presentationml", ignoreCase = true) ||
@@ -2158,6 +2178,51 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    suspend fun computeStorage(): Pair<StorageBreakdown, List<Pair<SavedDocument, Long>>> =
+        withContext(Dispatchers.IO) {
+            repository.computeStorageBreakdown() to repository.findCleanupCandidates()
+        }
+
+    suspend fun cleanupOriginals(ids: Set<String>): Long =
+        withContext(Dispatchers.IO) { repository.removeOriginals(ids) }.also { refreshAll() }
+
+    fun searchLibraryContent(query: String) {
+        _uiState.update { it.copy(librarySearchInProgress = true, librarySearchHits = emptyList()) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val hits = runCatching { repository.searchLibraryContent(query) }.getOrDefault(emptyList())
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(librarySearchInProgress = false, librarySearchHits = hits) }
+            }
+        }
+    }
+
+    suspend fun estimateFullBackupBytes(): Long =
+        withContext(Dispatchers.IO) { runCatching { repository.estimateFullBackupBytes() }.getOrDefault(0L) }
+
+    fun exportFullBackup(uri: Uri) {
+        backupJob?.cancel()
+        _uiState.update { it.copy(backupInProgress = true, backupMessage = null) }
+        backupJob = viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { output ->
+                    repository.writeFullBackupZip(output)
+                } ?: throw IllegalStateException("Could not open the selected backup location.")
+            }
+            withContext(Dispatchers.Main) {
+                _uiState.update { state ->
+                    state.copy(
+                        backupInProgress = false,
+                        backupMessage = result.fold(
+                            onSuccess = { "Full backup exported — includes originals and covers." },
+                            onFailure = { if (it is CancellationException) "Backup export cancelled." else "Full backup failed: ${it.message ?: "unknown error"}" }
+                        )
+                    )
+                }
+                backupJob = null
+            }
+        }
+    }
+
     fun shareLibrarySyncPack() {
         backupJob?.cancel()
         _uiState.update { it.copy(backupInProgress = true, backupMessage = null) }
@@ -2197,9 +2262,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(backupInProgress = true, backupMessage = null) }
         backupJob = viewModelScope.launch(Dispatchers.IO) {
             val result = runCatching {
-                val raw = getApplication<Application>().contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                    ?: throw IllegalStateException("Could not open the selected backup file.")
-                repository.restoreBackupJson(raw, replaceExisting = false)
+                getApplication<Application>().contentResolver.openInputStream(uri)?.use { stream ->
+                    // Handles both plain JSON backups and full .zip backups.
+                    repository.restoreBackupAuto(stream, replaceExisting = false)
+                } ?: throw IllegalStateException("Could not open the selected backup file.")
             }
             withContext(Dispatchers.Main) {
                 _uiState.update { it.copy(backupInProgress = false) }
@@ -2241,7 +2307,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                                     documentNotes = documentNotes,
                                     annotationCount = annotationCount,
                                     annotations = annotations,
-                                    backupMessage = "Sync pack merged: ${restored.documentCount} reading${if (restored.documentCount == 1) "" else "s"}, ${restored.annotationCount} bookmark/note${if (restored.annotationCount == 1) "" else "s"}, ${restored.queueCount} queued item${if (restored.queueCount == 1) "" else "s"}, ${restored.readingListCount} list${if (restored.readingListCount == 1) "" else "s"}."
+                                    backupMessage = "Backup merged: ${restored.documentCount} reading${if (restored.documentCount == 1) "" else "s"}, ${restored.annotationCount} bookmark/note${if (restored.annotationCount == 1) "" else "s"}, ${restored.generalNoteCount} note${if (restored.generalNoteCount == 1) "" else "s"}, ${restored.flashcardCount} flashcard${if (restored.flashcardCount == 1) "" else "s"}, ${restored.trackerDayCount} tracked day${if (restored.trackerDayCount == 1) "" else "s"}, ${restored.readingListCount} list${if (restored.readingListCount == 1) "" else "s"}."
                                 )
                             }
                             PlaybackStateStore.queueCount = queuedDocuments.size
@@ -2699,7 +2765,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             VeritasScreen.VOICE_STUDIO to { state: ReaderUiState -> state.showVoiceStudio },
             VeritasScreen.NARRATION_STUDIO to { state: ReaderUiState -> state.showNarrationStudio },
             VeritasScreen.AI_STUDY_TOOLS to { state: ReaderUiState -> state.showAiStudyTools },
-            VeritasScreen.OFFLINE_STUDY_TOOLS to { state: ReaderUiState -> state.showOfflineStudyTools },
             VeritasScreen.AI_CENTER to { state: ReaderUiState -> state.showAiCenter },
             VeritasScreen.ASK_AI_SETTINGS to { state: ReaderUiState -> state.showAskAiSettings },
             VeritasScreen.TRANSLATION_TOOLS to { state: ReaderUiState -> state.showTranslationTools },
@@ -2747,7 +2812,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         VeritasScreen.VOICE_STUDIO -> it.copy(showVoiceStudio = false)
                         VeritasScreen.NARRATION_STUDIO -> it.copy(showNarrationStudio = false)
                         VeritasScreen.AI_STUDY_TOOLS -> it.copy(showAiStudyTools = false)
-                        VeritasScreen.OFFLINE_STUDY_TOOLS -> it.copy(showOfflineStudyTools = false)
                         VeritasScreen.AI_CENTER -> it.copy(showAiCenter = false)
                         VeritasScreen.ASK_AI_SETTINGS -> it.copy(showAskAiSettings = false)
                         VeritasScreen.TRANSLATION_TOOLS -> it.copy(showTranslationTools = false)

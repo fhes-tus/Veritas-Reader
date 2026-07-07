@@ -46,7 +46,7 @@ class DocumentImportWorker(
         val notification = NotificationCompat.Builder(applicationContext, "import_channel")
             .setContentTitle("Importing $title")
             .setContentText("Veritas is extracting text in the background...")
-            .setSmallIcon(R.drawable.veritas_reader_icon) // Replace with a small icon later if we have one
+            .setSmallIcon(R.drawable.ic_stat_veritas)
             .setOngoing(true)
             .build()
             
@@ -239,7 +239,7 @@ class DocumentImportWorker(
         val notification = NotificationCompat.Builder(applicationContext, "import_channel")
             .setContentTitle(title)
             .setContentText(message)
-            .setSmallIcon(R.drawable.veritas_reader_icon)
+            .setSmallIcon(R.drawable.ic_stat_veritas)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()

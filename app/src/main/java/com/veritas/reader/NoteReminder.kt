@@ -104,7 +104,7 @@ class NoteReminderReceiver : BroadcastReceiver() {
         )
 
         val notification = NotificationCompat.Builder(context, NoteReminderScheduler.CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(R.drawable.ic_stat_veritas)
             .setContentTitle(title)
             .setContentText(body.ifBlank { "Tap to open your note." })
             .setStyle(NotificationCompat.BigTextStyle().bigText(body.ifBlank { "Tap to open your note." }))

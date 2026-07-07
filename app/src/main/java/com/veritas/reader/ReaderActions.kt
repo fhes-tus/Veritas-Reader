@@ -229,6 +229,11 @@ fun buildDocumentNotesExport(
     val notes = annotations
         .filter { it.type == AnnotationType.NOTE && it.note.isNotBlank() }
         .sortedBy { it.chunkIndex }
+    // Highlights and bookmarks belong in the export too — the whole point of
+    // marking passages while studying is getting them back out afterwards.
+    val highlights = annotations
+        .filter { it.type == AnnotationType.HIGHLIGHT || it.type == AnnotationType.BOOKMARK }
+        .sortedBy { it.chunkIndex }
     val cleanDocumentNote = documentNote.trim()
     val exportedAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
     return buildString {
@@ -244,8 +249,25 @@ fun buildDocumentNotesExport(
             appendLine("---")
             appendLine()
         }
+        if (highlights.isNotEmpty()) {
+            appendLine("Highlights & bookmarks")
+            appendLine()
+            highlights.forEachIndexed { position, mark ->
+                val passage = document.chunks.getOrNull(mark.chunkIndex)
+                    .orEmpty()
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                val label = if (mark.type == AnnotationType.BOOKMARK) "Bookmark" else "Highlight"
+                appendLine("${position + 1}. $label — sentence ${mark.chunkIndex + 1}")
+                if (passage.isNotBlank()) appendLine("“$passage”")
+                if (mark.note.isNotBlank()) appendLine("Note: ${mark.note.trim()}")
+                appendLine()
+            }
+            appendLine("---")
+            appendLine()
+        }
         if (notes.isEmpty()) {
-            if (cleanDocumentNote.isBlank()) {
+            if (cleanDocumentNote.isBlank() && highlights.isEmpty()) {
                 appendLine("No notes have been added to this document yet.")
             }
         } else {

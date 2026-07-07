@@ -94,6 +94,6 @@ object VeritasFileBrowserScanner {
 
     private fun isSupportedExtension(name: String): Boolean {
         val ext = name.substringAfterLast('.', "").lowercase(Locale.getDefault())
-        return ext in listOf("pdf", "txt", "epub", "docx")
+        return ext in listOf("pdf", "txt", "epub", "docx", "pptx")
     }
 }

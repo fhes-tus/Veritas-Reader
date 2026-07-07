@@ -57,7 +57,8 @@ fun SettingsHubDialog(
     onOpenFileBrowser: () -> Unit,
     onOpenSleepTimer: () -> Unit,
     onOpenReadingLists: () -> Unit,
-    onOpenUserManual: () -> Unit
+    onOpenUserManual: () -> Unit,
+    onOpenStorage: () -> Unit = {}
 ) {
     val documentCount = uiState.documents.size
     val hasActiveDocument = uiState.activeDocument != null
@@ -99,11 +100,6 @@ fun SettingsHubDialog(
                 ) {
 
 
-                SettingsHubSectionTitle("Appearance")
-                SettingsHubRow("Display theme", "Theme packs, colour themes, text size, spacing, section labels", "🎨", onOpenReaderSettings)
-                SettingsHubRow("User manual", "Interactive guide to Veritas Reader features & tips", "📖", onOpenUserManual)
-                SettingsHubRow("Tutorial", "Learn Veritas through guided actions", "i", onOpenTutorial)
-
                 SettingsHubSectionTitle("Voice & Audio")
                 FeatureSettingsHubRow(
                     feature = settingsFeature(VeritasFeatureId.VOICE_STUDIO),
@@ -135,11 +131,15 @@ fun SettingsHubDialog(
                     onClick = onStartRecord
                 )
 
+                SettingsHubSectionTitle("Appearance")
+                SettingsHubRow("Display theme", "Theme packs, colour themes, text size, spacing, section labels", "🎨", onOpenReaderSettings)
+                SettingsHubRow("Tutorial", "Learn Veritas through guided actions", "i", onOpenTutorial)
+
                 SettingsHubSectionTitle("AI & Language")
                 FeatureSettingsHubRow(
                     feature = settingsFeature(VeritasFeatureId.OFFLINE_STUDY_TOOLS),
                     title = "AI & study mode",
-                    subtitle = "Installed AI app handoff plus small offline tools",
+                    subtitle = "Installed AI app handoff, flashcards, and quizzes",
                     icon = "AI",
                     onClick = onOpenAiCenter
                 )
@@ -196,10 +196,77 @@ fun SettingsHubDialog(
                     icon = "List",
                     onClick = onOpenReadingLists
                 )
+
+                SettingsHubRow("Storage", "See what Veritas is using and free up space", "◫", onOpenStorage)
+
+                SettingsHubSectionTitle("Help")
+                SettingsHubRow("User manual", "Interactive guide to Veritas Reader features & tips", "📖", onOpenUserManual)
                 }
             }
         }
     }
+}
+
+fun formatVeritasBytes(bytes: Long): String {
+    val mb = bytes / (1024.0 * 1024.0)
+    return when {
+        mb >= 1024 -> String.format(Locale.US, "%.2f GB", mb / 1024.0)
+        mb >= 1.0 -> String.format(Locale.US, "%.1f MB", mb)
+        else -> String.format(Locale.US, "%.0f KB", bytes / 1024.0)
+    }
+}
+
+@Composable
+fun StorageDialog(
+    breakdown: StorageBreakdown?,
+    candidates: List<Pair<SavedDocument, Long>>,
+    cleanupMessage: String?,
+    onSmartCleanup: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        title = { Text("Storage") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (breakdown == null) {
+                    Text("Measuring…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text(
+                        "Veritas is using ${formatVeritasBytes(breakdown.totalBytes)} for ${breakdown.documentCount} documents",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text("Original files: ${formatVeritasBytes(breakdown.originalsBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Covers: ${formatVeritasBytes(breakdown.coversBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Extracted text: ${formatVeritasBytes(breakdown.textBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    val reclaimable = candidates.sumOf { it.second }
+                    Button(
+                        onClick = onSmartCleanup,
+                        enabled = candidates.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (candidates.isEmpty()) "Nothing to clean up"
+                            else "Smart Cleanup — free ${formatVeritasBytes(reclaimable)}"
+                        )
+                    }
+                    Text(
+                        if (candidates.isEmpty())
+                            "Smart Cleanup removes original files of fully-read or 90+ day dormant, non-favorite documents. Text, progress, notes, and highlights always stay."
+                        else
+                            "Removes the original files of ${candidates.size} fully-read or dormant document${if (candidates.size == 1) "" else "s"} (favorites are never touched). Reading text, progress, notes, and highlights stay — only Original View is lost until a re-import.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (!cleanupMessage.isNullOrBlank()) {
+                        Text(cleanupMessage, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -445,7 +512,10 @@ fun ReaderSettingsDialog(
     onToggleSectionNumbers: () -> Unit,
     onToggleAutoPlayQueue: () -> Unit,
     onToggleAdaptiveCover: () -> Unit,
-    onToggleVibrantHero: () -> Unit
+    onToggleVibrantHero: () -> Unit,
+    onGoalMinutesChange: (Int) -> Unit = {},
+    onToggleStreakReminder: () -> Unit = {},
+    onToggleReduceMotion: () -> Unit = {}
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -509,6 +579,42 @@ fun ReaderSettingsDialog(
                         Text("Bold accent-colored home card instead of the subtle themed one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = settings.vibrantHero, onCheckedChange = { onToggleVibrantHero() })
+                }
+
+                Text("Reading goal", fontWeight = FontWeight.Bold)
+                Text(
+                    "Daily target: ${settings.dailyGoalMinutes} min",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Slider(
+                    value = settings.dailyGoalMinutes.toFloat(),
+                    onValueChange = { onGoalMinutesChange(it.toInt().coerceIn(5, 180)) },
+                    valueRange = 5f..180f,
+                    steps = 34
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Streak reminder", fontWeight = FontWeight.SemiBold)
+                        Text("Evening nudge when today's goal isn't met and a streak is at risk.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = settings.streakReminderEnabled, onCheckedChange = { onToggleStreakReminder() })
+                }
+
+                Text("Accessibility", fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Reduce motion", fontWeight = FontWeight.SemiBold)
+                        Text("Skip decorative animations like card entrances.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = settings.reduceMotion, onCheckedChange = { onToggleReduceMotion() })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { onThemeChange("dark_high_contrast") }, modifier = Modifier.weight(1f)) {
+                        Text("High contrast dark")
+                    }
+                    OutlinedButton(onClick = { onThemeChange("white_high_contrast") }, modifier = Modifier.weight(1f)) {
+                        Text("High contrast light")
+                    }
                 }
             }
         }

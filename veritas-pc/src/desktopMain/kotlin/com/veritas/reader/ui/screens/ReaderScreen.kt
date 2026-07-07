@@ -581,7 +581,7 @@ fun ReaderScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         if (readerSettings.showSectionNumbers) {
                                             Text(
-                                                "Section ${part.index + 1} of ${readerModel.parts.size} • pages ${part.pageRange.startPage}-${part.pageRange.endPage}",
+                                                "Section ${part.index + 1} of ${readerModel.parts.size} • ${if (document.sourceLabel == "PPTX") "slides" else "pages"} ${part.pageRange.startPage}-${part.pageRange.endPage}",
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.weight(1f)

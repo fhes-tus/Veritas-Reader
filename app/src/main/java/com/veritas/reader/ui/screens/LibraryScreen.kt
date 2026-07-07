@@ -207,6 +207,7 @@ fun LibraryScreen(
     onOpenReadingHistory: () -> Unit,
     onOpenDocument: (SavedDocument) -> Unit,
     onOpenDocumentAt: (SavedDocument, Int) -> Unit,
+    onSearchLibraryContent: (String) -> Unit = {},
     onClearContinueDocument: (SavedDocument) -> Unit,
     onPlayPauseContinue: (SavedDocument) -> Unit = {},
     onDeleteDocument: (SavedDocument) -> Unit,
@@ -242,6 +243,7 @@ fun LibraryScreen(
     onDeleteGeneralNote: (String) -> Unit = {},
     onGradeFlashcard: (String, Int) -> Unit = { _, _ -> },
     onDeleteFlashcard: (String) -> Unit = {},
+    onImportFlashcards: (List<Flashcard>) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
@@ -263,6 +265,58 @@ fun LibraryScreen(
     var sortMode by remember { mutableStateOf("Updated") }
     var showQueue by remember { mutableStateOf(false) }
     var activeReviewDeck by remember { mutableStateOf<List<FlashcardProgress>?>(null) }
+    var showPasteFlashcards by remember { mutableStateOf(false) }
+    var showContentSearchResults by remember { mutableStateOf(false) }
+    if (showContentSearchResults) {
+        AlertDialog(
+            onDismissRequest = { showContentSearchResults = false },
+            confirmButton = {
+                TextButton(onClick = { showContentSearchResults = false }) { Text("Close") }
+            },
+            title = { Text("In your documents") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    when {
+                        uiState.librarySearchInProgress -> {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            Text("Searching every document…", style = MaterialTheme.typography.bodySmall)
+                        }
+                        uiState.librarySearchHits.isEmpty() ->
+                            Text("No matches inside any document.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        else -> uiState.librarySearchHits.forEach { hit ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        showContentSearchResults = false
+                                        onOpenDocumentAt(hit.document, hit.sentenceIndex)
+                                    },
+                                shape = VeritasPackStyle.compactShape(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(hit.document.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(hit.snippet, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                                    Text("Sentence ${hit.sentenceIndex + 1} — tap to open", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
+    if (showPasteFlashcards) {
+        PasteFlashcardsDialog(
+            onImport = { parsed -> onImportFlashcards(parsed); showPasteFlashcards = false },
+            onDismiss = { showPasteFlashcards = false }
+        )
+    }
     var selectedDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val cards = uiState.flashcards
     val dueCards = remember(cards) {
@@ -1094,6 +1148,19 @@ fun LibraryScreen(
                                             }
                                         }
                                     )
+                                    // Content search: title/preview filtering happens live above;
+                                    // this searches INSIDE every document's text on demand.
+                                    if (libraryQuery.trim().length >= 3) {
+                                        TextButton(
+                                            onClick = {
+                                                onSearchLibraryContent(libraryQuery)
+                                                showContentSearchResults = true
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text("Search inside documents for “${libraryQuery.trim()}”")
+                                        }
+                                    }
                                 }
                                 VeritasHomeTab.STUDY -> {
                                     Row(
@@ -1389,6 +1456,7 @@ fun LibraryScreen(
                                             onCardColor = streakOnCard,
                                             weeklyMinutes = weeklyMinutes,
                                             todayMinutes = todayMinutes,
+                                            dailyGoalMinutes = uiState.readerSettings.dailyGoalMinutes,
                                             onOpen = { onOpenDocument(it) },
                                             onPlayPause = { onPlayPauseContinue(it) },
                                             onClear = { onClearContinueDocument(it) },
@@ -2667,10 +2735,19 @@ fun LibraryScreen(
                             StudyEmptyState(
                                 icon = Icons.Outlined.Book,
                                 title = "No flashcards yet",
-                                description = "Open a document, go to 'Study Tools', and click 'Create flashcards'. Once generated, import them to your deck to start reviewing!",
+                                description = "Open a document → Study Tools → 'Create flashcards' to send a prompt to your AI app, then paste its reply here with the button below.",
                                 onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
                                 onImportFile = onImportFile
                             )
+                        }
+                        item {
+                            OutlinedButton(
+                                onClick = { showPasteFlashcards = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Text("Paste AI reply → add flashcards")
+                            }
                         }
                     } else {
                         item {
@@ -2725,6 +2802,13 @@ fun LibraryScreen(
                                     ) {
                                         Text(if (dueCards.isNotEmpty()) "Review Now (${dueCards.size})" else "All caught up!")
                                     }
+                                    OutlinedButton(
+                                        onClick = { showPasteFlashcards = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = VeritasPackStyle.chipShape()
+                                    ) {
+                                        Text("Paste AI reply → add cards")
+                                    }
                                 }
                             }
                         }
@@ -2769,7 +2853,7 @@ fun LibraryScreen(
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 val isDue = card.nextReviewTime <= System.currentTimeMillis()
-                                                val badgeColor = if (isDue) Color(0xFFEF4444) else Color(0xFF10B981)
+                                                val badgeColor = if (isDue) Color(0xFFEF4444) else Color(0xFF29B6F6)
                                                 val badgeText = if (isDue) "Due" else {
                                                     val diff = card.nextReviewTime - System.currentTimeMillis()
                                                     val days = (diff / (1000 * 60 * 60 * 24)).coerceAtLeast(0L)

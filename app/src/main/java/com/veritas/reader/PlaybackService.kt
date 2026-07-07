@@ -53,6 +53,8 @@ class PlaybackService : MediaSessionService() {
     // Slide number per chunk for PPTX docs (null otherwise): drives the short
     // silence beats at slide transitions and after slide titles.
     private var chunkPageNumbers: IntArray? = null
+    private var lastSavedRate = Float.NaN
+    private var lastSavedPitch = Float.NaN
     private var chunks: List<String> = emptyList()
     private var artworkDocumentId: String? = null
     private var notificationArtwork: Bitmap? = null
@@ -264,6 +266,11 @@ class PlaybackService : MediaSessionService() {
         if (!existingLoaded) {
             val rawText = repository.readText(doc)
             chunks = TextChunker.chunk(rawText)
+            // Restore this document's remembered narration pace (if any).
+            repository.loadDocVoiceMemory(doc.id)?.let { (rate, pitch) ->
+                PlaybackStateStore.rate = rate
+                PlaybackStateStore.pitch = pitch
+            }
             chunkPageNumbers = if (doc.sourceLabel == "PPTX") {
                 val model = ReaderTextModelCache.get(doc.id, rawText, doc.pageCount)
                 if (model.sentences.size == chunks.size) {
@@ -498,6 +505,12 @@ class PlaybackService : MediaSessionService() {
         val text = repository.applyPronunciationRules(rawChunkText.substring(resumeOffset).trimStart())
         if (text.isBlank()) return
 
+        // Persist the pace being used with this document, but only when it changes.
+        if (PlaybackStateStore.rate != lastSavedRate || PlaybackStateStore.pitch != lastSavedPitch) {
+            activeDocument?.let { repository.saveDocVoiceMemory(it.id, PlaybackStateStore.rate, PlaybackStateStore.pitch) }
+            lastSavedRate = PlaybackStateStore.rate
+            lastSavedPitch = PlaybackStateStore.pitch
+        }
         val narrationSettings = repository.loadNarrationSettings()
         val effectiveRate = NarrationAnalyzer.effectiveRate(PlaybackStateStore.rate, narrationSettings, text)
         val effectivePitch = NarrationAnalyzer.effectivePitch(PlaybackStateStore.pitch, narrationSettings, text)
@@ -1032,7 +1045,7 @@ class PlaybackService : MediaSessionService() {
         val artwork = currentNotificationArtwork()
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_stat_veritas)
             .setLargeIcon(artwork)
             .setContentTitle(PlaybackStateStore.documentTitle.ifBlank { getString(R.string.app_name) })
             .setContentText(progressText)

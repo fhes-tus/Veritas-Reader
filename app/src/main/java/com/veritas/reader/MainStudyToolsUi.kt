@@ -195,7 +195,11 @@ internal fun BackupRestoreDialog(
     queueCount: Int,
     inProgress: Boolean,
     message: String?,
+    fullBackupEstimateBytes: Long = 0L,
+    autoBackupEnabled: Boolean = true,
+    onToggleAutoBackup: () -> Unit = {},
     onExport: () -> Unit,
+    onExportFull: () -> Unit = {},
     onImport: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -234,14 +238,37 @@ internal fun BackupRestoreDialog(
                     enabled = documentCount > 0,
                     shape = RoundedCornerShape(50)
                 ) {
-                    Text("Export library backup")
+                    Text("Export data backup (.json)")
+                }
+                Button(
+                    onClick = onExportFull,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = documentCount > 0,
+                    shape = RoundedCornerShape(50)
+                ) {
+                    val sizeMb = fullBackupEstimateBytes / (1024.0 * 1024.0)
+                    Text(
+                        if (sizeMb >= 1.0) "Export full backup (.zip, ~${String.format(Locale.US, "%.0f", sizeMb)} MB)"
+                        else "Export full backup (.zip)"
+                    )
                 }
                 OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(50)) {
-                    Text("Import backup file")
+                    Text("Import backup file (.json or .zip)")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Weekly auto-backup", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Keeps the 4 most recent data backups in app storage.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(checked = autoBackupEnabled, onCheckedChange = { onToggleAutoBackup() })
                 }
                 BackupStatusBlock(inProgress = inProgress, message = message)
                 Text(
-                    "Backup includes saved text, progress, queue, reading lists, bookmarks, document notes, sentence notes, pronunciation rules, reader settings, and voice settings.",
+                    "Data backup includes saved text, progress, queue, reading lists, bookmarks, notes and vocabulary, flashcards, reading streaks and stats, pronunciation rules, AI prompt templates, and all settings. Full backup adds the original files (PDF/PPTX/EPUB…) and covers so Original View survives a restore — it can be large.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -383,19 +410,19 @@ internal fun AiFreeModeDialog(
                             fontWeight = FontWeight.Black
                         )
                         Text(
-                            "Veritas does not bundle a large offline model and does not require your OpenAI API key. It uses installed AI apps on the phone plus lightweight offline study tools.",
+                            "Veritas does not bundle a large offline model and does not require an API key. It prepares prompts for the AI apps already installed on this phone.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                StudyCard(title = "1. AI app handoff") {
-                    Text("Open a document, tap Reader tools → AI, choose a task, then send the prepared prompt to ChatGPT, Gemini, Claude, Copilot, Perplexity, or another installed app.")
+                InfoStepCard(title = "1. AI app handoff") {
+                    Text("Open a document, tap Reader tools → AI, choose a task, then send the prepared prompt to ChatGPT, Gemini, Claude, Copilot, Perplexity, or another installed app. The prompt is also copied to your clipboard.")
                 }
-                StudyCard(title = "2. Offline study tools") {
-                    Text("For no-internet revision, Veritas can create simple summaries, key points, terms, flashcards, and quizzes using local document logic. This is smaller but less powerful than cloud AI.")
+                InfoStepCard(title = "2. Paste the reply back") {
+                    Text("Flashcard and quiz replies can be pasted straight back into Veritas — cards join your spaced-repetition deck and quizzes become an in-app scored test.")
                 }
-                StudyCard(title = "3. Base app stays lighter") {
+                InfoStepCard(title = "3. Base app stays lighter") {
                     Text("No heavy local AI model is bundled in the base app. A real offline model can be optional later as a separate downloadable pack.")
                 }
                 Text(
@@ -656,12 +683,24 @@ internal fun AiAppStudyDialog(
     onClearHistory: () -> Unit,
     onCopyText: (String, String) -> Unit,
     onSaveAiResultAsNote: (String) -> Unit,
-    onOpenOfflineStudyTools: () -> Unit
+    onImportFlashcards: (List<Flashcard>) -> Unit
 ) {
     var customPrompt by remember { mutableStateOf("") }
     var templateTitle by remember { mutableStateOf("Custom study prompt") }
     var aiResultDraft by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Tasks") }
+    var showPasteFlashcards by remember { mutableStateOf(false) }
+    var showPasteQuiz by remember { mutableStateOf(false) }
+
+    if (showPasteFlashcards) {
+        PasteFlashcardsDialog(
+            onImport = { cards -> onImportFlashcards(cards); showPasteFlashcards = false },
+            onDismiss = { showPasteFlashcards = false }
+        )
+    }
+    if (showPasteQuiz) {
+        PasteQuizDialog(onDismiss = { showPasteQuiz = false })
+    }
 
     val expandedTask = remember { mutableStateOf<String?>(null) }
 
@@ -671,8 +710,8 @@ internal fun AiAppStudyDialog(
     val explainSentencePrompt = remember { mutableStateOf("Explain the current section in simple language. Identify the main idea, difficult terms, and why the section matters in the document.") }
     val studyNotesPrompt = remember { mutableStateOf("Turn this document into organized study notes. Use headings, bullet points, definitions, examples, likely exam areas, and a short final revision checklist.") }
     val simplifyPrompt = remember { mutableStateOf("Rewrite and explain the document in simpler language without removing important meaning. Define difficult words and give short examples where useful.") }
-    val quizPrompt = remember { mutableStateOf("Create an exam-style revision quiz from this document. Include multiple choice questions, short answer questions, and answers with explanations.") }
-    val flashcardsPrompt = remember { mutableStateOf("Create flashcards from this document. Use a question on the front and a concise answer on the back. Focus on definitions, processes, comparisons, and important facts.") }
+    val quizPrompt = remember { mutableStateOf("Create an exam-style multiple-choice revision quiz from this document. Format every question EXACTLY like this, with one blank line between questions:\nQ: <question>\nA) <option>\nB) <option>\nC) <option>\nD) <option>\nAnswer: <letter>\nExplanation: <one short sentence>") }
+    val flashcardsPrompt = remember { mutableStateOf("Create flashcards from this document. Focus on definitions, processes, comparisons, and important facts. Format every card EXACTLY like this, with one blank line between cards:\nQ: <question>\nA: <concise answer>") }
 
     val extractKeypointsScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
     val studyNotesScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
@@ -953,11 +992,19 @@ internal fun AiAppStudyDialog(
                             }
                         )
 
-                        TextButton(
-                            onClick = onOpenOfflineStudyTools,
-                            modifier = Modifier.fillMaxWidth()
+                        OutlinedButton(
+                            onClick = { showPasteFlashcards = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(50)
                         ) {
-                            Text("Use offline study tools instead")
+                            Text("Paste AI reply → add flashcards")
+                        }
+                        OutlinedButton(
+                            onClick = { showPasteQuiz = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Text("Paste AI reply → take the quiz")
                         }
                     }
 
@@ -1141,145 +1188,7 @@ internal fun AiAppStudyDialog(
 }
 
 @Composable
-internal fun StudyToolsDialog(
-    studyPack: StudyPack,
-    onDismiss: () -> Unit
-) {
-    var tab by remember { mutableStateOf("Summary") }
-    val tabs = listOf("Summary", "Points", "Terms", "Cards", "Quiz", "Sentence")
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        title = { Text("Study tools") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .height(500.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    "Offline study help generated from this document. It is meant for revision, not as a final authority.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    tabs.take(3).forEach { item ->
-                        if (tab == item) Button(onClick = { tab = item }) { Text(item) }
-                        else OutlinedButton(onClick = { tab = item }) { Text(item) }
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    tabs.drop(3).forEach { item ->
-                        if (tab == item) Button(onClick = { tab = item }) { Text(item) }
-                        else OutlinedButton(onClick = { tab = item }) { Text(item) }
-                    }
-                }
-
-                when (tab) {
-                    "Summary" -> StudyListBlock(
-                        title = "Document summary",
-                        emptyText = "No summary could be generated.",
-                        items = studyPack.summary
-                    )
-
-                    "Points" -> StudyListBlock(
-                        title = "Key points",
-                        emptyText = "No key points could be generated.",
-                        items = studyPack.keyPoints
-                    )
-
-                    "Terms" -> StudyListBlock(
-                        title = "Key terms",
-                        emptyText = "No key terms could be detected.",
-                        items = studyPack.keyTerms
-                    )
-
-                    "Cards" -> {
-                        Text(
-                            "Flashcards",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (studyPack.flashcards.isEmpty()) {
-                            Text(
-                                "No flashcards could be generated.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            studyPack.flashcards.forEachIndexed { index, card ->
-                                StudyCard(title = "Card ${index + 1}") {
-                                    Text(card.front, fontWeight = FontWeight.SemiBold)
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        card.back,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    "Quiz" -> {
-                        Text(
-                            "Quick quiz",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (studyPack.quiz.isEmpty()) {
-                            Text(
-                                "No quiz could be generated.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            studyPack.quiz.forEachIndexed { index, question ->
-                                StudyCard(title = "Question ${index + 1}") {
-                                    Text(question.question, fontWeight = FontWeight.SemiBold)
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    question.options.forEach { option ->
-                                        Text("• $option")
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text("Answer: ${question.answer}", fontWeight = FontWeight.Bold)
-                                    Text(
-                                        question.explanation,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    "Sentence" -> StudyListBlock(
-                        title = "Current sentence explained",
-                        emptyText = "No sentence explanation could be generated.",
-                        items = studyPack.currentSectionExplanation
-                    )
-                }
-            }
-        }
-    )
-}
-
-@Composable
-internal fun StudyListBlock(
-    title: String,
-    emptyText: String,
-    items: List<String>
-) {
-    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    if (items.isEmpty()) {
-        Text(emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else {
-        items.forEachIndexed { index, item ->
-            StudyCard(title = "${index + 1}") {
-                Text(item, color = MaterialTheme.colorScheme.onSurface)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun StudyCard(
+internal fun InfoStepCard(
     title: String,
     content: @Composable () -> Unit
 ) {
@@ -1298,6 +1207,193 @@ internal fun StudyCard(
     }
 }
 
+@Composable
+internal fun PasteFlashcardsDialog(
+    onImport: (List<Flashcard>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var pasted by remember { mutableStateOf("") }
+    val parsed = remember(pasted) { AiResultParser.parseFlashcards(pasted) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add flashcards from AI") },
+        confirmButton = {
+            Button(onClick = { onImport(parsed) }, enabled = parsed.isNotEmpty()) {
+                Text(if (parsed.isEmpty()) "Import" else "Import ${parsed.size} card${if (parsed.size == 1) "" else "s"}")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Paste the AI app's reply below. Cards are detected from Q:/A: (or Front:/Back:) pairs.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedTextField(
+                    value = pasted,
+                    onValueChange = { pasted = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    label = { Text("AI reply") }
+                )
+                Text(
+                    when {
+                        pasted.isBlank() -> "Waiting for pasted text…"
+                        parsed.isEmpty() -> "No cards recognized yet — check the Q:/A: format."
+                        else -> "Found ${parsed.size} card${if (parsed.size == 1) "" else "s"}. First: “${parsed.first().front.take(60)}”"
+                    },
+                    color = if (parsed.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    )
+}
+
+@Composable
+internal fun PasteQuizDialog(onDismiss: () -> Unit) {
+    var pasted by remember { mutableStateOf("") }
+    var quiz by remember { mutableStateOf<List<QuizQuestion>?>(null) }
+    val parsed = remember(pasted) { AiResultParser.parseQuiz(pasted) }
+
+    quiz?.let { questions ->
+        QuizPlayerDialog(questions = questions, onDismiss = onDismiss)
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Take a pasted quiz") },
+        confirmButton = {
+            Button(onClick = { quiz = parsed }, enabled = parsed.isNotEmpty()) {
+                Text(if (parsed.isEmpty()) "Start quiz" else "Start quiz (${parsed.size})")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Paste the AI app's quiz reply below (Q: / A) B) C) D) / Answer: format).",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedTextField(
+                    value = pasted,
+                    onValueChange = { pasted = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    label = { Text("AI reply") }
+                )
+                Text(
+                    when {
+                        pasted.isBlank() -> "Waiting for pasted text…"
+                        parsed.isEmpty() -> "No questions recognized yet — check the format."
+                        else -> "Found ${parsed.size} question${if (parsed.size == 1) "" else "s"}."
+                    },
+                    color = if (parsed.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    )
+}
+
+@Composable
+internal fun QuizPlayerDialog(
+    questions: List<QuizQuestion>,
+    onDismiss: () -> Unit
+) {
+    var index by remember { mutableStateOf(0) }
+    var selected by remember { mutableStateOf<String?>(null) }
+    var score by remember { mutableStateOf(0) }
+    var finished by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (finished) "Quiz complete" else "Question ${index + 1} of ${questions.size}") },
+        confirmButton = {
+            when {
+                finished -> Button(onClick = onDismiss) { Text("Done") }
+                selected != null -> Button(onClick = {
+                    if (index + 1 >= questions.size) finished = true
+                    else {
+                        index++
+                        selected = null
+                    }
+                }) { Text(if (index + 1 >= questions.size) "See score" else "Next") }
+                else -> TextButton(onClick = onDismiss) { Text("Quit") }
+            }
+        },
+        text = {
+            if (finished) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "You scored $score of ${questions.size}.",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        when {
+                            score == questions.size -> "Perfect — every answer right."
+                            score >= questions.size * 3 / 4 -> "Strong revision — nearly there."
+                            score >= questions.size / 2 -> "Good base. Re-read the sections behind the misses."
+                            else -> "Worth another pass through the document before retrying."
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                val question = questions[index]
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(question.question, fontWeight = FontWeight.SemiBold)
+                    question.options.forEach { option ->
+                        val isPicked = selected == option
+                        val isCorrect = option == question.answer
+                        val showState = selected != null
+                        OutlinedButton(
+                            onClick = {
+                                if (selected == null) {
+                                    selected = option
+                                    if (isCorrect) score++
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = when {
+                                    showState && isCorrect -> Color(0xFF10B981)
+                                    showState && isPicked -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                }
+                            )
+                        ) {
+                            Text(
+                                text = when {
+                                    showState && isCorrect -> "✓ $option"
+                                    showState && isPicked -> "✗ $option"
+                                    else -> option
+                                },
+                                fontWeight = if (showState && (isCorrect || isPicked)) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                    if (selected != null && question.explanation.isNotBlank()) {
+                        Text(
+                            question.explanation,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
+    )
+}
 
 data class VoicePreset(
     val name: String,
@@ -1419,10 +1515,16 @@ internal fun veritasBackupFileName(prefix: String): String {
     return "${prefix}_$timestamp.json"
 }
 
+internal fun veritasBackupZipFileName(prefix: String): String {
+    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+    return "${prefix}_$timestamp.zip"
+}
+
 internal fun veritasBackupMimeTypes(): Array<String> = arrayOf(
     "application/json",
     "text/json",
     "text/plain",
+    "application/zip",
     "application/octet-stream"
 )
 

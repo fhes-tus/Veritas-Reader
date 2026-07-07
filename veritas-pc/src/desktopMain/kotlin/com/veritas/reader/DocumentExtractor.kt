@@ -345,8 +345,30 @@ object DocumentExtractor {
         val mimeType = context.contentResolver.getType(uri).orEmpty().lowercase()
         val extension = displayName.substringAfterLast('.', "").lowercase()
         val isPdf = mimeType.contains("pdf") || extension == "pdf" || uri.path?.lowercase()?.endsWith(".pdf") == true
-        val isDocx = mimeType.contains("officedocument") || extension == "docx"
+        // Checked before DOCX: the pptx mime also contains "officedocument".
+        val isPptx = mimeType.contains("presentationml") || extension == "pptx"
+        val isDocx = !isPptx && (mimeType.contains("officedocument") || extension == "docx")
         val isEpub = mimeType.contains("epub") || extension == "epub"
+
+        if (extension == "ppt" || (mimeType.contains("ms-powerpoint") && !isPptx)) {
+            throw IllegalArgumentException(
+                "Legacy PowerPoint (.ppt) files aren't supported. Save the file as .pptx and import again."
+            )
+        }
+
+        if (isPptx) {
+            // Same slide-aware extraction as Android, minus slide-image OCR
+            // (ML Kit doesn't exist on desktop). Speaker notes on by default.
+            val deck = PptxExtractor.parseDeck(readAllBytes(context, uri), includeSpeakerNotes = true)
+            return ExtractedImport(
+                title = displayName,
+                text = PptxExtractor.renderDeckText(deck),
+                sourceLabel = "PPTX",
+                note = "PowerPoint slide text was extracted (titles, bullets, tables, speaker notes). Charts, images, and slide design are not included.",
+                pageCount = deck.slideCount,
+                partial = false
+            )
+        }
 
         if (isPdf) {
             val body = extractPdf(context, uri, pdfOptions, foregroundBudgetMillis)
