@@ -70,6 +70,9 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import com.veritas.reader.VeritasPackStyle
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -1671,6 +1674,13 @@ internal fun RowScope.BottomNavItem(
     Column(
         modifier = Modifier
             .weight(1f)
+            // Merge into one focusable tab that announces its label and selected
+            // state to TalkBack (e.g. "Library, tab, selected").
+            .semantics(mergeDescendants = true) {
+                this.selected = selected
+                this.role = Role.Tab
+                this.contentDescription = label
+            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -2157,9 +2167,9 @@ internal fun FlashcardViewerDialog(
         flipped = false
     }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         setName,
@@ -2189,14 +2199,20 @@ internal fun FlashcardViewerDialog(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
                     Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-                        Text(
-                            // Prettify equations (x², √, ×, π…) so cards read as math.
-                            text = MathText.beautify(if (flipped) card.back else card.front),
-                            style = MaterialTheme.typography.headlineSmall,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.align(Alignment.Center)
-                        )
+                        // Scrollable so long answers never overflow the fixed-aspect card;
+                        // the corner icons below stay fixed (outside this scroll).
+                        Box(
+                            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                // Prettify equations (x², √, ×, π…) so cards read as math.
+                                text = MathText.beautify(if (flipped) card.back else card.front),
+                                style = MaterialTheme.typography.headlineSmall,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                         // Subtle per-card delete — present but not distracting.
                         IconButton(
                             onClick = {

@@ -1602,9 +1602,11 @@ internal fun PdfImportOptionsDialog(
     }
     val selectedEncoding = TextImportEncodingCatalog.byId(textOptions.encodingId)
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            // imePadding: this page has page-number inputs; with edge-to-edge the soft
+            // keyboard must not cover them.
+            Column(modifier = Modifier.fillMaxSize().imePadding()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically

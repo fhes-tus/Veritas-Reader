@@ -2386,7 +2386,10 @@ fun LibraryScreen(
                                         }
                                     } else {
                                         Text(
-                                            text = renderMarkdown(generalNote.content),
+                                            // Prettify equations in the read-only note preview
+                                            // (the editor keeps raw text); underline markdown is
+                                            // preserved by MathText's underscore guard.
+                                            text = renderMarkdown(MathText.beautify(generalNote.content)),
                                             maxLines = 5,
                                             overflow = TextOverflow.Ellipsis,
                                             style = MaterialTheme.typography.bodySmall,

@@ -625,7 +625,10 @@ private fun FullScreenSettingsScaffold(
     onBack: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    // decorFitsSystemWindows = false lets the surface draw edge-to-edge behind the
+    // status/nav bars so the background matches the rest of the app's full-screen look
+    // (content is inset by statusBarsPadding/navigationBarsPadding below).
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(

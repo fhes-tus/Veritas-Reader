@@ -54,7 +54,9 @@ object MathText {
     private val supGroupRegex = Regex("""\^\{([^{}]*)\}""")
     private val subGroupRegex = Regex("""_\{([^{}]*)\}""")
     private val supCharRegex = Regex("""\^([A-Za-z0-9+\-=()])""")
-    private val subCharRegex = Regex("""_([A-Za-z0-9+\-=()])""")
+    // Underscore not adjacent to another underscore, so note markdown's "__underline__"
+    // is never mistaken for a subscript.
+    private val subCharRegex = Regex("""(?<!_)_(?!_)([A-Za-z0-9+\-=()])""")
 
     fun beautify(input: String): String {
         if (input.isEmpty()) return input

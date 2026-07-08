@@ -53,4 +53,13 @@ class MathTextTest {
         assertEquals("", MathText.beautify(""))
         assertEquals("hello world", MathText.beautify("hello world"))
     }
+
+    @Test
+    fun `markdown double-underscore underline is preserved`() {
+        // Notes use __word__ for underline — must not be eaten as subscripts.
+        assertEquals("__bold__", MathText.beautify("__bold__"))
+        assertEquals("__2 items__", MathText.beautify("__2 items__"))
+        // A genuine single-underscore subscript still converts.
+        assertEquals("H₂O", MathText.beautify("H_2O"))
+    }
 }
