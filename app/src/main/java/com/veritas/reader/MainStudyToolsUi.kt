@@ -683,7 +683,7 @@ internal fun AiAppStudyDialog(
     onClearHistory: () -> Unit,
     onCopyText: (String, String) -> Unit,
     onSaveAiResultAsNote: (String) -> Unit,
-    onImportFlashcards: (List<Flashcard>) -> Unit
+    onImportFlashcards: (String, List<Flashcard>) -> Unit
 ) {
     var customPrompt by remember { mutableStateOf("") }
     var templateTitle by remember { mutableStateOf("Custom study prompt") }
@@ -694,7 +694,7 @@ internal fun AiAppStudyDialog(
 
     if (showPasteFlashcards) {
         PasteFlashcardsDialog(
-            onImport = { cards -> onImportFlashcards(cards); showPasteFlashcards = false },
+            onImport = { name, cards -> onImportFlashcards(name, cards); showPasteFlashcards = false },
             onDismiss = { showPasteFlashcards = false }
         )
     }
@@ -711,7 +711,7 @@ internal fun AiAppStudyDialog(
     val studyNotesPrompt = remember { mutableStateOf("Turn this document into organized study notes. Use headings, bullet points, definitions, examples, likely exam areas, and a short final revision checklist.") }
     val simplifyPrompt = remember { mutableStateOf("Rewrite and explain the document in simpler language without removing important meaning. Define difficult words and give short examples where useful.") }
     val quizPrompt = remember { mutableStateOf("Create an exam-style multiple-choice revision quiz from this document. Format every question EXACTLY like this, with one blank line between questions:\nQ: <question>\nA) <option>\nB) <option>\nC) <option>\nD) <option>\nAnswer: <letter>\nExplanation: <one short sentence>") }
-    val flashcardsPrompt = remember { mutableStateOf("Create flashcards from this document. Focus on definitions, processes, comparisons, and important facts. Format every card EXACTLY like this, with one blank line between cards:\nQ: <question>\nA: <concise answer>") }
+    val flashcardsPrompt = remember { mutableStateOf("Create flashcards from this document. Focus on definitions, processes, comparisons, and important facts. Reply as plain text only (no tables, no attachments) with every card formatted EXACTLY like this, one blank line between cards:\nQ: <question>\nA: <concise answer>") }
 
     val extractKeypointsScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
     val studyNotesScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
@@ -1209,22 +1209,31 @@ internal fun InfoStepCard(
 
 @Composable
 internal fun PasteFlashcardsDialog(
-    onImport: (List<Flashcard>) -> Unit,
+    onImport: (String, List<Flashcard>) -> Unit,
     onDismiss: () -> Unit
 ) {
     var pasted by remember { mutableStateOf("") }
+    var setName by remember { mutableStateOf("") }
     val parsed = remember(pasted) { AiResultParser.parseFlashcards(pasted) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add flashcards from AI") },
+        title = { Text("Add flashcard set") },
         confirmButton = {
-            Button(onClick = { onImport(parsed) }, enabled = parsed.isNotEmpty()) {
+            Button(onClick = { onImport(setName, parsed) }, enabled = parsed.isNotEmpty()) {
                 Text(if (parsed.isEmpty()) "Import" else "Import ${parsed.size} card${if (parsed.size == 1) "" else "s"}")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = setName,
+                    onValueChange = { setName = it },
+                    singleLine = true,
+                    label = { Text("Set name (optional)") },
+                    placeholder = { Text("Untitled set") },
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Text(
                     "Paste the AI app's reply below. Cards are detected from Q:/A: (or Front:/Back:) pairs.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1235,7 +1244,7 @@ internal fun PasteFlashcardsDialog(
                     onValueChange = { pasted = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp),
+                        .height(180.dp),
                     label = { Text("AI reply") }
                 )
                 Text(

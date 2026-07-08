@@ -241,9 +241,11 @@ fun LibraryScreen(
     onToggleGeneralNotePin: (String) -> Unit = {},
     onChangeGeneralNoteColor: (String, String?) -> Unit = { _, _ -> },
     onDeleteGeneralNote: (String) -> Unit = {},
-    onGradeFlashcard: (String, Int) -> Unit = { _, _ -> },
+    onRateFlashcardRecall: (String, String) -> Unit = { _, _ -> },
     onDeleteFlashcard: (String) -> Unit = {},
-    onImportFlashcards: (List<Flashcard>) -> Unit = {},
+    onImportFlashcards: (String, List<Flashcard>) -> Unit = { _, _ -> },
+    onRenameFlashcardSet: (String, String) -> Unit = { _, _ -> },
+    onDeleteFlashcardSet: (String) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
@@ -264,8 +266,10 @@ fun LibraryScreen(
     var manageListsDocument by remember { mutableStateOf<SavedDocument?>(null) }
     var sortMode by remember { mutableStateOf("Updated") }
     var showQueue by remember { mutableStateOf(false) }
-    var activeReviewDeck by remember { mutableStateOf<List<FlashcardProgress>?>(null) }
+    var viewerCards by remember { mutableStateOf<List<FlashcardProgress>?>(null) }
+    var viewerSetName by remember { mutableStateOf("") }
     var showPasteFlashcards by remember { mutableStateOf(false) }
+    var renameSetTarget by remember { mutableStateOf<FlashcardSet?>(null) }
     var showContentSearchResults by remember { mutableStateOf(false) }
     if (showContentSearchResults) {
         AlertDialog(
@@ -313,14 +317,20 @@ fun LibraryScreen(
     }
     if (showPasteFlashcards) {
         PasteFlashcardsDialog(
-            onImport = { parsed -> onImportFlashcards(parsed); showPasteFlashcards = false },
+            onImport = { name, parsed -> onImportFlashcards(name, parsed); showPasteFlashcards = false },
             onDismiss = { showPasteFlashcards = false }
         )
     }
     var selectedDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val cards = uiState.flashcards
-    val dueCards = remember(cards) {
-        cards.filter { it.nextReviewTime <= System.currentTimeMillis() }
+    val flashcardSets = remember(cards) {
+        cards.groupBy { it.setId }.map { (setId, setCards) ->
+            FlashcardSet(
+                setId = setId,
+                name = setCards.firstOrNull { it.setName.isNotBlank() }?.setName ?: "Untitled set",
+                cards = setCards
+            )
+        }
     }
     var confirmBatchDelete by remember { mutableStateOf(false) }
     var showBatchMenu by remember { mutableStateOf(false) }
@@ -933,11 +943,34 @@ fun LibraryScreen(
         )
     }
 
-    activeReviewDeck?.let { deck ->
-        FlashcardReviewDialog(
-            dueCards = deck,
-            onGrade = onGradeFlashcard,
-            onDismiss = { activeReviewDeck = null }
+    viewerCards?.let { deck ->
+        FlashcardViewerDialog(
+            setName = viewerSetName,
+            cards = deck,
+            onRate = onRateFlashcardRecall,
+            onDeleteCard = onDeleteFlashcard,
+            onDismiss = { viewerCards = null }
+        )
+    }
+
+    renameSetTarget?.let { target ->
+        var draft by remember(target.setId) { mutableStateOf(target.name) }
+        AlertDialog(
+            onDismissRequest = { renameSetTarget = null },
+            title = { Text("Rename set") },
+            confirmButton = {
+                Button(onClick = { onRenameFlashcardSet(target.setId, draft); renameSetTarget = null }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameSetTarget = null }) { Text("Cancel") } },
+            text = {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    singleLine = true,
+                    label = { Text("Set name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         )
     }
 
@@ -2730,12 +2763,12 @@ fun LibraryScreen(
                     }
                 }
                 "Flashcards" -> {
-                    if (cards.isEmpty()) {
+                    if (flashcardSets.isEmpty()) {
                         item {
                             StudyEmptyState(
                                 icon = Icons.Outlined.Book,
                                 title = "No flashcards yet",
-                                description = "Open a document → Study Tools → 'Create flashcards' to send a prompt to your AI app, then paste its reply here with the button below.",
+                                description = "Open a document → Study Tools → 'Create flashcards' to send a prompt to your AI app, then paste its reply here to make a set.",
                                 onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
                                 onImportFile = onImportFile
                             )
@@ -2746,148 +2779,43 @@ fun LibraryScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(50)
                             ) {
-                                Text("Paste AI reply → add flashcards")
+                                Text("Paste AI reply → add cards")
                             }
                         }
                     } else {
                         item {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                shape = VeritasPackStyle.cardShape(),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                            Button(
+                                onClick = { showPasteFlashcards = true },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                shape = VeritasPackStyle.chipShape()
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .background(MaterialTheme.colorScheme.primary, CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Book,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                "Spaced Repetition Deck",
-                                                fontWeight = FontWeight.Bold,
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Text(
-                                                "${dueCards.size} card${if (dueCards.size == 1) "" else "s"} due out of ${cards.size} total",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-
-                                    Button(
-                                        onClick = { activeReviewDeck = dueCards },
-                                        enabled = dueCards.isNotEmpty(),
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = VeritasPackStyle.chipShape()
-                                    ) {
-                                        Text(if (dueCards.isNotEmpty()) "Review Now (${dueCards.size})" else "All caught up!")
-                                    }
-                                    OutlinedButton(
-                                        onClick = { showPasteFlashcards = true },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = VeritasPackStyle.chipShape()
-                                    ) {
-                                        Text("Paste AI reply → add cards")
-                                    }
-                                }
+                                Text("Paste AI reply → add cards")
                             }
                         }
-
-                        item {
-                            Text(
-                                text = "All Deck Cards",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-
-                        cards.forEach { card ->
-                            item(key = "flashcard-item-${card.id}") {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    shape = VeritasPackStyle.compactShape(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-                                    border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(
-                                                text = card.front,
-                                                fontWeight = FontWeight.Bold,
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Text(
-                                                text = card.back,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                val isDue = card.nextReviewTime <= System.currentTimeMillis()
-                                                val badgeColor = if (isDue) Color(0xFFEF4444) else Color(0xFF29B6F6)
-                                                val badgeText = if (isDue) "Due" else {
-                                                    val diff = card.nextReviewTime - System.currentTimeMillis()
-                                                    val days = (diff / (1000 * 60 * 60 * 24)).coerceAtLeast(0L)
-                                                    if (days == 0L) "Due later today" else "Due in $days d"
-                                                }
-                                                Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = badgeColor.copy(alpha = 0.15f)
-                                                ) {
-                                                    Text(
-                                                        text = badgeText,
-                                                        color = badgeColor,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                                Text(
-                                                    text = "Repetitions: ${card.repetitions}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                                )
-                                            }
-                                        }
-
-                                        IconButton(onClick = { onDeleteFlashcard(card.id) }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Delete flashcard",
-                                                tint = MaterialTheme.colorScheme.error
-                                            )
-                                        }
-                                    }
+                        // Two set tiles per row, styled like the old deck card.
+                        items(flashcardSets.chunked(2), key = { row -> row.first().setId }) { row ->
+                            // Match the library cover grid: 2 columns, 12dp gap, 10dp row gap.
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                row.forEach { set ->
+                                    FlashcardSetTile(
+                                        set = set,
+                                        modifier = Modifier.weight(1f),
+                                        onOpen = {
+                                            viewerSetName = set.name
+                                            viewerCards = set.cards
+                                        },
+                                        onViewBucket = { bucket ->
+                                            viewerSetName = "${set.name} · ${bucket.replaceFirstChar { it.uppercase() }}"
+                                            viewerCards = set.cards.filter { it.recall == bucket }
+                                        },
+                                        onRename = { renameSetTarget = set },
+                                        onDelete = { onDeleteFlashcardSet(set.setId) }
+                                    )
                                 }
+                                if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                     }

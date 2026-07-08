@@ -687,70 +687,37 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun importFlashcards(documentId: String, cards: List<Flashcard>) {
+    fun importFlashcards(documentId: String, setName: String, cards: List<Flashcard>) {
+        if (cards.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.loadAllFlashcards().toMutableList()
+            val setId = java.util.UUID.randomUUID().toString()
+            val cleanName = setName.trim().ifBlank { "Untitled set" }
             cards.forEach { card ->
-                val id = java.util.UUID.randomUUID().toString()
                 existing.add(
                     FlashcardProgress(
-                        id = id,
+                        id = java.util.UUID.randomUUID().toString(),
                         documentId = documentId,
                         front = card.front,
                         back = card.back,
-                        nextReviewTime = System.currentTimeMillis() // Ready to review immediately
+                        setId = setId,
+                        setName = cleanName
                     )
                 )
             }
             repository.saveAllFlashcards(existing)
-            val updated = repository.loadAllFlashcards()
-            _uiState.update { it.copy(flashcards = updated) }
+            _uiState.update { it.copy(flashcards = repository.loadAllFlashcards()) }
         }
     }
 
-    fun gradeFlashcard(cardId: String, score: Int) {
+    /** Records the latest recall bucket for a card (latest-wins, no scheduling). */
+    fun rateFlashcardRecall(cardId: String, recall: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = repository.loadAllFlashcards().toMutableList()
-            val index = existing.indexOfFirst { it.id == cardId }
-            if (index != -1) {
-                val card = existing[index]
-                val q = when (score) {
-                    1 -> 1 // Again
-                    2 -> 2 // Hard
-                    3 -> 4 // Good
-                    4 -> 5 // Easy
-                    else -> 3
-                }
-
-                val newRepetitions: Int
-                val newIntervalDays: Int
-                var newEaseFactor: Float = card.easeFactor + (0.1f - (5 - q) * (0.08f + (5 - q) * 0.02f))
-                if (newEaseFactor < 1.3f) newEaseFactor = 1.3f
-
-                if (q < 3) {
-                     newRepetitions = 0
-                     newIntervalDays = 1
-                } else {
-                     newRepetitions = card.repetitions + 1
-                     newIntervalDays = when (newRepetitions) {
-                         1 -> 1
-                         2 -> 6
-                         else -> (card.intervalDays * newEaseFactor).roundToInt().coerceAtLeast(1)
-                     }
-                }
-
-                val nextReview = System.currentTimeMillis() + (newIntervalDays * 24L * 60L * 60L * 1000L)
-                val updatedCard = card.copy(
-                    repetitions = newRepetitions,
-                    intervalDays = newIntervalDays,
-                    nextReviewTime = nextReview,
-                    easeFactor = newEaseFactor
-                )
-                existing[index] = updatedCard
-                repository.saveAllFlashcards(existing)
-                val updated = repository.loadAllFlashcards()
-                _uiState.update { it.copy(flashcards = updated) }
+            val updated = repository.loadAllFlashcards().map {
+                if (it.id == cardId) it.copy(recall = recall) else it
             }
+            repository.saveAllFlashcards(updated)
+            _uiState.update { it.copy(flashcards = updated) }
         }
     }
 
@@ -758,8 +725,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch(Dispatchers.IO) {
             val remaining = repository.loadAllFlashcards().filterNot { it.id == cardId }
             repository.saveAllFlashcards(remaining)
-            val updated = repository.loadAllFlashcards()
+            _uiState.update { it.copy(flashcards = remaining) }
+        }
+    }
+
+    fun renameFlashcardSet(setId: String, newName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = repository.renameFlashcardSet(setId, newName)
             _uiState.update { it.copy(flashcards = updated) }
+        }
+    }
+
+    fun deleteFlashcardSet(setId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val remaining = repository.deleteFlashcardSet(setId)
+            _uiState.update { it.copy(flashcards = remaining) }
         }
     }
 

@@ -65,6 +65,7 @@ data class ReaderUiState(
     val readerSettings: ReaderSettings = ReaderSettings(),
     val askAiSettings: AskAiSettings = AskAiSettings(),
     val showReaderSettings: Boolean = false,
+    val showAccessibilitySettings: Boolean = false,
     val showPronunciationRules: Boolean = false,
     val showVoiceStudio: Boolean = false,
     val showNarrationStudio: Boolean = false,

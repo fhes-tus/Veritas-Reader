@@ -27,8 +27,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Accessibility
 
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +46,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import java.util.Locale
 import com.veritas.reader.*
+import com.veritas.reader.R
 
 @Composable
 fun SettingsHubDialog(
@@ -58,7 +68,8 @@ fun SettingsHubDialog(
     onOpenSleepTimer: () -> Unit,
     onOpenReadingLists: () -> Unit,
     onOpenUserManual: () -> Unit,
-    onOpenStorage: () -> Unit = {}
+    onOpenStorage: () -> Unit = {},
+    onOpenAccessibility: () -> Unit = {}
 ) {
     val documentCount = uiState.documents.size
     val hasActiveDocument = uiState.activeDocument != null
@@ -133,7 +144,7 @@ fun SettingsHubDialog(
 
                 SettingsHubSectionTitle("Appearance")
                 SettingsHubRow("Display theme", "Theme packs, colour themes, text size, spacing, section labels", "🎨", onOpenReaderSettings)
-                SettingsHubRow("Tutorial", "Learn Veritas through guided actions", "i", onOpenTutorial)
+                SettingsHubRow("Accessibility", "Reading goal, reduce motion, high contrast, hero & cover styles", "", onOpenAccessibility, iconVector = Icons.Filled.Accessibility)
 
                 SettingsHubSectionTitle("AI & Language")
                 FeatureSettingsHubRow(
@@ -201,6 +212,7 @@ fun SettingsHubDialog(
 
                 SettingsHubSectionTitle("Help")
                 SettingsHubRow("User manual", "Interactive guide to Veritas Reader features & tips", "📖", onOpenUserManual)
+                SettingsHubRow("Tutorial", "Learn Veritas through guided actions", "i", onOpenTutorial)
                 }
             }
         }
@@ -306,7 +318,8 @@ fun SettingsHubRow(
     icon: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    disabledReason: String? = null
+    disabledReason: String? = null,
+    iconVector: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled) { onClick() },
@@ -324,7 +337,11 @@ fun SettingsHubRow(
                 modifier = Modifier.size(46.dp).background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.small),
                 contentAlignment = Alignment.Center
             ) {
-                Text(icon, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                if (iconVector != null) {
+                    Icon(iconVector, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
+                } else {
+                    Text(icon, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -424,39 +441,135 @@ fun PackChoiceContent(label: String, packId: String, selected: Boolean) {
     }
 }
 
+/**
+ * Live theme preview: a miniature of the actual app UI rendered inside a nested
+ * MaterialTheme using the SELECTED theme's real ColorScheme and the pack's shapes/
+ * background brush — so it looks exactly like the app will, not an approximation.
+ */
 @Composable
-fun ThemePreviewCard(themePackId: String, themeId: String) {
+fun ThemePreviewCard(themePackId: String, themeId: String, vibrantHero: Boolean = false) {
+    val context = LocalContext.current
     val normalizedPack = VeritasThemePackCatalog.normalizePackId(themePackId)
-    val colors = themePreviewColors(themeId)
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = VeritasPackStyle.cardShape(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha()))
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Preview", fontWeight = FontWeight.Black)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Brush.linearGradient(colors), VeritasPackStyle.compactShape()),
-                    contentAlignment = Alignment.Center
-                ) { BrandMark(compact = true) }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(VeritasThemePackCatalog.displayName(normalizedPack), fontWeight = FontWeight.SemiBold)
-                    Text("${VeritasThemeCatalog.displayName(themeId)} palette", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Box(
-                    modifier = Modifier
-                        .background(MaterialTheme.colorScheme.primaryContainer, VeritasPackStyle.chipShape())
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Play", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+    val scheme = veritasColorScheme(themeId, context)
+    // Mirror the hero-card style toggle: vibrant = accent poster gradient with a
+    // luminance-picked text colour; subtle = container tones.
+    val heroGradient = if (vibrantHero) {
+        val hsl = FloatArray(3)
+        android.graphics.Color.colorToHSV(scheme.primary.toArgb(), hsl)
+        Brush.linearGradient(
+            listOf(
+                Color(android.graphics.Color.HSVToColor(floatArrayOf(hsl[0], (hsl[1] * 0.7f).coerceIn(0f, 1f), (hsl[2] * 1.15f).coerceIn(0f, 1f)))),
+                Color(android.graphics.Color.HSVToColor(floatArrayOf((hsl[0] + 15f) % 360f, hsl[1].coerceIn(0f, 1f), (hsl[2] * 0.85f).coerceIn(0f, 1f))))
+            )
+        )
+    } else {
+        Brush.linearGradient(listOf(scheme.primaryContainer, blendColors(scheme.primaryContainer, scheme.surface, 0.5f)))
+    }
+    val heroOnColor = if (vibrantHero) {
+        if (scheme.primary.luminance() > 0.35f) Color(0xFF1A1A2E) else Color.White
+    } else scheme.onPrimaryContainer
+    val cardCorner = when (normalizedPack) {
+        "material_you" -> 22.dp
+        "liquid_glass" -> 26.dp
+        "one_ui" -> 18.dp
+        else -> 16.dp
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Live preview", fontWeight = FontWeight.Black)
+        MaterialTheme(colorScheme = scheme) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(226.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(VeritasPackStyle.backgroundBrush(scheme))
+                    .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(22.dp))
+                    .padding(14.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Top bar with app icon + wordmark + settings dot
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(id = R.drawable.veritas_reader_icon),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp))
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Veritas", fontWeight = FontWeight.Black, color = scheme.onBackground, style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.weight(1f))
+                        Box(modifier = Modifier.size(22.dp).background(scheme.surfaceVariant, CircleShape))
+                    }
+                    // Hero card — reflects the vibrant/subtle toggle, like Home
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(78.dp)
+                            .clip(RoundedCornerShape(cardCorner))
+                            .background(heroGradient)
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Text(
+                                "Lorem ipsum dolor",
+                                color = heroOnColor,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "sit amet consectetur",
+                                color = heroOnColor.copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Box(
+                            modifier = Modifier.align(Alignment.BottomEnd).size(30.dp).background(if (vibrantHero) heroOnColor.copy(alpha = 0.25f) else scheme.primary, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(modifier = Modifier.size(11.dp).background(if (vibrantHero) heroOnColor else scheme.onPrimary, CircleShape))
+                        }
+                    }
+                    // Two content rows on real surface, with sample text
+                    val sampleRows = listOf(
+                        "Dolor sit amet" to "consectetur elit",
+                        "Adipiscing tempor" to "incididunt labore"
+                    )
+                    sampleRows.forEach { (title, sub) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape((cardCorner.value - 4).coerceAtLeast(6f).dp))
+                                .background(scheme.surface.copy(alpha = 0.85f))
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.size(22.dp).background(scheme.secondaryContainer, RoundedCornerShape(6.dp)))
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(title, color = scheme.onSurface, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(sub, color = scheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    // Bottom nav — active tab in primary, others muted
+                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp), modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                        repeat(3) { i ->
+                            Box(modifier = Modifier.size(if (i == 0) 24.dp else 18.dp).background(if (i == 0) scheme.primary else scheme.onSurfaceVariant.copy(alpha = 0.5f), CircleShape))
+                        }
+                    }
                 }
             }
-            LinearProgressIndicator(progress = { 0.62f }, modifier = Modifier.fillMaxWidth())
         }
+        Text(
+            "${VeritasThemePackCatalog.displayName(normalizedPack)} · ${VeritasThemeCatalog.displayName(themeId)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -465,8 +578,12 @@ fun VeritasThemePicker(
     selectedThemeId: String,
     onThemeChange: (String) -> Unit
 ) {
+    // High-contrast themes are surfaced under Accessibility, not here.
+    val pickerThemes = VeritasThemeCatalog.themeOptions.filterNot {
+        it.first == "dark_high_contrast" || it.first == "white_high_contrast"
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        VeritasThemeCatalog.themeOptions.chunked(2).forEach { rowThemes ->
+        pickerThemes.chunked(2).forEach { rowThemes ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 rowThemes.forEach { (themeId, label) ->
                     val selected = VeritasThemeCatalog.normalizeThemeId(selectedThemeId) == themeId
@@ -501,6 +618,42 @@ fun ThemeChoiceContent(label: String, previewColors: List<Color>, selected: Bool
     }
 }
 
+/** Full-screen top bar with a back action for settings sub-pages. */
+@Composable
+private fun FullScreenSettingsScaffold(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 18.dp, vertical = 8.dp)
+                        .navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    content = content
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun ReaderSettingsDialog(
     settings: ReaderSettings,
@@ -509,116 +662,136 @@ fun ReaderSettingsDialog(
     onSpacingChange: (Int) -> Unit,
     onThemeChange: (String) -> Unit,
     onThemePackChange: (String) -> Unit,
-    onToggleSectionNumbers: () -> Unit,
-    onToggleAutoPlayQueue: () -> Unit,
-    onToggleAdaptiveCover: () -> Unit,
     onToggleVibrantHero: () -> Unit,
-    onGoalMinutesChange: (Int) -> Unit = {},
-    onToggleStreakReminder: () -> Unit = {},
-    onToggleReduceMotion: () -> Unit = {}
+    onToggleAutoPlayQueue: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        title = { Text("Reader Settings") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Theme pack: ${VeritasThemePackCatalog.displayName(settings.themePackId)}", fontWeight = FontWeight.SemiBold)
-                VeritasThemePackPicker(
-                    selectedPackId = settings.themePackId,
-                    onThemePackChange = onThemePackChange
-                )
-                Text("Colour theme: ${VeritasThemeCatalog.displayName(settings.themeId)}", fontWeight = FontWeight.SemiBold)
-                VeritasThemePicker(
-                    selectedThemeId = settings.themeId,
-                    onThemeChange = onThemeChange
-                )
-                ThemePreviewCard(
-                    themePackId = settings.themePackId,
-                    themeId = settings.themeId
-                )
-                HorizontalDivider()
-                Text("Text size: ${settings.fontSizeSp}sp", fontWeight = FontWeight.SemiBold)
-                Slider(
-                    value = settings.fontSizeSp.toFloat(),
-                    onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
-                    valueRange = 14f..28f,
-                    steps = 13
-                )
-                Text("Section text spacing: ${settings.sectionSpacingDp}dp", fontWeight = FontWeight.SemiBold)
-                Slider(
-                    value = settings.sectionSpacingDp.toFloat(),
-                    onValueChange = { onSpacingChange(it.toInt().coerceIn(6, 24)) },
-                    valueRange = 6f..24f,
-                    steps = 17
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Show section labels", fontWeight = FontWeight.SemiBold)
-                        Text("Useful for study, notes, and search jumps.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = settings.showSectionNumbers, onCheckedChange = { onToggleSectionNumbers() })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-play queue", fontWeight = FontWeight.SemiBold)
-                        Text("Continue into the next queued item.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = settings.autoPlayQueue, onCheckedChange = { onToggleAutoPlayQueue() })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Adaptive cover theme", fontWeight = FontWeight.SemiBold)
-                        Text("Blend active book cover colors into selected theme.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = settings.adaptiveCover, onCheckedChange = { onToggleAdaptiveCover() })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Vibrant hero card", fontWeight = FontWeight.SemiBold)
-                        Text("Bold accent-colored home card instead of the subtle themed one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = settings.vibrantHero, onCheckedChange = { onToggleVibrantHero() })
-                }
+    FullScreenSettingsScaffold(title = "Display & theme", onBack = onDismiss) {
+        Text("Theme pack: ${VeritasThemePackCatalog.displayName(settings.themePackId)}", fontWeight = FontWeight.SemiBold)
+        VeritasThemePackPicker(
+            selectedPackId = settings.themePackId,
+            onThemePackChange = onThemePackChange
+        )
+        Text("Colour theme: ${VeritasThemeCatalog.displayName(settings.themeId)}", fontWeight = FontWeight.SemiBold)
+        VeritasThemePicker(
+            selectedThemeId = settings.themeId,
+            onThemeChange = onThemeChange
+        )
+        ThemePreviewCard(
+            themePackId = settings.themePackId,
+            themeId = settings.themeId,
+            vibrantHero = settings.vibrantHero
+        )
+        HorizontalDivider()
+        Text("Text size: ${settings.fontSizeSp}sp", fontWeight = FontWeight.SemiBold)
+        Slider(
+            value = settings.fontSizeSp.toFloat(),
+            onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
+            valueRange = 14f..28f,
+            steps = 13
+        )
+        Text("Section text spacing: ${settings.sectionSpacingDp}dp", fontWeight = FontWeight.SemiBold)
+        Slider(
+            value = settings.sectionSpacingDp.toFloat(),
+            onValueChange = { onSpacingChange(it.toInt().coerceIn(6, 24)) },
+            valueRange = 6f..24f,
+            steps = 17
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Vibrant hero card", fontWeight = FontWeight.SemiBold)
+                Text("Bold accent-coloured home card instead of the subtle themed one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = settings.vibrantHero, onCheckedChange = { onToggleVibrantHero() })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Auto-play queue", fontWeight = FontWeight.SemiBold)
+                Text("Continue into the next queued item.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = settings.autoPlayQueue, onCheckedChange = { onToggleAutoPlayQueue() })
+        }
+    }
+}
 
-                Text("Reading goal", fontWeight = FontWeight.Bold)
-                Text(
-                    "Daily target: ${settings.dailyGoalMinutes} min",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Slider(
-                    value = settings.dailyGoalMinutes.toFloat(),
-                    onValueChange = { onGoalMinutesChange(it.toInt().coerceIn(5, 180)) },
-                    valueRange = 5f..180f,
-                    steps = 34
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Streak reminder", fontWeight = FontWeight.SemiBold)
-                        Text("Evening nudge when today's goal isn't met and a streak is at risk.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = settings.streakReminderEnabled, onCheckedChange = { onToggleStreakReminder() })
+@Composable
+fun AccessibilitySettingsDialog(
+    settings: ReaderSettings,
+    onDismiss: () -> Unit,
+    onThemeChange: (String) -> Unit,
+    onToggleAdaptiveCover: () -> Unit,
+    onToggleSectionNumbers: () -> Unit,
+    onGoalMinutesChange: (Int) -> Unit,
+    onToggleStreakReminder: () -> Unit,
+    onToggleReduceMotion: () -> Unit
+) {
+    FullScreenSettingsScaffold(title = "Accessibility", onBack = onDismiss) {
+        // Reading goal — opt-in. The switch off means "no goal" (minutes = 0), which
+        // hides the hero goal bar and the reminder entirely.
+        Text("Reading goal", fontWeight = FontWeight.Bold)
+        val goalOn = settings.dailyGoalMinutes > 0
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Set a daily reading goal", fontWeight = FontWeight.SemiBold)
+                Text("Optional. Shows a progress ring on the home card.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(
+                checked = goalOn,
+                onCheckedChange = { on -> onGoalMinutesChange(if (on) 20 else 0) }
+            )
+        }
+        if (goalOn) {
+            Text("Daily target: ${settings.dailyGoalMinutes} min", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Slider(
+                value = settings.dailyGoalMinutes.coerceIn(5, 180).toFloat(),
+                onValueChange = { onGoalMinutesChange(it.toInt().coerceIn(5, 180)) },
+                valueRange = 5f..180f,
+                steps = 34
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Streak reminder", fontWeight = FontWeight.SemiBold)
+                    Text("Evening nudge when today's goal isn't met and a streak is at risk.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-
-                Text("Accessibility", fontWeight = FontWeight.Bold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Reduce motion", fontWeight = FontWeight.SemiBold)
-                        Text("Skip decorative animations like card entrances.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = settings.reduceMotion, onCheckedChange = { onToggleReduceMotion() })
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onThemeChange("dark_high_contrast") }, modifier = Modifier.weight(1f)) {
-                        Text("High contrast dark")
-                    }
-                    OutlinedButton(onClick = { onThemeChange("white_high_contrast") }, modifier = Modifier.weight(1f)) {
-                        Text("High contrast light")
-                    }
-                }
+                Switch(checked = settings.streakReminderEnabled, onCheckedChange = { onToggleStreakReminder() })
             }
         }
-    )
+
+        HorizontalDivider()
+        Text("Motion & contrast", fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Reduce motion", fontWeight = FontWeight.SemiBold)
+                Text("Skip decorative animations like card entrances and pulses.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = settings.reduceMotion, onCheckedChange = { onToggleReduceMotion() })
+        }
+        Text("High-contrast theme", fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { onThemeChange("dark_high_contrast") }, modifier = Modifier.weight(1f)) {
+                Text("Contrast dark")
+            }
+            OutlinedButton(onClick = { onThemeChange("white_high_contrast") }, modifier = Modifier.weight(1f)) {
+                Text("Contrast light")
+            }
+        }
+
+        HorizontalDivider()
+        Text("Appearance extras", fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Adaptive cover theme", fontWeight = FontWeight.SemiBold)
+                Text("Blend active book cover colours into the selected theme.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = settings.adaptiveCover, onCheckedChange = { onToggleAdaptiveCover() })
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Show section labels", fontWeight = FontWeight.SemiBold)
+                Text("Useful for study, notes, and search jumps.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = settings.showSectionNumbers, onCheckedChange = { onToggleSectionNumbers() })
+        }
+    }
 }
 
 @Composable
@@ -791,17 +964,8 @@ fun VoiceStudioDialog(
         if (voices.isEmpty()) onLoadVoices()
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { },
-        title = { Text("Voice and language") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .height(560.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+    FullScreenSettingsScaffold(title = "Voice and language", onBack = onDismiss) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("Select how to manage voices:", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box {
                     TextButton(onClick = { managerMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
@@ -1002,9 +1166,8 @@ fun VoiceStudioDialog(
                 OutlinedButton(onClick = onOpenNarrationStudio, modifier = Modifier.fillMaxWidth()) {
                     Text("VOICE DEFINITION FOR ANNOTATIONS")
                 }
-            }
         }
-    )
+    }
 }
 
 private fun voiceLanguageLabel(localeTag: String, displayLocale: Locale): String {

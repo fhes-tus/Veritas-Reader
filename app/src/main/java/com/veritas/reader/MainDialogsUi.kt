@@ -1602,14 +1602,23 @@ internal fun PdfImportOptionsDialog(
     }
     val selectedEncoding = TextImportEncodingCatalog.byId(textOptions.encodingId)
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("PDF text import settings") },
-        text = {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                    Text("PDF & import tools", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
             LazyColumn(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .heightIn(max = 560.dp),
+                    .padding(horizontal = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
@@ -1811,14 +1820,20 @@ internal fun PdfImportOptionsDialog(
                     )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onPickPdf) { Text("Open file browser") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Done") }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Button(onClick = onPickPdf, shape = RoundedCornerShape(50)) { Text("Open file browser") }
+                }
+            }
         }
-    )
+    }
 }
 
 @Composable

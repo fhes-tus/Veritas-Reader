@@ -165,6 +165,7 @@ import com.veritas.reader.ui.screens.PronunciationRulesDialog
 import com.veritas.reader.ui.screens.ReaderScreen
 import com.veritas.reader.ui.screens.ReaderScreenState
 import com.veritas.reader.ui.screens.ReaderSettingsDialog
+import com.veritas.reader.ui.screens.AccessibilitySettingsDialog
 import com.veritas.reader.ui.screens.ReadingListsDialog
 import com.veritas.reader.ui.screens.SettingsHubDialog
 import com.veritas.reader.ui.screens.StorageDialog
@@ -1460,9 +1461,11 @@ internal fun VeritasReaderApp(
                     onToggleGeneralNotePin = viewModel::toggleGeneralNotePin,
                     onChangeGeneralNoteColor = viewModel::changeGeneralNoteColor,
                     onDeleteGeneralNote = viewModel::deleteGeneralNote,
-                    onGradeFlashcard = viewModel::gradeFlashcard,
+                    onRateFlashcardRecall = viewModel::rateFlashcardRecall,
                     onDeleteFlashcard = viewModel::deleteFlashcard,
-                    onImportFlashcards = { cards -> viewModel.importFlashcards("pasted", cards) },
+                    onImportFlashcards = { name, cards -> viewModel.importFlashcards("pasted", name, cards) },
+                    onRenameFlashcardSet = viewModel::renameFlashcardSet,
+                    onDeleteFlashcardSet = viewModel::deleteFlashcardSet,
                     onSearchLibraryContent = viewModel::searchLibraryContent
                 )
                 if (uiState.showTutorial) {
@@ -1869,7 +1872,8 @@ internal fun VeritasReaderApp(
                 onOpenSleepTimer = { viewModel.updateState { it.copy(showSleepTimerDialog = true) } },
                 onOpenReadingLists = { viewModel.updateState { it.copy(showReadingLists = true) } },
                 onOpenUserManual = { viewModel.updateState { it.copy(showUserManual = true) } },
-                onOpenStorage = { showStorageTools = true }
+                onOpenStorage = { showStorageTools = true },
+                onOpenAccessibility = { viewModel.updateState { it.copy(showAccessibilitySettings = true) } }
             )
         }
 
@@ -2103,10 +2107,10 @@ internal fun VeritasReaderApp(
                         )
                     )
                 },
-                onToggleSectionNumbers = {
+                onToggleVibrantHero = {
                     viewModel.saveReaderSettings(
                         uiState.readerSettings.copy(
-                            showSectionNumbers = !uiState.readerSettings.showSectionNumbers
+                            vibrantHero = !uiState.readerSettings.vibrantHero
                         )
                     )
                 },
@@ -2116,19 +2120,25 @@ internal fun VeritasReaderApp(
                             autoPlayQueue = !uiState.readerSettings.autoPlayQueue
                         )
                     )
+                }
+            )
+        }
+
+        if (uiState.showAccessibilitySettings) {
+            AccessibilitySettingsDialog(
+                settings = uiState.readerSettings,
+                onDismiss = { viewModel.updateState { it.copy(showAccessibilitySettings = false) } },
+                onThemeChange = { themeId ->
+                    viewModel.saveReaderSettings(uiState.readerSettings.copy(themeId = themeId))
                 },
                 onToggleAdaptiveCover = {
                     viewModel.saveReaderSettings(
-                        uiState.readerSettings.copy(
-                            adaptiveCover = !uiState.readerSettings.adaptiveCover
-                        )
+                        uiState.readerSettings.copy(adaptiveCover = !uiState.readerSettings.adaptiveCover)
                     )
                 },
-                onToggleVibrantHero = {
+                onToggleSectionNumbers = {
                     viewModel.saveReaderSettings(
-                        uiState.readerSettings.copy(
-                            vibrantHero = !uiState.readerSettings.vibrantHero
-                        )
+                        uiState.readerSettings.copy(showSectionNumbers = !uiState.readerSettings.showSectionNumbers)
                     )
                 },
                 onGoalMinutesChange = { minutes ->
@@ -2291,8 +2301,8 @@ internal fun VeritasReaderApp(
                         }
                         viewModel.saveSentenceNote()
                     },
-                    onImportFlashcards = { cards ->
-                        viewModel.importFlashcards(document.id ?: "pasted", cards)
+                    onImportFlashcards = { name, cards ->
+                        viewModel.importFlashcards(document.id ?: "pasted", name, cards)
                     }
                 )
             }

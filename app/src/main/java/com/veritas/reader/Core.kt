@@ -363,35 +363,48 @@ data class FlashcardProgress(
     val documentId: String,
     val front: String,
     val back: String,
-    val intervalDays: Int = 1,
-    val easeFactor: Float = 2.5f,
-    val repetitions: Int = 0,
-    val nextReviewTime: Long = 0L
+    // Cards are grouped into named sets (one per import). Legacy cards with no
+    // setId are migrated into a per-document set on load.
+    val setId: String = "",
+    val setName: String = "",
+    // Latest recall rating: "" (unrated), "again", "hard", "good", "easy".
+    // Latest-wins — re-rating moves the card between buckets. No spaced repetition.
+    val recall: String = ""
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("documentId", documentId)
         .put("front", front)
         .put("back", back)
-        .put("intervalDays", intervalDays)
-        .put("easeFactor", easeFactor.toDouble())
-        .put("repetitions", repetitions)
-        .put("nextReviewTime", nextReviewTime)
+        .put("setId", setId)
+        .put("setName", setName)
+        .put("recall", recall)
 
     companion object {
+        val RECALL_BUCKETS = listOf("again", "hard", "good", "easy")
+
         fun fromJson(json: JSONObject): FlashcardProgress {
             return FlashcardProgress(
                 id = json.getString("id"),
                 documentId = json.getString("documentId"),
                 front = json.getString("front"),
                 back = json.getString("back"),
-                intervalDays = json.optInt("intervalDays", 1),
-                easeFactor = json.optDouble("easeFactor", 2.5).toFloat(),
-                repetitions = json.optInt("repetitions", 0),
-                nextReviewTime = json.optLong("nextReviewTime", 0L)
+                setId = json.optString("setId", ""),
+                setName = json.optString("setName", ""),
+                recall = json.optString("recall", "")
             )
         }
     }
+}
+
+/** A named group of flashcards with per-bucket recall counts for the tiles. */
+data class FlashcardSet(
+    val setId: String,
+    val name: String,
+    val cards: List<FlashcardProgress>
+) {
+    val recallCounts: Map<String, Int>
+        get() = cards.groupingBy { it.recall }.eachCount().filterKeys { it.isNotBlank() }
 }
 
 
@@ -527,10 +540,10 @@ data class ReaderSettings(
     // Weekly data-only backup written to app storage (last 4 kept), so there is
     // always a recent backup even if the user never exports manually.
     val autoBackupWeekly: Boolean = true,
-    // Daily reading target in minutes; drives the hero goal bar and the evening
-    // streak-protection reminder.
-    val dailyGoalMinutes: Int = 20,
-    val streakReminderEnabled: Boolean = true,
+    // Opt-in daily reading target in minutes. 0 = no goal set — the hero goal bar
+    // and the reminder only appear once the user chooses to set one.
+    val dailyGoalMinutes: Int = 0,
+    val streakReminderEnabled: Boolean = false,
     // Accessibility: collapse decorative motion (entrances, pulses) to instants.
     val reduceMotion: Boolean = false
 ) {
@@ -563,8 +576,8 @@ data class ReaderSettings(
                 adaptiveCover = obj.optBoolean("adaptiveCover", false),
                 vibrantHero = obj.optBoolean("vibrantHero", false),
                 autoBackupWeekly = obj.optBoolean("autoBackupWeekly", true),
-                dailyGoalMinutes = obj.optInt("dailyGoalMinutes", 20).coerceIn(5, 180),
-                streakReminderEnabled = obj.optBoolean("streakReminderEnabled", true),
+                dailyGoalMinutes = obj.optInt("dailyGoalMinutes", 0).coerceIn(0, 180),
+                streakReminderEnabled = obj.optBoolean("streakReminderEnabled", false),
                 reduceMotion = obj.optBoolean("reduceMotion", false)
             )
         }
@@ -2679,6 +2692,19 @@ class DocumentRepository(context: Context) {
             val obj = array.optJSONObject(i) ?: continue
             list.add(FlashcardProgress.fromJson(obj))
         }
+        // Migrate legacy cards (no setId) into a per-document set so the old flat
+        // deck becomes reviewable under the new set-based UI.
+        if (list.any { it.setId.isBlank() }) {
+            val migrated = list.map { card ->
+                if (card.setId.isNotBlank()) card
+                else card.copy(
+                    setId = "legacy-${card.documentId.ifBlank { "pasted" }}",
+                    setName = "Imported cards"
+                )
+            }
+            saveAllFlashcards(migrated)
+            return migrated
+        }
         return list
     }
 
@@ -2686,6 +2712,34 @@ class DocumentRepository(context: Context) {
         val array = JSONArray()
         list.forEach { array.put(it.toJson()) }
         prefs.edit { putString("study_flashcards", array.toString()) }
+    }
+
+    /** Cards grouped into their named sets, newest set first. */
+    fun loadFlashcardSets(): List<FlashcardSet> {
+        return loadAllFlashcards()
+            .groupBy { it.setId }
+            .map { (setId, cards) ->
+                FlashcardSet(
+                    setId = setId,
+                    name = cards.firstOrNull { it.setName.isNotBlank() }?.setName ?: "Untitled set",
+                    cards = cards
+                )
+            }
+    }
+
+    fun renameFlashcardSet(setId: String, newName: String): List<FlashcardProgress> {
+        val clean = newName.trim().ifBlank { "Untitled set" }
+        val updated = loadAllFlashcards().map {
+            if (it.setId == setId) it.copy(setName = clean) else it
+        }
+        saveAllFlashcards(updated)
+        return updated
+    }
+
+    fun deleteFlashcardSet(setId: String): List<FlashcardProgress> {
+        val remaining = loadAllFlashcards().filterNot { it.setId == setId }
+        saveAllFlashcards(remaining)
+        return remaining
     }
 
     private fun loadDocumentNotes(): Map<String, String> {

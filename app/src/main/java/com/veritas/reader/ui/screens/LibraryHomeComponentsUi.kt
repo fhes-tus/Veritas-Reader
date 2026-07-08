@@ -21,7 +21,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.EmojiEvents
@@ -1941,6 +1943,15 @@ internal fun StudyEmptyState(
 }
 
 internal fun renderMarkdown(text: String): androidx.compose.ui.text.AnnotatedString {
+    // Defensive slice: a marker's closing delimiter can, in malformed input, resolve
+    // to a position at or before the opening one. An unguarded substring(begin, end)
+    // with begin > end throws StringIndexOutOfBounds during the tap/draw pass that
+    // builds this AnnotatedString — the crash this guards against.
+    fun String.safeSlice(begin: Int, end: Int): String {
+        val a = begin.coerceIn(0, length)
+        val b = end.coerceIn(a, length)
+        return substring(a, b)
+    }
     return androidx.compose.ui.text.buildAnnotatedString {
         var i = 0
         while (i < text.length) {
@@ -1949,7 +1960,7 @@ internal fun renderMarkdown(text: String): androidx.compose.ui.text.AnnotatedStr
                     val end = text.indexOf("**", i + 2)
                     if (end != -1) {
                         pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold))
-                        append(text.substring(i + 2, end))
+                        append(text.safeSlice(i + 2, end))
                         pop()
                         i = end + 2
                     } else {
@@ -1961,7 +1972,7 @@ internal fun renderMarkdown(text: String): androidx.compose.ui.text.AnnotatedStr
                     val end = text.indexOf("*", i + 1)
                     if (end != -1) {
                         pushStyle(androidx.compose.ui.text.SpanStyle(fontStyle = FontStyle.Italic))
-                        append(text.substring(i + 1, end))
+                        append(text.safeSlice(i + 1, end))
                         pop()
                         i = end + 1
                     } else {
@@ -1973,11 +1984,11 @@ internal fun renderMarkdown(text: String): androidx.compose.ui.text.AnnotatedStr
                     pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.ExtraBold, fontSize = 15.sp))
                     val end = text.indexOf("\n", i)
                     if (end != -1) {
-                        append(text.substring(i + 2, end).trim())
+                        append(text.safeSlice(i + 2, end).trim())
                         pop()
                         i = end
                     } else {
-                        append(text.substring(i + 2).trim())
+                        append(text.safeSlice(i + 2, text.length).trim())
                         pop()
                         i = text.length
                     }
@@ -1986,7 +1997,7 @@ internal fun renderMarkdown(text: String): androidx.compose.ui.text.AnnotatedStr
                     val end = text.indexOf("__", i + 2)
                     if (end != -1) {
                         pushStyle(androidx.compose.ui.text.SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
-                        append(text.substring(i + 2, end))
+                        append(text.safeSlice(i + 2, end))
                         pop()
                         i = end + 2
                     } else {
@@ -2003,125 +2014,274 @@ internal fun renderMarkdown(text: String): androidx.compose.ui.text.AnnotatedStr
     }
 }
 
+/**
+ * A flashcard set as a tile (two per row), coloured like the old spaced-repetition
+ * deck card. Shows the set name, a "View cards" button, and recall pills that
+ * double as filters (tap "Hard" → only that bucket). Overflow menu renames/deletes.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-internal fun FlashcardReviewDialog(
-    dueCards: List<FlashcardProgress>,
-    onGrade: (String, Int) -> Unit,
-    onDismiss: () -> Unit
+internal fun FlashcardSetTile(
+    set: FlashcardSet,
+    modifier: Modifier = Modifier,
+    onOpen: () -> Unit,
+    onViewBucket: (String) -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
 ) {
-    var currentIndex by remember { mutableStateOf(0) }
-    var showAnswer by remember { mutableStateOf(false) }
-
-    if (currentIndex >= dueCards.size) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            confirmButton = { Button(onClick = onDismiss) { Text("Awesome") } },
-            title = { Text("Session Completed") },
-            text = { Text("You've finished reviewing all due cards for now!") }
-        )
-    } else {
-        val card = dueCards[currentIndex]
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = onDismiss) { Text("Exit Review") }
-            },
-            title = { Text("Reviewing Card ${currentIndex + 1} of ${dueCards.size}") },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+    var menuOpen by remember { mutableStateOf(false) }
+    val counts = set.recallCounts
+    // Cover-sized tile matching the library grid (portrait 0.75 aspect). Tap anywhere
+    // opens the viewer (no "View cards" button).
+    Card(
+        modifier = modifier.aspectRatio(0.75f).clickable { onOpen() },
+        shape = VeritasPackStyle.cardShape(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier.size(34.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .clickable { showAnswer = !showAnswer },
-                        shape = VeritasPackStyle.cardShape(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize().padding(18.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                if (!showAnswer) {
-                                    Text(card.front, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text("Tap to flip", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                                } else {
-                                    Text(card.back, style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text("Tap to show question", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                                }
-                            }
-                        }
+                    Icon(
+                        imageVector = Icons.Outlined.Book,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                Box {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Set options", modifier = Modifier.size(18.dp))
                     }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
+                        DropdownMenuItem(text = { Text("Delete set") }, onClick = { menuOpen = false; onDelete() })
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                set.name,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "${set.cards.size} card${if (set.cards.size == 1) "" else "s"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
 
-                    if (showAnswer) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Text("Rate your recall:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Recall pills — larger and centered; each filters to its bucket.
+            if (counts.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    FLASHCARD_RECALL_META.forEach { (key, label, color) ->
+                        val n = counts[key] ?: 0
+                        if (n > 0) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = color.copy(alpha = 0.16f),
+                                modifier = Modifier.clickable { onViewBucket(key) }
                             ) {
-                                Button(
-                                    onClick = {
-                                        onGrade(card.id, 1)
-                                        showAnswer = false
-                                        currentIndex++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Again", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                                }
-                                Button(
-                                    onClick = {
-                                        onGrade(card.id, 2)
-                                        showAnswer = false
-                                        currentIndex++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF97316)),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Hard", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                                }
-                                Button(
-                                    onClick = {
-                                        onGrade(card.id, 3)
-                                        showAnswer = false
-                                        currentIndex++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3B82F6)),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Good", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                                }
-                                Button(
-                                    onClick = {
-                                        onGrade(card.id, 4)
-                                        showAnswer = false
-                                        currentIndex++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00BCD4)),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                ) {
-                                    Text("Easy", style = MaterialTheme.typography.labelSmall, color = Color.White)
-                                }
+                                Text(
+                                    "$n $label",
+                                    color = color,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)
+                                )
                             }
                         }
                     }
                 }
             }
-        )
+        }
+    }
+}
+
+// Softer, calmer shades (same hues) — the saturated originals were eye-piercing as
+// solid button fills. Used for both the viewer buttons and the tile recall pills.
+internal val FLASHCARD_RECALL_META: List<Triple<String, String, Color>> = listOf(
+    Triple("again", "Again", Color(0xFFE57373)),
+    Triple("hard", "Hard", Color(0xFFFFB74D)),
+    Triple("good", "Good", Color(0xFF64B5F6)),
+    Triple("easy", "Easy", Color(0xFF4DB6AC))
+)
+
+/**
+ * Full-screen single-card viewer (see design reference): one card at a time, tap
+ * to flip front↔back, forward/back through the set, recall buttons that bucket the
+ * card (latest-wins), a subtle per-card delete, and "Exit card". Cards are passed
+ * pre-filtered when opened from a recall pill.
+ */
+@Composable
+internal fun FlashcardViewerDialog(
+    setName: String,
+    cards: List<FlashcardProgress>,
+    onRate: (String, String) -> Unit,
+    onDeleteCard: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var order by remember(cards) { mutableStateOf(cards) }
+    var index by remember { mutableStateOf(0) }
+    var flipped by remember { mutableStateOf(false) }
+
+    if (order.isEmpty()) {
+        LaunchedEffect(Unit) { onDismiss() }
+        return
+    }
+    val safeIndex = index.coerceIn(0, order.lastIndex)
+    val card = order[safeIndex]
+
+    fun goTo(next: Int) {
+        index = next.coerceIn(0, order.lastIndex)
+        flipped = false
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        setName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onDismiss) { Text("Exit card") }
+                }
+
+                // Card is centered in the free space with a squarer aspect ratio so
+                // text isn't marooned in a tall card. Corner radius stays the theme
+                // pack's shape (VeritasPackStyle.cardShape()).
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1.1f)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { flipped = !flipped },
+                    shape = VeritasPackStyle.cardShape(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+                        Text(
+                            // Prettify equations (x², √, ×, π…) so cards read as math.
+                            text = MathText.beautify(if (flipped) card.back else card.front),
+                            style = MaterialTheme.typography.headlineSmall,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                        // Subtle per-card delete — present but not distracting.
+                        IconButton(
+                            onClick = {
+                                val removedId = card.id
+                                val remaining = order.filterNot { it.id == removedId }
+                                onDeleteCard(removedId)
+                                order = remaining
+                                if (remaining.isNotEmpty()) index = safeIndex.coerceIn(0, remaining.lastIndex)
+                            },
+                            modifier = Modifier.align(Alignment.TopEnd)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete this card",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        // Flip affordance.
+                        Icon(
+                            Icons.Filled.Autorenew,
+                            contentDescription = "Tap card to flip",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                            modifier = Modifier.align(Alignment.BottomEnd).size(22.dp)
+                        )
+                    }
+                }
+                }
+
+                Text(
+                    "Rate your recall",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp)
+                )
+                // All four recall buttons, sized to fit one centered row without clipping.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FLASHCARD_RECALL_META.forEach { (key, label, color) ->
+                        val selected = card.recall == key
+                        Button(
+                            onClick = {
+                                onRate(card.id, key)
+                                order = order.map { if (it.id == card.id) it.copy(recall = key) else it }
+                                if (safeIndex < order.lastIndex) goTo(safeIndex + 1)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (selected) color else color.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                if (selected) "✓$label" else label,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    IconButton(onClick = { goTo(safeIndex - 1) }, enabled = safeIndex > 0) {
+                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous card")
+                    }
+                    Text(
+                        "${safeIndex + 1} of ${order.size}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    IconButton(onClick = { goTo(safeIndex + 1) }, enabled = safeIndex < order.lastIndex) {
+                        Icon(Icons.Filled.ChevronRight, contentDescription = "Next card")
+                    }
+                }
+            }
+        }
     }
 }
 

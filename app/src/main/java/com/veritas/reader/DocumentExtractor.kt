@@ -308,7 +308,7 @@ object DocumentExtractor {
         if (normalizedOptions.forceOcr) {
             diagnostics.add("Forced OCR mode was used for this PDF import.")
             val ocr = extractPdfOcr(context, uri, normalizedOptions, null)
-            val text = ocr.text.normalizeExtractedText().smartFormatPdfContent()
+            val text = ocr.text.normalizeExtractedText().smartFormatPdfContent().let { MathText.beautify(it) }
             return ExtractedImport(
                 title = displayName.ifBlank { "Imported document" },
                 text = text,
@@ -359,7 +359,7 @@ object DocumentExtractor {
             diagnostics.add("Very little extractable PDF text was found, so OCR was attempted.")
             val ocr = extractPdfOcr(context, uri, normalizedOptions, null)
             if (ocr.text.isNotBlank()) {
-                val text = ocr.text.normalizeExtractedText().smartFormatPdfContent()
+                val text = ocr.text.normalizeExtractedText().smartFormatPdfContent().let { MathText.beautify(it) }
                 runCatching { cacheDir.deleteRecursively() }
                 return ExtractedImport(
                     title = displayName.ifBlank { "Imported document" },
@@ -375,7 +375,7 @@ object DocumentExtractor {
 
         runCatching { cacheDir.deleteRecursively() }
 
-        val text = cleaned.text.normalizeExtractedText().smartFormatPdfContent()
+        val text = cleaned.text.normalizeExtractedText().smartFormatPdfContent().let { MathText.beautify(it) }
         return ExtractedImport(
             title = displayName.ifBlank { "Imported document" },
             text = text,
@@ -425,7 +425,10 @@ object DocumentExtractor {
 
         val text = extracted.text.normalizeExtractedText()
             .let { if (sourceLabel == "PDF") it.smartFormatPdfContent() else it }
-        
+            // Prettify equations once, at extraction, so every downstream consumer
+            // (reader display, selection offsets, TTS) sees the same Unicode math.
+            .let { MathText.beautify(it) }
+
         val baseNote = when (sourceLabel) {
             "PDF" -> "PDF text was extracted with the current import options. If very little text was found, OCR may have been attempted depending on your settings."
             "DOCX" -> "DOCX body text was extracted. Images, footnotes, comments, and advanced layout are not fully modeled yet."
