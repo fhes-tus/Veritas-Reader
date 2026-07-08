@@ -60,9 +60,13 @@ Veritas Reader is built using standard Android architecture guidelines and moder
 *   **AndroidX Media3:** Background media session integration and TTS configurations.
 
 ---
-<img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/13421941-9501-4693-ad24-bb1cfa7cfbc0" /><img width="311" height="1280" alt="image" src="https://github.com/user-attachments/assets/5463e131-7d40-4073-b92d-b2a46587de9a" /><img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/ab6f20e5-af96-4cf6-a2f8-2ce22ab867b0" /><img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/6a253d15-9350-4d7a-a4d2-15511dda4e76" />
 
-
+<img width="493" height="1280" alt="image" src="https://github.com/user-attachments/assets/da75ac3a-471e-44fc-aea0-b75cb24244bf" />
+<img width="432" height="1280" alt="image" src="https://github.com/user-attachments/assets/812b50c6-3dac-480a-88fb-fbdba486c941" />
+<img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/522fa0d7-2856-4350-9d76-94599136bc63" />
+<img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/e64e1b7c-ee5b-4d09-9883-1b2701407ba3" />
+<img width="629" height="1280" alt="image" src="https://github.com/user-attachments/assets/3821df10-f370-4b57-a276-d9f946b73bfb" />
+<img width="311" height="1280" alt="image" src="https://github.com/user-attachments/assets/557bdf81-cf84-4c39-8591-65d33cfb5f40" />
 
 
 Download and install the newest release apk for the most up-to-date app experience.
