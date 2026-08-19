@@ -11,11 +11,14 @@ Veritas Reader is a modern, high-fidelity Android reading and text-to-speech (TT
 
 ## 📱 Core Features
 
-### 1. Document Import & Text Extraction
-*   **Multi-Format Support:** Import local EPUB, DOCX, PDF, and TXT files, or extract content from web links.
+### 1. Document Import & Preloaded Library
+*   **Default Classic Book:** Comes bundled with Spencer Johnson's classic *"Who Moved My Cheese?"* with full cover artwork and chapter formatting, alongside the interactive *Veritas Welcome Guide*.
+*   **Multi-Format Support:** Import local EPUB, DOCX, PPTX, PDF, and TXT files, or extract content from web links.
+*   **Intelligent Cover Extractor:** Multi-page cover candidate scoring with aspect-ratio validation, text-presence analysis, and stylized gradient fallback generation.
 *   **Hybrid OCR & Text Extraction:** Uses a hybrid extraction system powered by PDFBox, native Android PDF rendering, and Google ML Kit OCR to parse content, preserve formatting, and identify column structures.
 
-### 2. Audio Playback & Text-to-Speech Engine
+### 2. Audio Playback & Neural TTS Engine
+*   **On-Device Neural Voices:** High-fidelity neural TTS engines powered by Sherpa-ONNX, Kokoro, and Piper with native streaming audio buffers alongside System TTS fallbacks.
 *   **Voice Management:** Deep voice configurations allowing speed, pitch, engine preference, and accent selections.
 *   **Audio Output Safety:** Auto-pauses or ducks speech during audio focus changes (e.g., incoming phone calls) and headphone disconnects.
 *   **Headset Control Mapping:** Map wired, Bluetooth, and media-button actions to reading controls.
@@ -29,20 +32,25 @@ Veritas Reader is a modern, high-fidelity Android reading and text-to-speech (TT
 *   **Extracted Text Editor:** Repair or edit selected sentences directly within the reader app without modifying the original source document.
 *   **Pronunciation Rules:** Configure speech replacements/corrections (e.g., spelling out abbreviations or fixing phonetic anomalies) applied before playback and audio export.
 
-### 4. On-Device AI & Reference Utilities
-*   **Offline Study Tools:** Generate local summaries, key points, terms, flashcards, and quizzes from saved text without requiring external API keys.
+### 4. Onboarding Quests & Interactive Guided Tour
+*   **Interactive Guided Tour:** Multi-step spotlight tutorial that navigates through the document reader, Notes Studio, AI Study Hub, and Settings Hub.
+*   **Onboarding Quests:** Floating mission checklist tracking core app milestones with persistent progress.
+
+### 5. On-Device AI & Reference Utilities
+*   **Offline Study Tools:** Generate local summaries, key points, terms, flashcard sets, and quizzes from saved text without requiring external API keys.
 *   **Ask AI Handoff:** Instantly prepare selected text or a reading part for an installed AI app (like Gemini) without needing developer API keys.
 *   **Translation Handoff:** Prepare selected text, sections, or documents for installed translation apps.
 *   **Dictionary & Wikipedia Lookups:** Quick definition lookup for selected words through local dictionary databases or Wikipedia search shortcuts.
 
-### 5. Habit Analytics & App Updates
+### 6. Habit Analytics & App Updates
 *   **Daily Streaks:** Streak tracker showing current and longest reading patterns.
 *   **Habit Heatmap:** Visual calendar heatmap showing daily read sessions.
 *   **Interactive Analytics Charts:** Dynamic donut charts displaying Format Distribution and Top Book Allocation with spring-bouncy expansion and details cards.
 *   **8-Week Rolling History:** Swipeable bar charts displaying daily reading metrics.
 *   **Local Progress Sync Pack:** Export, share, and import local reading progress, notes, lists, and settings without requiring cloud accounts.
 
-### 6. UI Customization & Aesthetics
+### 7. UI Customization & Typography
+*   **Custom Reading Fonts:** Atkinson Hyperlegible, Bitter, Literata, and Lora variable fonts for high legibility and reading comfort.
 *   **Premium Themes:** Deep UI custom styling including Material You, Liquid Glass, One UI-style, and High Contrast configurations.
 *   **Night Mode PDF Inversion:** Custom color-matrix filter to invert PDF page rendering for comfortable night-time reading.
 
