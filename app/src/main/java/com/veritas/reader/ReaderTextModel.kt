@@ -89,8 +89,10 @@ object ReaderTextIndex {
     private val pageMarkerRegex = Regex("""^\[\[VERITAS_PAGE:(\d+)]]$""")
     private val sentenceEndMarks = setOf('.', '!', '?')
     private val abbreviations = setOf(
-        "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "etc", "e.g", "i.e",
-        "fig", "figs", "no", "nos", "vol", "pp", "p", "ch", "dept", "univ", "inc", "ltd"
+        "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "v", "vs", "etc", "e.g", "i.e",
+        "fig", "figs", "no", "nos", "vol", "pp", "p", "ch", "dept", "univ", "inc", "ltd",
+        "et al", "al", "ed", "eds", "ref", "refs", "sec", "secs", "para", "paras", "eq", "eqs",
+        "app", "approx", "c", "ca", "cf", "ff", "op", "cit", "ibid"
     )
 
     fun pageMarker(pageNumber: Int): String = "[[VERITAS_PAGE:${pageNumber.coerceAtLeast(1)}]]"
@@ -392,7 +394,10 @@ object ReaderTextIndex {
             if (text.getOrNull(index) == '\n' && text.getOrNull(index - 1) == '\n') return index
         }
         for (index in safeEnd downTo searchStart) {
-            if (text.getOrNull(index) in sentenceEndMarks) return (index + 1).coerceAtMost(text.length)
+            val char = text.getOrNull(index)
+            if (char in sentenceEndMarks && isSentenceBoundary(text, index)) {
+                return (index + 1).coerceAtMost(text.length)
+            }
         }
         // Secondary fallback: find nearest preceding whitespace to avoid splitting mid-word
         for (index in safeEnd downTo searchStart) {

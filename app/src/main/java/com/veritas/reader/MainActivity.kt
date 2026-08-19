@@ -183,6 +183,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import com.veritas.reader.ui.screens.OnboardingQuestChecklist
 import com.veritas.reader.ui.screens.OnboardingSpotlightOverlay
+import com.veritas.reader.ui.screens.RevampedOnboardingFlow
 import com.veritas.reader.ui.screens.ConfettiOverlay
 import com.veritas.reader.ui.OnboardingStep
 import com.veritas.reader.ui.OnboardingController
@@ -457,6 +458,8 @@ object VeritasThemeState {
     var adaptiveCover by mutableStateOf(false)
     // Accessibility: composables consult this to skip decorative animation.
     var reduceMotion by mutableStateOf(false)
+    // Typeface for the whole app; VeritasTheme builds its Typography from this.
+    var uiFontId by mutableStateOf("system")
 }
 
 @Composable
@@ -1213,6 +1216,7 @@ internal fun VeritasReaderApp(
         VeritasThemeState.themeId = uiState.readerSettings.themeId
         VeritasThemeState.themePackId = uiState.readerSettings.themePackId
         VeritasThemeState.adaptiveCover = uiState.readerSettings.adaptiveCover
+        VeritasThemeState.uiFontId = uiState.readerSettings.uiFontId
         VeritasThemeState.reduceMotion = uiState.readerSettings.reduceMotion
         VeritasThemeState.activeDocumentId = activeDocId
     }
@@ -1438,6 +1442,7 @@ internal fun VeritasReaderApp(
                     onPlayQueue = { viewModel.playQueue() },
                     onMoveQueueUp = { viewModel.moveQueueItem(it, -1) },
                     onMoveQueueDown = { viewModel.moveQueueItem(it, 1) },
+                    onMoveQueueBy = { document, offset -> viewModel.moveQueueItem(document, offset) },
                     onRemoveFromQueue = { viewModel.toggleQueue(it) },
                     onClearQueue = { viewModel.clearQueue() },
                     onOpenSyncCenter = { viewModel.updateState { it.copy(showSyncCenter = true) } },
@@ -1468,7 +1473,8 @@ internal fun VeritasReaderApp(
                     onDeleteFlashcardSet = viewModel::deleteFlashcardSet,
                     onSearchLibraryContent = viewModel::searchLibraryContent
                 )
-                if (uiState.showTutorial) {
+                val areQuestsIncomplete = !uiState.questTourDone || !uiState.questImportDone || !uiState.questSpeedDone || !uiState.questBookmarkDone
+                if ((uiState.showTutorial || areQuestsIncomplete) && !uiState.questChecklistDismissed) {
                     OnboardingQuestChecklist(
                         questTourDone = uiState.questTourDone,
                         questImportDone = uiState.questImportDone,
@@ -1477,6 +1483,9 @@ internal fun VeritasReaderApp(
                         onStartTour = {
                             viewModel.createWelcomeDocumentSilently()
                             OnboardingController.activeStep = OnboardingStep.WELCOME
+                        },
+                        onDismissQuests = {
+                            viewModel.dismissQuestChecklist()
                         },
                         modifier = Modifier
                             .align(Alignment.BottomStart)
@@ -1865,7 +1874,7 @@ internal fun VeritasReaderApp(
                     viewModel.resetQuestProgress()
                     viewModel.updateState { it.copy(showSettingsHub = false) }
                     viewModel.createWelcomeDocumentSilently()
-                    OnboardingController.activeStep = OnboardingStep.WELCOME
+                    OnboardingController.activeStep = null
                 },
                 onOpenPdfTools = { viewModel.updateState { it.copy(showPdfImportTools = true) } },
                 onOpenFileBrowser = { viewModel.openFileBrowser() },
@@ -2044,6 +2053,7 @@ internal fun VeritasReaderApp(
                     )
                 },
                 onPreviewVoice = { voice -> viewModel.previewVoice(voice) },
+                onPreviewActiveVoiceWithPreset = { viewModel.previewActiveVoiceWithPreset() },
                 onPresetSelected = { name, rate, pitch ->
                     viewModel.saveVoiceSettings(
                         uiState.voiceSettings.copy(
@@ -2120,6 +2130,13 @@ internal fun VeritasReaderApp(
                             autoPlayQueue = !uiState.readerSettings.autoPlayQueue
                         )
                     )
+                },
+                onUiFontChange = { fontId ->
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(
+                            uiFontId = fontId
+                        )
+                    )
                 }
             )
         }
@@ -2192,6 +2209,7 @@ internal fun VeritasReaderApp(
                 settings = uiState.narrationSettings,
                 sampleText = uiState.activeDocument?.chunks?.getOrNull(PlaybackStateStore.currentIndex)
                     .orEmpty(),
+                availableVoices = uiState.ttsVoices,
                 onSettingsChange = { settings -> viewModel.saveNarrationSettings(settings) },
                 onDismiss = { viewModel.updateState { it.copy(showNarrationStudio = false) } }
             )
@@ -2257,6 +2275,8 @@ internal fun VeritasReaderApp(
                     currentIndex = PlaybackStateStore.currentIndex,
                     templates = uiState.aiPromptTemplates,
                     history = uiState.aiPromptHistory,
+                    askAiSettings = uiState.askAiSettings,
+                    onUpdateAskAiSettings = { viewModel.saveAskAiSettings(it) },
                     onDismiss = { viewModel.updateState { it.copy(showAiStudyTools = false) } },
                     onSendToAiApp = { type, customInstruction, scope, range ->
                         val prompt = AiPromptLauncher.buildPrompt(
@@ -2405,8 +2425,8 @@ internal fun VeritasReaderApp(
         if (uiState.showGeneralNotesEditor) {
             GeneralNotesEditor(
                 note = uiState.generalNoteEditorTarget,
-                onSave = { title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt, closeEditor ->
-                    viewModel.saveGeneralNote(title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt, closeEditor)
+                onSave = { title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt, closeEditor, audioUrls ->
+                    viewModel.saveGeneralNote(title, content, color, pinned, isChecklist, imageUrl, audioUrl, reminderAt, closeEditor, audioUrls)
                 },
                 onDelete = { noteId -> viewModel.deleteGeneralNote(noteId) },
                 onCopy = {
@@ -2769,6 +2789,10 @@ internal fun VeritasReaderApp(
         }
 
         if (uiState.showSyncCenter) {
+            var fullBackupEstimate by remember { mutableStateOf(0L) }
+            LaunchedEffect(Unit) {
+                fullBackupEstimate = viewModel.estimateFullBackupBytes()
+            }
             SyncCenterDialog(
                 documentCount = uiState.documents.size,
                 annotationCount = uiState.annotationCount,
@@ -2776,8 +2800,18 @@ internal fun VeritasReaderApp(
                 pronunciationRuleCount = uiState.pronunciationRules.size,
                 inProgress = uiState.backupInProgress,
                 message = uiState.backupMessage,
+                fullBackupEstimateBytes = fullBackupEstimate,
+                autoBackupEnabled = uiState.readerSettings.autoBackupWeekly,
+                onToggleAutoBackup = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(autoBackupWeekly = !uiState.readerSettings.autoBackupWeekly)
+                    )
+                },
                 onExportSyncPack = {
                     backupExportLauncher.launch(veritasBackupFileName("veritas_sync_pack"))
+                },
+                onExportFull = {
+                    fullBackupExportLauncher.launch(veritasBackupZipFileName("veritas_full_backup"))
                 },
                 onShareSyncPack = { viewModel.updateState { it.copy(showSyncCenter = false) }; viewModel.shareLibrarySyncPack() },
                 onImportSyncPack = {
@@ -2797,15 +2831,31 @@ internal fun VeritasReaderApp(
             )
         }
 
-        if (uiState.showTutorial) {
-            var isTransitioningStep by remember { mutableStateOf(false) }
-            val activeStep = OnboardingController.activeStep
-            LaunchedEffect(uiState.showTutorial, uiState.hasCompletedOnboarding) {
-                if (uiState.showTutorial && !uiState.hasCompletedOnboarding && OnboardingController.activeStep == null) {
+        if (uiState.showTutorial && !uiState.hasCompletedOnboarding && OnboardingController.activeStep == null) {
+            RevampedOnboardingFlow(
+                initialUserName = uiState.userName,
+                initialReadingInterest = uiState.readingInterest,
+                initialAiAssistant = uiState.askAiSettings.assistantId,
+                onComplete = { name, interest, aiAssistant, speed, pitch ->
                     viewModel.createWelcomeDocumentSilently()
+                    viewModel.completeRevampedOnboarding(name, interest, aiAssistant, speed, pitch)
+                    OnboardingController.activeStep = OnboardingStep.WELCOME
+                },
+                onDismiss = {
+                    viewModel.createWelcomeDocumentSilently()
+                    viewModel.completeRevampedOnboarding(
+                        name = uiState.userName.ifBlank { "Reader" },
+                        interest = uiState.readingInterest,
+                        aiAssistant = uiState.askAiSettings.assistantId,
+                        speedRate = uiState.voiceSettings.preferredRate,
+                        pitchRate = uiState.voiceSettings.preferredPitch
+                    )
                     OnboardingController.activeStep = OnboardingStep.WELCOME
                 }
-            }
+            )
+        } else if (OnboardingController.activeStep != null) {
+            var isTransitioningStep by remember { mutableStateOf(false) }
+            val activeStep = OnboardingController.activeStep
             // Voice-assisted tutorial: read each step aloud automatically
             LaunchedEffect(activeStep) {
                 if (activeStep != null) {
@@ -2814,16 +2864,20 @@ internal fun VeritasReaderApp(
                 } else {
                     TutorialSpeaker.stop()
                 }
+                if (activeStep == OnboardingStep.SETTINGS_SPOTLIGHT) {
+                    viewModel.updateState { it.copy(showSettingsHub = true) }
+                } else if (activeStep != null && uiState.showSettingsHub) {
+                    viewModel.updateState { it.copy(showSettingsHub = false) }
+                }
             }
-            // Shutdown speaker when tutorial is dismissed entirely
-            LaunchedEffect(uiState.showTutorial) {
-                if (!uiState.showTutorial) {
+            // Shutdown speaker when tour is completed or dismissed
+            LaunchedEffect(activeStep == null) {
+                if (activeStep == null) {
                     TutorialSpeaker.shutdown()
                 }
             }
-            // INSIGHTS_PAGE_SPOTLIGHT renders its card inside the insights dialog window;
-            // the main overlay would be hidden behind that dialog, so skip it here.
-            if (activeStep != null && activeStep != OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT) {
+            // INSIGHTS_PAGE_SPOTLIGHT and SETTINGS_SPOTLIGHT render their tour cards inside their own dialog windows
+            if (activeStep != null && activeStep != OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT && activeStep != OnboardingStep.SETTINGS_SPOTLIGHT) {
                 OnboardingSpotlightOverlay(
                     step = activeStep,
                     userName = uiState.userName,
@@ -2836,7 +2890,7 @@ internal fun VeritasReaderApp(
                                 try {
                                     TutorialSpeaker.stop() // stop current reading before moving to next step
                                     val nextStep = when (activeStep) {
-                                        OnboardingStep.WELCOME -> OnboardingStep.NAME_INPUT
+                                        OnboardingStep.WELCOME -> OnboardingStep.FAB_SPOTLIGHT
                                         OnboardingStep.NAME_INPUT -> {
                                             viewModel.saveUserName(uiState.userName)
                                             OnboardingStep.FAB_SPOTLIGHT
@@ -2844,7 +2898,10 @@ internal fun VeritasReaderApp(
                                         OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
                                         OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
                                         OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
-                                        OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
+                                        OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.NOTES_TAB_SPOTLIGHT
+                                        OnboardingStep.NOTES_TAB_SPOTLIGHT -> OnboardingStep.STUDY_TAB_SPOTLIGHT
+                                        OnboardingStep.STUDY_TAB_SPOTLIGHT -> OnboardingStep.SETTINGS_SPOTLIGHT
+                                        OnboardingStep.SETTINGS_SPOTLIGHT -> OnboardingStep.DOCUMENT_SPOTLIGHT
                                         OnboardingStep.DOCUMENT_SPOTLIGHT -> {
                                             val targetDoc = uiState.documents.firstOrNull()
                                             if (targetDoc != null) {
@@ -2900,11 +2957,14 @@ internal fun VeritasReaderApp(
                                     val prevStep = when (activeStep) {
                                         OnboardingStep.WELCOME -> null
                                         OnboardingStep.NAME_INPUT -> OnboardingStep.WELCOME
-                                        OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.NAME_INPUT
+                                        OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.WELCOME
                                         OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.FAB_SPOTLIGHT
                                         OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
                                         OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
-                                        OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
+                                        OnboardingStep.NOTES_TAB_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
+                                        OnboardingStep.STUDY_TAB_SPOTLIGHT -> OnboardingStep.NOTES_TAB_SPOTLIGHT
+                                        OnboardingStep.SETTINGS_SPOTLIGHT -> OnboardingStep.STUDY_TAB_SPOTLIGHT
+                                        OnboardingStep.DOCUMENT_SPOTLIGHT -> OnboardingStep.SETTINGS_SPOTLIGHT
                                         OnboardingStep.MODE_TOGGLE_SPOTLIGHT -> {
                                             viewModel.returnToLibrary()
                                             // Wait for library screen to load and render the document card

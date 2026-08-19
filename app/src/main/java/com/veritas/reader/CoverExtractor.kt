@@ -36,8 +36,8 @@ object CoverExtractor {
      * Returns the filename of the saved cover, or null on failure.
      */
     /**
-     * Extracts a cover image from a PDF URI and saves it as a JPEG.
-     * Evaluates the first 3 pages to select the visually most interesting page as the cover.
+     * Extracts a cover image from a PDF URI and saves it as a WEBP.
+     * Evaluates the first few pages with strong preference for the genuine title/cover on page 0.
      * Returns the filename of the saved cover, or null on failure.
      */
     fun extractPdfCover(context: Context, documentId: String, uri: Uri): String? {
@@ -66,15 +66,20 @@ object CoverExtractor {
                     var bestScore = -1f
                     var bestBitmap: Bitmap? = null
 
-                    val pagesToExplore = minOf(3, pageCount)
+                    val pagesToExplore = minOf(5, pageCount)
                     for (i in 0 until pagesToExplore) {
                         runCatching {
                             val page = renderer.openPage(i)
                             try {
                                 val bitmap = renderCoverPage(page)
                                 try {
-                                    val score = evaluatePageScore(bitmap)
-                                    Log.d(TAG, "Page $i score: $score")
+                                    var score = evaluatePageScore(bitmap)
+                                    // Give page 0 a substantial prior bonus because page 0 is almost always
+                                    // the designed book/document cover unless it's a completely blank sheet.
+                                    if (i == 0 && score > 2.0f) {
+                                        score *= 1.6f
+                                    }
+                                    Log.d(TAG, "PDF Page $i score: $score")
                                     if (score > bestScore) {
                                         bestScore = score
                                         bestBitmap?.recycle()
@@ -168,13 +173,11 @@ object CoverExtractor {
 
         val nonWhiteRatio = nonWhitePixels.toFloat() / totalSamples
 
-        return stdDev * (1f + nonWhiteRatio)
+        return stdDev * (1f + nonWhiteRatio * 2f)
     }
 
     /**
      * Extracts a cover from the original file stored on disk.
-     * This is used for generating covers for existing documents that were imported before
-     * cover extraction was added.
      */
     fun extractCoverFromFile(context: Context, documentId: String, originalFile: File): String? {
         return try {
@@ -187,7 +190,7 @@ object CoverExtractor {
                 }
             }.getOrDefault(false)
 
-            val isEpub = !isPdf && runCatching {
+            val isZip = !isPdf && runCatching {
                 originalFile.inputStream().use { input ->
                     val bytes = ByteArray(4)
                     val read = input.read(bytes)
@@ -195,23 +198,41 @@ object CoverExtractor {
                 }
             }.getOrDefault(false)
 
-            val isImage = !isPdf && !isEpub && runCatching {
+            val isImage = !isPdf && !isZip && runCatching {
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(originalFile.absolutePath, options)
                 options.outWidth > 0 && options.outHeight > 0
             }.getOrDefault(false)
 
-            // "isEpub" above is really an is-ZIP check (PK header) — a .pptx matches it
-            // too, so decks are routed by their zip contents before the EPUB parser runs.
-            val isPptx = isEpub && runCatching {
-                java.util.zip.ZipInputStream(originalFile.inputStream()).use { zip ->
-                    generateSequence { zip.nextEntry }.any { PptxExtractor.isPptxEntryName(it.name.trimStart('/')) }
+            var isPptx = false
+            var isDocx = false
+            var isEpub = false
+
+            if (isZip) {
+                runCatching {
+                    java.util.zip.ZipInputStream(originalFile.inputStream()).use { zip ->
+                        while (true) {
+                            val entry = zip.nextEntry ?: break
+                            val name = entry.name.trimStart('/').lowercase(Locale.getDefault())
+                            if (PptxExtractor.isPptxEntryName(name)) {
+                                isPptx = true
+                                break
+                            } else if (name.startsWith("word/")) {
+                                isDocx = true
+                                break
+                            } else if (name == "meta-inf/container.xml" || name.endsWith(".opf")) {
+                                isEpub = true
+                                break
+                            }
+                        }
+                    }
                 }
-            }.getOrDefault(false)
+            }
 
             when {
                 isPdf -> extractPdfCover(context, documentId, uri)
                 isPptx -> extractPptxCover(context, documentId, originalFile)
+                isDocx -> extractDocxCover(context, documentId, originalFile)
                 isEpub -> extractEpubCover(context, documentId, uri)
                 isImage -> extractImageCover(context, documentId, uri)
                 else -> null
@@ -251,8 +272,8 @@ object CoverExtractor {
     }
 
     /**
-     * Extracts a cover image from an EPUB URI and saves it as a JPEG/WEBP.
-     * Returns the filename of the saved cover, or null on failure.
+     * Extracts a cover image from an EPUB URI and saves it as a WEBP.
+     * Evaluates explicit metadata, cover-related items, XHTML image tags, and manifest fallbacks.
      */
     fun extractEpubCover(context: Context, documentId: String, uri: Uri): String? {
         return try {
@@ -265,10 +286,11 @@ object CoverExtractor {
                 while (true) {
                     val entry = zip.nextEntry ?: break
                     if (!entry.isDirectory) {
-                        val name = entry.name.trimStart('/')
+                        val name = normalizeZipPath(entry.name.trimStart('/'))
                         val lower = name.lowercase(Locale.getDefault())
                         val shouldRead = lower == "meta-inf/container.xml" ||
                             lower.endsWith(".opf") ||
+                            lower.endsWith(".xhtml") || lower.endsWith(".html") || lower.endsWith(".htm") ||
                             lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
                             lower.endsWith(".png") || lower.endsWith(".webp")
                         if (shouldRead) {
@@ -278,10 +300,14 @@ object CoverExtractor {
                 }
             }
 
-            val containerXmlBytes = zipEntries.entries.firstOrNull { it.key.equals("META-INF/container.xml", ignoreCase = true) }?.value ?: return null
+            val containerXmlBytes = zipEntries.entries.firstOrNull {
+                it.key.equals("META-INF/container.xml", ignoreCase = true)
+            }?.value ?: return null
             val containerXml = containerXmlBytes.toString(Charsets.UTF_8)
-            val opfPath = findContainerRootFile(containerXml) ?: return null
-            val opfBytes = zipEntries[opfPath] ?: zipEntries.entries.firstOrNull { it.key.equals(opfPath, ignoreCase = true) }?.value ?: return null
+            val opfPath = findContainerRootFile(containerXml)?.let { normalizeZipPath(it) } ?: return null
+            val opfBytes = zipEntries[opfPath] ?: zipEntries.entries.firstOrNull {
+                it.key.equals(opfPath, ignoreCase = true)
+            }?.value ?: return null
             val opfXml = opfBytes.toString(Charsets.UTF_8)
 
             val baseDir = opfPath.substringBeforeLast('/', missingDelimiterValue = "")
@@ -289,7 +315,7 @@ object CoverExtractor {
             var coverHref: String? = null
 
             // 1. Check properties="cover-image"
-            val propertiesMatch = Regex("""<item\b[^>]*(properties\s*=\s*["']cover-image["'])[^>]*>""", RegexOption.IGNORE_CASE).find(opfXml)
+            val propertiesMatch = Regex("""<item\b[^>]*(properties\s*=\s*["'][^"']*cover-image[^"']*["'])[^>]*>""", RegexOption.IGNORE_CASE).find(opfXml)
             if (propertiesMatch != null) {
                 val attrs = parseAttributes(propertiesMatch.value)
                 coverHref = attrs["href"]
@@ -310,46 +336,126 @@ object CoverExtractor {
                 }
             }
 
-            // 3. Fallback: look for items with "cover" in id or href
+            // 3. Look for items with "cover", "jacket", "front", "title", "poster" in id or href
             if (coverHref == null) {
+                val candidates = mutableListOf<String>()
                 Regex("""<item\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(opfXml).forEach { item ->
                     val attrs = parseAttributes(item.value)
                     val id = attrs["id"].orEmpty().lowercase(Locale.getDefault())
                     val href = attrs["href"].orEmpty().lowercase(Locale.getDefault())
                     val mediaType = attrs["media-type"].orEmpty().lowercase(Locale.getDefault())
-                    if (mediaType.startsWith("image/") && (id.contains("cover") || href.contains("cover"))) {
-                        coverHref = attrs["href"]
-                        return@forEach
+                    if (mediaType.startsWith("image/")) {
+                        if (id.contains("cover") || href.contains("cover") ||
+                            id.contains("jacket") || href.contains("jacket") ||
+                            id.contains("front") || href.contains("front") ||
+                            id.contains("title") || href.contains("title") ||
+                            id.contains("poster") || href.contains("poster")) {
+                            attrs["href"]?.let { candidates.add(it) }
+                        }
+                    }
+                }
+                coverHref = candidates.firstOrNull()
+            }
+
+            // 4. Check the first XHTML spine document for embedded cover <img> or <image>
+            if (coverHref == null) {
+                val spineMatch = Regex("""<itemref\b[^>]*idref\s*=\s*["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE).find(opfXml)
+                if (spineMatch != null) {
+                    val idref = spineMatch.groupValues[1]
+                    val itemMatch = Regex("""<item\b[^>]*id\s*=\s*["']${Regex.escape(idref)}["'][^>]*>""", RegexOption.IGNORE_CASE).find(opfXml)
+                    if (itemMatch != null) {
+                        val firstPageHref = parseAttributes(itemMatch.value)["href"]
+                        if (!firstPageHref.isNullOrBlank()) {
+                            val resolvedPage = resolveZipPath(baseDir, firstPageHref)
+                            val pageBytes = zipEntries[resolvedPage] ?: zipEntries.entries.firstOrNull { it.key.equals(resolvedPage, ignoreCase = true) }?.value
+                            if (pageBytes != null) {
+                                val pageHtml = pageBytes.toString(Charsets.UTF_8)
+                                val imgMatch = Regex("""<(?:img|image)\b[^>]*(?:src|href|xlink:href)\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE).find(pageHtml)
+                                if (imgMatch != null) {
+                                    val imgSrc = imgMatch.groupValues[1]
+                                    val pageBaseDir = resolvedPage.substringBeforeLast('/', missingDelimiterValue = "")
+                                    coverHref = resolveZipPath(pageBaseDir, imgSrc)
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            if (coverHref != null) {
-                val resolvedPath = resolveZipPath(baseDir, coverHref)
-                val imageBytes = zipEntries[resolvedPath] ?: zipEntries.entries.firstOrNull { it.key.equals(resolvedPath, ignoreCase = true) }?.value
-                if (imageBytes != null && imageBytes.isNotEmpty()) {
-                    val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-                    if (bitmap != null) {
-                        val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                            Bitmap.CompressFormat.WEBP_LOSSY
-                        } else {
-                            @Suppress("DEPRECATION")
-                            Bitmap.CompressFormat.WEBP
-                        }
-                        val fileName = "$documentId.cover.webp"
-                        val coverFile = File(coversDir(context), fileName)
-                        coverFile.outputStream().use { out ->
-                            bitmap.compress(format, COVER_QUALITY, out)
-                        }
-                        bitmap.recycle()
-                        Log.i(TAG, "Successfully extracted EPUB cover for $documentId")
-                        return fileName
+            // 5. Fallback: pick the first or largest image entry from zip
+            val resolvedPath = if (coverHref != null) resolveZipPath(baseDir, coverHref) else null
+            val imageBytes = if (resolvedPath != null) {
+                zipEntries[resolvedPath] ?: zipEntries.entries.firstOrNull { it.key.equals(resolvedPath, ignoreCase = true) }?.value
+            } else {
+                zipEntries.entries.filter { (k, v) ->
+                    val l = k.lowercase(Locale.getDefault())
+                    (l.endsWith(".jpg") || l.endsWith(".jpeg") || l.endsWith(".png") || l.endsWith(".webp")) && v.size > 2048
+                }.maxByOrNull { it.value.size }?.value
+            }
+
+            if (imageBytes != null && imageBytes.isNotEmpty()) {
+                val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                if (bitmap != null) {
+                    val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        Bitmap.CompressFormat.WEBP_LOSSY
+                    } else {
+                        @Suppress("DEPRECATION")
+                        Bitmap.CompressFormat.WEBP
                     }
+                    val fileName = "$documentId.cover.webp"
+                    val coverFile = File(coversDir(context), fileName)
+                    coverFile.outputStream().use { out ->
+                        bitmap.compress(format, COVER_QUALITY, out)
+                    }
+                    bitmap.recycle()
+                    Log.i(TAG, "Successfully extracted EPUB cover for $documentId")
+                    return fileName
                 }
             }
             null
         } catch (e: Exception) {
             Log.w(TAG, "Failed to extract EPUB cover for $documentId", e)
+            null
+        }
+    }
+
+    /**
+     * Word (.docx) documents can contain embedded thumbnails at docProps/thumbnail.*
+     * or the first document image at word/media/image1.*.
+     */
+    private fun extractDocxCover(context: Context, documentId: String, originalFile: File): String? {
+        return try {
+            var imageBytes: ByteArray? = null
+            java.util.zip.ZipInputStream(originalFile.inputStream()).use { zip ->
+                val entries = mutableMapOf<String, ByteArray>()
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    val name = normalizeZipPath(entry.name.trimStart('/')).lowercase(Locale.getDefault())
+                    if (!entry.isDirectory && (name.startsWith("docprops/thumbnail") || name.startsWith("word/media/image1"))) {
+                        entries[name] = zip.readBytes()
+                    }
+                }
+                imageBytes = entries.entries.firstOrNull { it.key.startsWith("docprops/thumbnail") }?.value
+                    ?: entries.entries.firstOrNull { it.key.startsWith("word/media/image1") }?.value
+            }
+            val bytes = imageBytes ?: return null
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+            val format = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                Bitmap.CompressFormat.WEBP_LOSSY
+            } else {
+                @Suppress("DEPRECATION")
+                Bitmap.CompressFormat.WEBP
+            }
+            val fileName = "$documentId.cover.webp"
+            val coverFile = File(coversDir(context), fileName)
+            coverFile.outputStream().use { out ->
+                bitmap.compress(format, COVER_QUALITY, out)
+            }
+            bitmap.recycle()
+            Log.i(TAG, "Successfully extracted DOCX cover for $documentId")
+            fileName
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract DOCX cover for $documentId", e)
             null
         }
     }
@@ -364,7 +470,7 @@ object CoverExtractor {
             java.util.zip.ZipInputStream(originalFile.inputStream()).use { zip ->
                 while (true) {
                     val entry = zip.nextEntry ?: break
-                    val name = entry.name.trimStart('/').lowercase(Locale.getDefault())
+                    val name = normalizeZipPath(entry.name.trimStart('/')).lowercase(Locale.getDefault())
                     if (!entry.isDirectory && name.startsWith("docprops/thumbnail")) {
                         imageBytes = zip.readBytes()
                         break
@@ -394,7 +500,7 @@ object CoverExtractor {
     }
 
     /**
-     * Extracts a cover image from an image document URI and saves it as a JPEG/WEBP.
+     * Extracts a cover image from an image document URI and saves it as a WEBP.
      * Returns the filename of the saved cover, or null on failure.
      */
     fun extractImageCover(context: Context, documentId: String, uri: Uri): String? {
@@ -434,11 +540,24 @@ object CoverExtractor {
         return attrs
     }
 
+    private fun normalizeZipPath(path: String): String {
+        val segments = path.replace('\\', '/').split('/')
+        val stack = mutableListOf<String>()
+        for (seg in segments) {
+            if (seg == ".." && stack.isNotEmpty() && stack.last() != "..") {
+                stack.removeAt(stack.size - 1)
+            } else if (seg.isNotEmpty() && seg != ".") {
+                stack.add(seg)
+            }
+        }
+        return stack.joinToString("/")
+    }
+
     private fun resolveZipPath(baseDir: String, href: String): String {
         val decoded = runCatching { URLDecoder.decode(href, "UTF-8") }.getOrDefault(href)
             .substringBefore('#')
             .trimStart('/')
-        if (baseDir.isBlank()) return decoded
-        return "$baseDir/$decoded".replace("//", "/")
+        val combined = if (baseDir.isBlank()) decoded else "$baseDir/$decoded"
+        return normalizeZipPath(combined)
     }
 }

@@ -45,6 +45,7 @@ data class ReaderUiState(
     val questImportDone: Boolean = false,
     val questSpeedDone: Boolean = false,
     val questBookmarkDone: Boolean = false,
+    val questChecklistDismissed: Boolean = false,
     val showConfetti: Boolean = false,
     val annotations: List<ReaderAnnotation> = emptyList(),
     val allAnnotations: List<ReaderAnnotation> = emptyList(),
@@ -143,5 +144,6 @@ data class ReaderUiState(
     val pendingWidgetAction: String? = null,
     val pendingWidgetDocId: String? = null,
     val pendingWidgetNoteId: String? = null,
-    val pendingImportOnStart: Boolean = false
+    val pendingImportOnStart: Boolean = false,
+    val readingInterest: String = "Books & Novels"
 )

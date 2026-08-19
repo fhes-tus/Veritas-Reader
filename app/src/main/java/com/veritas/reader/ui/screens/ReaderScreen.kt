@@ -2,9 +2,17 @@ package com.veritas.reader.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.ReplacementSpan
+import android.text.style.StrikethroughSpan
+import android.text.style.StyleSpan
+import android.text.style.TypefaceSpan
 import android.view.ActionMode
 import android.view.GestureDetector
 import android.view.Menu
@@ -12,6 +20,10 @@ import android.view.MenuItem
 import android.view.MotionEvent
 import android.widget.TextView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import com.veritas.reader.aiAssistantIcon
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -21,6 +33,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -43,7 +56,10 @@ import androidx.compose.foundation.gestures.DraggableAnchors
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.anchoredDraggable
 import androidx.compose.foundation.gestures.animateTo
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.runtime.SideEffect
@@ -61,6 +77,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -70,6 +87,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -101,10 +119,28 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.BookmarkRemove
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.TheaterComedy
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -114,6 +150,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
@@ -145,7 +184,9 @@ import com.veritas.reader.PlaybackActions
 import com.veritas.reader.PlaybackService
 import com.veritas.reader.ReaderAnnotation
 import com.veritas.reader.ReaderDocument
+import com.veritas.reader.ReaderPageRange
 import com.veritas.reader.ReaderPart
+import com.veritas.reader.ReaderPartSentenceRange
 import com.veritas.reader.ReaderSettings
 import com.veritas.reader.CoverExtractor
 import com.veritas.reader.ReaderTextModelCache
@@ -172,6 +213,7 @@ import com.veritas.reader.openPlayStoreForPackage
 import kotlinx.coroutines.delay
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.veritas.reader.ui.OnboardingController
+import com.veritas.reader.ui.rememberSliderHaptics
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -205,6 +247,25 @@ data class ReaderScreenState(
     val voices: List<TtsVoiceOption>,
     val readerMode: ReaderMode
 )
+
+data class ReaderPageItem(
+    val pageNumber: Int,
+    val text: String,
+    val sentenceStartIndex: Int,
+    val sentenceEndIndexExclusive: Int,
+    val sentenceRanges: List<ReaderPartSentenceRange>
+) {
+    fun toReaderPart(partIndex: Int = 0): ReaderPart {
+        return ReaderPart(
+            index = partIndex,
+            pageRange = ReaderPageRange(partIndex, pageNumber, pageNumber),
+            sentenceStartIndex = sentenceStartIndex,
+            sentenceEndIndexExclusive = sentenceEndIndexExclusive,
+            text = text,
+            sentenceRanges = sentenceRanges
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -320,6 +381,106 @@ fun ReaderScreen(
     val readerModel = remember(document.rawText, document.pageCount, document.chunks.size) {
         ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
     }
+
+    val totalPages = remember(readerModel) { readerModel.pageCount.coerceAtLeast(1) }
+    val pageItems = remember(readerModel) {
+        // Bucket the sentences by page once. This used to run a full `filter` over
+        // every sentence for each page, so a 1,624-page book with 27,184 sentences
+        // did ~44 million comparisons inside `remember` — on the main thread, during
+        // composition — which is why opening a large PDF stalled for half a minute.
+        val sentencesByPage = readerModel.sentences.groupBy { it.pageNumber }
+        val partsByPage = HashMap<Int, ReaderPart>()
+        (1..totalPages).map { pageNum ->
+            val pageSentences = sentencesByPage[pageNum].orEmpty()
+            if (pageSentences.isNotEmpty()) {
+                val textBuilder = StringBuilder()
+                val ranges = mutableListOf<ReaderPartSentenceRange>()
+                pageSentences.forEachIndexed { i, sentence ->
+                    val sep = if (i == 0) "" else if (sentence.separatorBefore.isNotEmpty()) sentence.separatorBefore else " "
+                    textBuilder.append(sep)
+                    val start = textBuilder.length
+                    textBuilder.append(sentence.text)
+                    val end = textBuilder.length
+                    ranges.add(ReaderPartSentenceRange(sentence.index, start, end))
+                }
+                val pageText = textBuilder.toString()
+                ReaderPageItem(
+                    pageNumber = pageNum,
+                    text = pageText,
+                    sentenceStartIndex = pageSentences.first().index,
+                    sentenceEndIndexExclusive = pageSentences.last().index + 1,
+                    sentenceRanges = ranges
+                )
+            } else {
+                val part = partsByPage.getOrPut(pageNum) {
+                    readerModel.parts.firstOrNull { pageNum in it.pageRange.startPage..it.pageRange.endPage }
+                        ?: readerModel.parts.getOrNull(pageNum - 1)
+                        ?: return@getOrPut readerModel.parts.first()
+                }
+                    ?: readerModel.parts.firstOrNull()
+                if (part != null) {
+                    ReaderPageItem(
+                        pageNumber = pageNum,
+                        text = part.text,
+                        sentenceStartIndex = part.sentenceStartIndex,
+                        sentenceEndIndexExclusive = part.sentenceEndIndexExclusive,
+                        sentenceRanges = part.sentenceRanges
+                    )
+                } else {
+                    ReaderPageItem(
+                        pageNumber = pageNum,
+                        text = "",
+                        sentenceStartIndex = 0,
+                        sentenceEndIndexExclusive = 0,
+                        sentenceRanges = emptyList()
+                    )
+                }
+            }
+        }
+    }
+
+    val currentPageNumber = remember(readerModel.sentences, currentIndex) {
+        readerModel.sentences.getOrNull(currentIndex)?.pageNumber ?: 1
+    }
+    val pagerState = rememberPagerState(
+        initialPage = (currentPageNumber - 1).coerceIn(0, (pageItems.size - 1).coerceAtLeast(0))
+    ) { pageItems.size.coerceAtLeast(1) }
+
+    // TTS playback auto-turn while playing or jump from outline/bookmark
+    LaunchedEffect(currentPageNumber, isPlaying) {
+        val targetPage = (currentPageNumber - 1).coerceIn(0, (pageItems.size - 1).coerceAtLeast(0))
+        if (pagerState.currentPage != targetPage && !pagerState.isScrollInProgress) {
+            if (isPlaying) {
+                pagerState.animateScrollToPage(
+                    page = targetPage,
+                    animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)
+                )
+            } else {
+                val currentSentencePage = readerModel.sentences.getOrNull(currentIndex)?.pageNumber ?: 1
+                val pagerPage = pageItems.getOrNull(pagerState.currentPage)?.pageNumber ?: 1
+                if (currentSentencePage != pagerPage) {
+                    pagerState.scrollToPage(targetPage)
+                }
+            }
+        }
+    }
+
+    // Manual page swipe -> update playback sentence so it stays on the flipped page smoothly
+    LaunchedEffect(pagerState) {
+        androidx.compose.runtime.snapshotFlow { pagerState.settledPage }
+            .collect { pageIdx ->
+                if (!pagerState.isScrollInProgress) {
+                    val targetPageItem = pageItems.getOrNull(pageIdx)
+                    if (targetPageItem != null && !isPlaying) {
+                        val currentSentencePage = readerModel.sentences.getOrNull(currentIndex)?.pageNumber ?: 1
+                        if (currentSentencePage != targetPageItem.pageNumber) {
+                            onSentenceClick(targetPageItem.sentenceStartIndex)
+                        }
+                    }
+                }
+            }
+    }
+
     val currentPart = readerModel.partForSentence(currentIndex)
     val currentPartIndex = currentPart?.index ?: 0
     val progress =
@@ -398,17 +559,17 @@ fun ReaderScreen(
                             onSearchQueryChange("")
                         }
                     }
-                ) { Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface) }
+                ) { Icon(Icons.Outlined.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface) }
                 IconButton(
                     onClick = onOpenDocumentNotes
-                ) { Icon(Icons.Default.Edit, contentDescription = "Notes", tint = MaterialTheme.colorScheme.onSurface) }
+                ) { Icon(Icons.Outlined.EditNote, contentDescription = "Booknotes", tint = MaterialTheme.colorScheme.onSurface) }
                 IconButton(
                     onClick = { showOutline = true }
-                ) { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "Outline", tint = MaterialTheme.colorScheme.onSurface) }
+                ) { Icon(Icons.Outlined.MenuBook, contentDescription = "Outline", tint = MaterialTheme.colorScheme.onSurface) }
                 Box {
                     IconButton(
                         onClick = { showTools = true }
-                    ) { Icon(Icons.Default.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onSurface) }
+                    ) { Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onSurface) }
                     ReaderToolsMenu(
                         expanded = showTools,
                         onDismiss = { showTools = false },
@@ -495,377 +656,323 @@ fun ReaderScreen(
                         }
                     }
             ) {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 14.dp),
-                    contentPadding = PaddingValues(bottom = 450.dp),
-                    state = listState,
-                    verticalArrangement = Arrangement.spacedBy(0.dp)
-                ) {
-                    item {
-                        val context = LocalContext.current
-                        val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id.orEmpty()) }
-                        val coverBitmap = remember(coverFile) {
-                            coverFile?.takeIf { it.exists() }?.let { file ->
-                                runCatching { android.graphics.BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-                            }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    pageSpacing = 16.dp,
+                    key = { pageItems.getOrNull(it)?.pageNumber ?: it }
+                ) { pageIndex ->
+                    val pageItem = pageItems.getOrNull(pageIndex)
+                    if (pageItem == null) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Page not found", style = MaterialTheme.typography.bodyMedium)
                         }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                    } else {
+                        val pageNumber = pageItem.pageNumber
+                        val part = remember(pageItem) { pageItem.toReaderPart(pageIndex) }
+
+                        val sentenceBackground =
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                        val highlightBackground = MaterialTheme.colorScheme.tertiaryContainer
+                        val feedbackBackground =
+                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
+                        val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
+                        val activeSentenceColor = sentenceBackground.toArgb()
+                        val highlightColor = highlightBackground.toArgb()
+                        val feedbackColor = feedbackBackground.toArgb()
+                        val searchMatchColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f).toArgb()
+                        val activeSearchMatchColor = MaterialTheme.colorScheme.primaryContainer.toArgb()
+
+                        val bookmarkedSentenceIndexes = remember(annotations) {
+                            annotations
+                                .filter { it.type == AnnotationType.BOOKMARK }
+                                .map { it.chunkIndex }
+                                .toSet()
+                        }
+                        val bookmarkedSentences = remember(annotations) {
+                            annotations
+                                .filter { it.type == AnnotationType.BOOKMARK }
+                                .associate { it.chunkIndex to (it.highlightColor ?: "#FFE082") }
+                        }
+                        val bookmarked =
+                            annotations.any { it.type == AnnotationType.BOOKMARK && it.chunkIndex in part.sentenceStartIndex until part.sentenceEndIndexExclusive }
+                        val note =
+                            annotations.firstOrNull { it.type == AnnotationType.NOTE && it.chunkIndex == currentIndex }
+
+                        val renderedPage = remember(
+                            part.text,
+                            currentIndex,
+                            isPlaying,
+                            feedbackSentenceIndex,
+                            bookmarkedSentences,
+                            searchMatches,
+                            searchCursor,
+                            activeSentenceColor,
+                            highlightColor,
+                            feedbackColor,
+                            searchMatchColor,
+                            activeSearchMatchColor
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(120.dp)
-                                    .height(160.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
-                                    .then(
-                                        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                                            with(sharedTransitionScope) {
-                                                Modifier.sharedElement(
-                                                    sharedContentState = rememberSharedContentState(key = "cover_${document.id}"),
-                                                    animatedVisibilityScope = animatedVisibilityScope
-                                                )
-                                            }
-                                        } else Modifier
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (coverBitmap != null) {
-                                    androidx.compose.foundation.Image(
-                                        bitmap = coverBitmap.asImageBitmap(),
-                                        contentDescription = "Cover",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                    )
-                                } else {
-                                    Text("📖", fontSize = 48.sp)
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = document.title,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurface
+                            buildReaderPartSpannable(
+                                part = part,
+                                activeSentenceIndex = currentIndex,
+                                feedbackSentenceIndex = feedbackSentenceIndex,
+                                highlightedSentences = bookmarkedSentences,
+                                searchMatches = searchMatches,
+                                searchCursor = searchCursor,
+                                activeSentenceColor = activeSentenceColor,
+                                defaultHighlightColor = highlightColor,
+                                feedbackColor = feedbackColor,
+                                searchMatchColor = searchMatchColor,
+                                activeSearchMatchColor = activeSearchMatchColor
                             )
-                            Spacer(modifier = Modifier.height(24.dp))
                         }
-                    }
-                    // STABLE key on purpose: keying by part index destroyed the AndroidView
-                    // TextView every section change. If that TextView held focus (text was
-                    // selected), removeViewInLayout triggered a framework focus hunt into the
-                    // Compose view mid-teardown and crashed the app. Reusing one item (update
-                    // rewrites the text) means the focusable view is never removed mid-read.
-                    item(key = "reader-part") {
-                        val part = currentPart
-                        if (part == null) {
-                            Text("No readable text found.", modifier = Modifier.padding(18.dp))
-                        } else {
-                            val sentenceBackground =
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                            val highlightBackground = MaterialTheme.colorScheme.tertiaryContainer
-                            val feedbackBackground =
-                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
-                            val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
-                            val activeSentenceColor = sentenceBackground.toArgb()
-                            val highlightColor = highlightBackground.toArgb()
-                            val feedbackColor = feedbackBackground.toArgb()
-                            val searchMatchColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f).toArgb()
-                            val activeSearchMatchColor = MaterialTheme.colorScheme.primaryContainer.toArgb()
-                            val activeRange =
-                                part.sentenceRanges.firstOrNull { it.sentenceIndex == currentIndex }
-                            LaunchedEffect(
-                                part.index,
-                                currentIndex,
-                                activeRange?.start,
-                                activeRange?.endExclusive,
-                                selectedTextView,
-                                partListItemIndex,
-                                readerSettings.fontSizeSp,
-                                scrollTick
-                            ) {
-                                val textView = selectedTextView
-                                val range = activeRange
-                                if (textView != null && range != null) {
-                                    val topPaddingPx = with(density) { 120.dp.toPx().roundToInt() }
 
-                                    // Resolve the scroll offset of the line holding the active
-                                    // sentence so it lands ~120dp below the top of the viewport.
-                                    fun activeLineOffset(): Int? {
-                                        val layout = textView.layout ?: return null
-                                        val textLength = textView.text?.length ?: part.text.length
-                                        val targetLine = layout.getLineForOffset(
-                                            range.start.coerceIn(0, textLength.coerceAtLeast(0))
-                                        )
-                                        val targetTop = layout.getLineTop(targetLine).coerceAtLeast(0)
-                                        return (targetTop - topPaddingPx).coerceAtLeast(0)
-                                    }
+                        val pageOffset = ((pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction).coerceIn(-1f, 1f)
+                        val absOffset = kotlin.math.abs(pageOffset)
 
-                                    // A freshly composed section renders one large TextView
-                                    // whose layout is not measured for a frame or two. Poll
-                                    // (bounded) until the layout exists so the very first
-                                    // scroll lands instead of leaving the page stuck at the
-                                    // top of the section.
-                                    var waited = 0
-                                    while (textView.layout == null && waited < 800) {
-                                        delay(32)
-                                        waited += 32
-                                    }
-                                    activeLineOffset()?.let { listState.animateScrollToItem(partListItemIndex, it) }
-                                    // Re-check after the layout settles (font metrics, line
-                                    // wrapping) so we land precisely on the active sentence.
-                                    delay(140)
-                                    activeLineOffset()?.let { listState.animateScrollToItem(partListItemIndex, it) }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val scale = 0.97f + 0.03f * (1f - absOffset)
+                                    scaleX = scale
+                                    scaleY = scale
+                                    alpha = (0.6f + 0.4f * (1f - absOffset)).coerceIn(0f, 1f)
+                                    cameraDistance = 18f * density.density
+                                    rotationY = pageOffset * -8f
                                 }
-                            }
-                            val bookmarkedSentenceIndexes = remember(annotations) {
-                                annotations
-                                    .filter { it.type == AnnotationType.BOOKMARK }
-                                    .map { it.chunkIndex }
-                                    .toSet()
-                            }
-                            val bookmarkedSentences = remember(annotations) {
-                                annotations
-                                    .filter { it.type == AnnotationType.BOOKMARK }
-                                    .associate { it.chunkIndex to (it.highlightColor ?: "#FFE082") }
-                            }
-                            val bookmarked =
-                                annotations.any { it.type == AnnotationType.BOOKMARK && it.chunkIndex in part.sentenceStartIndex until part.sentenceEndIndexExclusive }
-                            val note =
-                                annotations.firstOrNull { it.type == AnnotationType.NOTE && it.chunkIndex == currentIndex }
-                            val renderedPart = remember(
-                                part.text,
-                                currentIndex,
-                                isPlaying,
-                                feedbackSentenceIndex,
-                                bookmarkedSentences,
-                                searchMatches,
-                                searchCursor,
-                                activeSentenceColor,
-                                highlightColor,
-                                feedbackColor,
-                                searchMatchColor,
-                                activeSearchMatchColor
-                            ) {
-                                buildReaderPartSpannable(
-                                    part = part,
-                                    activeSentenceIndex = currentIndex,
-                                    feedbackSentenceIndex = feedbackSentenceIndex,
-                                    highlightedSentences = bookmarkedSentences,
-                                    searchMatches = searchMatches,
-                                    searchCursor = searchCursor,
-                                    activeSentenceColor = activeSentenceColor,
-                                    defaultHighlightColor = highlightColor,
-                                    feedbackColor = feedbackColor,
-                                    searchMatchColor = searchMatchColor,
-                                    activeSearchMatchColor = activeSearchMatchColor
-                                )
-                            }
-
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
                             Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = MaterialTheme.shapes.small,
-                                color = MaterialTheme.colorScheme.surface,
-                                tonalElevation = 1.dp
-                            ) {
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
+                            ),
+                            tonalElevation = 2.dp,
+                            shadowElevation = 3.dp
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
                                 Column(
-                                    modifier = Modifier.padding(
-                                        horizontal = 16.dp,
-                                        vertical = (12 + readerSettings.sectionSpacingDp / 4).dp
-                                    ),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (readerSettings.showSectionNumbers) {
-                                            Text(
-                                                "Section ${part.index + 1} of ${readerModel.parts.size} • ${if (document.sourceLabel == "PPTX") "slides" else "pages"} ${part.pageRange.startPage}-${part.pageRange.endPage}",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                        } else {
-                                            Spacer(modifier = Modifier.weight(1f))
-                                        }
-                                        if (bookmarked) AnnotationPill(Icons.Filled.Bookmark, "Bookmarked")
-                                        if (note != null) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            AnnotationPill(Icons.Filled.EditNote, "Has note")
-                                        }
-                                    }
-
-                                    // Drop any lingering native selection when the section
-                                    // changes — the reused TextView is about to show new text.
-                                    LaunchedEffect(part.index) {
-                                        selectedTextSelection = null
-                                        clearNativeTextSelection(selectedTextView)
-                                        selectedTextView?.clearFocus()
-                                    }
-                                    AndroidView(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .onGloballyPositioned { OnboardingController.updateBounds("reader_text_view", it) },
-                                        factory = { viewContext ->
-                                            TextView(viewContext).apply {
-                                                setTextIsSelectable(true)
-                                                includeFontPadding = true
-                                            }
-                                        },
-                                        onRelease = { released ->
-                                            // Never let a focused view be torn down (framework
-                                            // focus-hunt crash on removal).
-                                            runCatching {
-                                                clearNativeTextSelection(released)
-                                                released.clearFocus()
-                                            }
-                                        },
-                                        update = { textView ->
-                                            // This item only ever renders the current part, so
-                                            // this TextView is always the active one. Assign it
-                                            // unconditionally so the auto-scroll effect never
-                                            // ends up holding a null/stale reference after a
-                                            // bookmark, text action, or mode switch.
-                                            selectedTextView = textView
-                                            textView.text = renderedPart
-                                            textView.setTextColor(textColor)
-                                            textView.textSize = readerSettings.fontSizeSp.toFloat()
-                                            textView.setLineSpacing(
-                                                with(density) { 4.dp.toPx() },
-                                                1.0f
-                                            )
-                                            textView.customSelectionActionModeCallback =
-                                                readerSelectionActionModeCallback(
-                                                    textView = textView,
-                                                    part = part,
-                                                    documentId = document.id,
-                                                    context = context,
-                                                    haptics = haptics,
-                                                    bookmarkedSentenceIndexes = bookmarkedSentenceIndexes,
-                                                    onSelectionChanged = { selectedTextSelection = it },
-                                                    onSearchQueryChange = {
-                                                        onSearchQueryChange(it)
-                                                        showSearch = true
-                                                    },
-                                                    onToggleBookmark = { idx ->
-                                                        onToggleBookmark(idx)
-                                                        showBookmarks = true
-                                                    },
-                                                    onHighlightSelection = { selection ->
-                                                        colorPaletteTargetIndexes = selection.sentenceIndexes
-                                                    },
-                                                    onEditNotes = onEditNotes,
-                                                    onTranslateSelection = onTranslateSelection,
-                                                    onCopySelection = onCopySelection,
-                                                    onGoogleSelection = onGoogleSelection,
-                                                    onShareSelection = onShareSelection,
-                                                    onShareSelectionToAi = { selection ->
-                                                        shareToAiSelection = selection
-                                                        shareToAiNoPrompt = false
-                                                        showShareToAiSheet = true
-                                                    },
-                                                    onEditSpeechSelection = onEditSpeechSelection,
-                                                    onEditExtractedSelection = onEditExtractedSelection,
-                                                    onAskAiSelection = onAskAiSelection,
-                                                    onReadSelection = onReadSelection
-                                                )
-                                            val detector = GestureDetector(
-                                                textView.context,
-                                                object : GestureDetector.SimpleOnGestureListener() {
-                                                    override fun onDoubleTap(event: MotionEvent): Boolean {
-                                                        val offset = textView.getOffsetForPosition(
-                                                            event.x,
-                                                            event.y
-                                                        ).coerceIn(0, part.text.length)
-                                                        readerModel.sentenceForPartOffset(
-                                                            part,
-                                                            offset
-                                                        )?.let { range ->
-                                                            haptics.performHapticFeedback(
-                                                                HapticFeedbackType.LongPress
-                                                            )
-                                                            feedbackSentenceIndex =
-                                                                range.sentenceIndex
-                                                            onSentenceDoubleTap(range.sentenceIndex)
-                                                        }
-                                                        return true
-                                                    }
-                                                }
-                                            )
-                                            textView.setOnTouchListener { _, event ->
-                                                detector.onTouchEvent(event)
-                                                false
-                                            }
-                                        }
-                                    )
-
-                                    if (!note?.note.isNullOrBlank()) {
-                                        Card(
-                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                                            shape = MaterialTheme.shapes.small
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(12.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Text(
-                                                    "Note",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                                Text(
-                                                    note.note,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    maxLines = 3,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                    Text(
-                                        "(Section ${part.index + 1} of ${readerModel.parts.size})",
-                                        modifier = Modifier.fillMaxWidth(),
-                                        textAlign = TextAlign.Center,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    // Page Top Header
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.Center,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        IconButton(
-                                            onClick = { onSentenceClick(previousPartStart) },
-                                            enabled = canGoPreviousPart
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.SkipPrevious,
-                                                contentDescription = "Previous Section"
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.width(18.dp))
-                                        IconButton(
-                                            onClick = { onSentenceClick(nextPartStart) },
-                                            enabled = canGoNextPart
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.SkipNext,
-                                                contentDescription = "Next Section"
+                                        Text(
+                                            text = document.title,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (bookmarked) {
+                                                AnnotationPill(Icons.Filled.Bookmark, "Bookmarked")
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                            }
+                                            Text(
+                                                text = "Page $pageNumber of ${pageItems.size}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary
                                             )
                                         }
                                     }
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)
+                                    )
+
+                                    // Scrollable content on page
+                                    val pageScrollState = rememberScrollState()
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                            .verticalScroll(pageScrollState)
+                                            .padding(bottom = 120.dp)
+                                    ) {
+                                        if (pageNumber == 1) {
+                                            val context = LocalContext.current
+                                            val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id.orEmpty()) }
+                                            val coverBitmap = remember(coverFile) {
+                                                coverFile?.takeIf { it.exists() }?.let { file ->
+                                                    runCatching { android.graphics.BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+                                                }
+                                            }
+                                            if (coverBitmap != null) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 10.dp),
+                                                    horizontalArrangement = Arrangement.Center
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .width(72.dp)
+                                                            .height(100.dp)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                    ) {
+                                                        androidx.compose.foundation.Image(
+                                                            bitmap = coverBitmap.asImageBitmap(),
+                                                            contentDescription = "Cover",
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        AndroidView(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .onGloballyPositioned { OnboardingController.updateBounds("reader_text_view", it) },
+                                            factory = { viewContext ->
+                                                TextView(viewContext).apply {
+                                                    setTextIsSelectable(true)
+                                                    includeFontPadding = true
+                                                }
+                                            },
+                                            onRelease = { released ->
+                                                runCatching {
+                                                    clearNativeTextSelection(released)
+                                                    released.clearFocus()
+                                                }
+                                            },
+                                            update = { textView ->
+                                                if (currentPageNumber == pageNumber) {
+                                                    selectedTextView = textView
+                                                }
+                                                textView.text = renderedPage
+                                                textView.setTextColor(textColor)
+                                                textView.textSize = readerSettings.fontSizeSp.toFloat()
+                                                textView.setLineSpacing(
+                                                    with(density) { 5.dp.toPx() },
+                                                    1.1f
+                                                )
+                                                textView.customSelectionActionModeCallback =
+                                                    readerSelectionActionModeCallback(
+                                                        textView = textView,
+                                                        part = part,
+                                                        documentId = document.id,
+                                                        context = context,
+                                                        haptics = haptics,
+                                                        bookmarkedSentenceIndexes = bookmarkedSentenceIndexes,
+                                                        onSelectionChanged = { selectedTextSelection = it },
+                                                        onSearchQueryChange = {
+                                                            onSearchQueryChange(it)
+                                                            showSearch = true
+                                                        },
+                                                        onToggleBookmark = { idx ->
+                                                            onToggleBookmark(idx)
+                                                        },
+                                                        onHighlightSelection = { selection ->
+                                                            colorPaletteTargetIndexes = selection.sentenceIndexes
+                                                        },
+                                                        onEditNotes = onEditNotes,
+                                                        onTranslateSelection = onTranslateSelection,
+                                                        onCopySelection = onCopySelection,
+                                                        onGoogleSelection = onGoogleSelection,
+                                                        onShareSelection = onShareSelection,
+                                                        onShareSelectionToAi = { selection ->
+                                                            shareToAiSelection = selection
+                                                            shareToAiNoPrompt = false
+                                                            showShareToAiSheet = true
+                                                        },
+                                                        onEditSpeechSelection = onEditSpeechSelection,
+                                                        onEditExtractedSelection = onEditExtractedSelection,
+                                                        onAskAiSelection = onAskAiSelection,
+                                                        onReadSelection = onReadSelection
+                                                    )
+                                                val detector = GestureDetector(
+                                                    textView.context,
+                                                    object : GestureDetector.SimpleOnGestureListener() {
+                                                        override fun onDoubleTap(event: MotionEvent): Boolean {
+                                                            val offset = textView.getOffsetForPosition(
+                                                                event.x,
+                                                                event.y
+                                                            ).coerceIn(0, part.text.length)
+                                                            val hitRange = part.sentenceRanges.firstOrNull { offset in it.start until it.endExclusive }
+                                                            hitRange?.let { range ->
+                                                                haptics.performHapticFeedback(
+                                                                    HapticFeedbackType.Confirm
+                                                                )
+                                                                feedbackSentenceIndex = range.sentenceIndex
+                                                                onSentenceDoubleTap(range.sentenceIndex)
+                                                            }
+                                                            return true
+                                                        }
+                                                    }
+                                                )
+                                                textView.setOnTouchListener { _, event ->
+                                                    detector.onTouchEvent(event)
+                                                    false
+                                                }
+                                            }
+                                        )
+
+                                        if (!note?.note.isNullOrBlank()) {
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                                shape = MaterialTheme.shapes.small
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier.padding(12.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Text(
+                                                        "Note",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        note.note,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        maxLines = 3,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
+
+                                // Tactile Book Spine Crease along left edge
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .width(10.dp)
+                                        .fillMaxHeight()
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                listOf(
+                                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f),
+                                                    Color.Transparent
+                                                )
+                                            )
+                                        )
+                                )
                             }
                         }
                     }
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
                 }
+            }
+
                 if (showSearch) {
                     SearchPanel(
                         query = searchQuery,
@@ -908,7 +1015,15 @@ fun ReaderScreen(
             onOpenAudioMode = { onReaderModeChange(ReaderMode.LISTEN) },
             voices = state.voices,
             voiceSettings = state.voiceSettings,
-            onVoiceSelected = onVoiceSelected
+            onVoiceSelected = onVoiceSelected,
+            documentId = document.id,
+            onToggleDocumentMode = {
+                if (hasCanvas) {
+                    onOpenCanvas()
+                } else {
+                    onReaderModeChange(ReaderMode.ORIGINAL)
+                }
+            }
         )
     }
 
@@ -964,6 +1079,12 @@ fun ReaderScreen(
     }
 
     if (colorPaletteTargetIndexes != null) {
+        val targetIndexes = colorPaletteTargetIndexes ?: emptyList()
+        val existingBookmarks = remember(targetIndexes, state.annotations) {
+            state.annotations.filter { it.type == AnnotationType.BOOKMARK && targetIndexes.contains(it.chunkIndex) }
+        }
+        val isAlreadyBookmarked = existingBookmarks.isNotEmpty()
+        val currentHex = existingBookmarks.firstOrNull()?.highlightColor
         val colorSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { colorPaletteTargetIndexes = null },
@@ -977,14 +1098,44 @@ fun ReaderScreen(
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (isAlreadyBookmarked) "Bookmark Options" else "Highlight Passage",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (isAlreadyBookmarked) {
+                        OutlinedButton(
+                            onClick = {
+                                targetIndexes.forEach { idx ->
+                                    if (state.annotations.any { it.chunkIndex == idx && it.type == AnnotationType.BOOKMARK }) {
+                                        onToggleBookmark(idx)
+                                    }
+                                }
+                                colorPaletteTargetIndexes = null
+                            },
+                            shape = RoundedCornerShape(50),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(
+                                Icons.Outlined.BookmarkRemove,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Remove")
+                        }
+                    }
+                }
                 Text(
-                    text = "Highlight Passage",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Select a highlight color:",
+                    text = if (isAlreadyBookmarked) "Select another color to update bookmark:" else "Select a highlight color:",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1004,18 +1155,33 @@ fun ReaderScreen(
                         "#FFCC80" to "Orange"
                     )
                     colors.forEach { (hex, name) ->
+                        val isSelectedColor = isAlreadyBookmarked && (currentHex.equals(hex, ignoreCase = true) || (currentHex.isNullOrBlank() && hex == "#FFE082"))
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
                                 .background(Color(android.graphics.Color.parseColor(hex)), CircleShape)
-                                .border(2.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), CircleShape)
+                                .border(
+                                    width = if (isSelectedColor) 3.dp else 2.dp,
+                                    color = if (isSelectedColor) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    shape = CircleShape
+                                )
                                 .clickable {
                                     colorPaletteTargetIndexes?.let { indexes ->
                                         onAddBookmarkGroup(indexes, hex)
                                     }
                                     colorPaletteTargetIndexes = null
-                                }
-                        )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelectedColor) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = "Selected color",
+                                    tint = Color.Black.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1336,7 +1502,8 @@ private fun ReaderToolsMenu(
             fontWeight = FontWeight.Bold
         )
         DropdownMenuItem(
-            text = { Text("🆘 AI Assistant: ${askAiSettings.assistantLabel}") },
+            text = { Text("AI Assistant: ${askAiSettings.assistantLabel}") },
+            leadingIcon = { Icon(aiAssistantIcon(askAiSettings.assistantId), contentDescription = null, modifier = Modifier.size(20.dp)) },
             onClick = { showAiChooser = !showAiChooser }
         )
         if (showAiChooser) {
@@ -1344,6 +1511,7 @@ private fun ReaderToolsMenu(
                 val installedPackage = installedPackageForOption(context, option)
                 val isSelected = askAiSettings.assistantId == option.id
                 DropdownMenuItem(
+                    leadingIcon = { Icon(aiAssistantIcon(option.id), contentDescription = null, modifier = Modifier.size(18.dp)) },
                     text = {
                         Text(
                             "${if (isSelected) "✓ " else ""}${option.label}${if (installedPackage == null) " • install" else ""}",
@@ -1363,7 +1531,8 @@ private fun ReaderToolsMenu(
         }
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.AI_APP_HANDOFF),
-            label = "🤖 Ask AI",
+            label = "Ask AI",
+            leadingIcon = Icons.Outlined.AutoAwesome,
             onClick = {
                 choose {
                     onOpenAskAi(false)
@@ -1372,12 +1541,14 @@ private fun ReaderToolsMenu(
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.AI_APP_HANDOFF),
-            label = "🆘 AI Ask current part",
+            label = "AI Ask current part",
+            leadingIcon = Icons.Outlined.Psychology,
             onClick = { choose(onAskCurrentSection) }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.OFFLINE_STUDY_TOOLS),
-            label = "🤖 AI Study tools",
+            label = "AI Study tools",
+            leadingIcon = Icons.Outlined.School,
             onClick = {
                 choose {
                     onOpenStudyTools()
@@ -1386,12 +1557,14 @@ private fun ReaderToolsMenu(
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.TRANSLATION_HANDOFF),
-            label = "📨 Translation handoff",
+            label = "Translation handoff",
+            leadingIcon = Icons.Outlined.Translate,
             onClick = { choose(onOpenTranslationTools) }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.EXTRACTED_TEXT_EDITOR),
-            label = "🗒️ Edit extracted text",
+            label = "Edit extracted text",
+            leadingIcon = Icons.Outlined.EditNote,
             onClick = { choose(onOpenTextEditor) }
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
@@ -1403,28 +1576,36 @@ private fun ReaderToolsMenu(
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.VOICE_STUDIO),
-            label = "🎙️ Voice and language",
+            label = "Voice and language",
+            leadingIcon = Icons.Outlined.RecordVoiceOver,
             onClick = { choose(onOpenVoiceStudio) }
         )
         DropdownMenuItem(
-            text = { Text(if (narrationEnabled) "🎭 Narration mode on" else "🎭 Narration mode") },
-            onClick = { choose(onOpenNarrationStudio) })
+            text = { Text(if (narrationEnabled) "Narration mode on" else "Narration mode") },
+            leadingIcon = { Icon(Icons.Outlined.TheaterComedy, contentDescription = null) },
+            onClick = { choose(onOpenNarrationStudio) }
+        )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.PRONUNCIATION_RULES),
-            label = "🗣️ Pronunciation rules",
+            label = "Pronunciation rules",
+            leadingIcon = Icons.Outlined.RecordVoiceOver,
             onClick = { choose(onOpenPronunciationRules) }
         )
         DropdownMenuItem(
-            text = { Text("🎨 Reader appearance") },
-            onClick = { choose(onOpenReaderSettings) })
+            text = { Text("Reader appearance") },
+            leadingIcon = { Icon(Icons.Outlined.Palette, contentDescription = null) },
+            onClick = { choose(onOpenReaderSettings) }
+        )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT),
-            label = "● Record sound file",
+            label = "Record sound file",
+            leadingIcon = Icons.Outlined.GraphicEq,
             onClick = { choose(onStartRecord) }
         )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT),
-            label = "📤 Export audio",
+            label = "Export audio",
+            leadingIcon = Icons.Outlined.FileDownload,
             onClick = { choose(onExportAudio) }
         )
     }
@@ -1466,8 +1647,18 @@ fun SleepTimerDialog(
     onCancelTimer: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    var tickerNow by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(activeTimer) {
+        if (activeTimer != null && (activeTimer.stopAtEndOfSection || activeTimer.isActive())) {
+            while (true) {
+                kotlinx.coroutines.delay(1000L)
+                tickerNow = System.currentTimeMillis()
+            }
+        }
+    }
+
     var selectedDurationMillis by remember {
-        mutableLongStateOf(activeTimer?.durationMillis ?: 15L * 60L * 1000L)
+        mutableLongStateOf(activeTimer?.durationMillis?.takeIf { it > 0L } ?: (15L * 60L * 1000L))
     }
     var selectedAction by remember {
         mutableStateOf(activeTimer?.action ?: VeritasSleepTimerAction.PAUSE)
@@ -1475,14 +1666,20 @@ fun SleepTimerDialog(
     var modeBySection by remember {
         mutableStateOf(activeTimer?.stopAtEndOfSection ?: false)
     }
-    val activeLabel = activeTimer?.takeIf { it.isActive() }?.menuLabel()
+    val isTimerActive = activeTimer != null && (activeTimer.stopAtEndOfSection || activeTimer.isActive(tickerNow))
+    val activeLabel = activeTimer?.takeIf { it.stopAtEndOfSection || it.isActive(tickerNow) }?.menuLabel(tickerNow)
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Sleep timer") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text("Sleep timer")
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (activeLabel != null) {
+                if (isTimerActive && activeLabel != null) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = VeritasPackStyle.cardShape(),
@@ -1492,15 +1689,31 @@ fun SleepTimerDialog(
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                         )
                     ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(activeLabel, fontWeight = FontWeight.Black)
-                            Text(
-                                activeTimer.action.label,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(activeLabel, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    activeTimer.action.label,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = onCancelTimer,
+                                shape = VeritasPackStyle.chipShape(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("Cancel timer")
+                            }
                         }
                     }
                 }
@@ -1586,23 +1799,12 @@ fun SleepTimerDialog(
                 },
                 shape = VeritasPackStyle.chipShape()
             ) {
-                Text("Start")
+                Text(if (isTimerActive) "Update timer" else "Start timer")
             }
         },
         dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (activeTimer != null) {
-                    OutlinedButton(
-                        onClick = {
-                            onCancelTimer()
-                            onDismiss()
-                        },
-                        shape = VeritasPackStyle.chipShape()
-                    ) {
-                        Text("Cancel timer")
-                    }
-                }
-                TextButton(onClick = onDismiss, shape = VeritasPackStyle.chipShape()) { Text("Close") }
+            TextButton(onClick = onDismiss, shape = VeritasPackStyle.chipShape()) {
+                Text("Close")
             }
         }
     )
@@ -1666,6 +1868,12 @@ private fun buildReaderPartSpannable(
     activeSearchMatchColor: Int
 ): SpannableString {
     val spannable = SpannableString(part.text)
+    // Render inline markdown (bold/italic/headings/etc.) that pasted text often carries,
+    // so the reader shows formatting instead of literal ** and ## markers. Crucially the
+    // delimiter characters are kept in the text and only drawn zero-width, so every
+    // downstream character offset (TTS word highlight, selection→sentence mapping, search)
+    // still lines up with part.text.
+    applyMarkdownFormatting(spannable, part.text)
     fun addBackground(start: Int, endExclusive: Int, color: Int) {
         if (start < endExclusive && start in 0..part.text.length && endExclusive in 0..part.text.length) {
             spannable.setSpan(
@@ -1700,6 +1908,180 @@ private fun buildReaderPartSpannable(
         }
     }
     return spannable
+}
+
+/**
+ * A span that occupies its character range but renders nothing and takes zero width — used to
+ * hide markdown delimiters (** __ ~~ ` #) without deleting them, so character offsets are
+ * preserved for the reader's highlight/selection/search machinery.
+ */
+private class HiddenMarkupSpan : ReplacementSpan() {
+    override fun getSize(
+        paint: Paint,
+        text: CharSequence?,
+        start: Int,
+        end: Int,
+        fm: Paint.FontMetricsInt?
+    ): Int = 0
+
+    override fun draw(
+        canvas: Canvas,
+        text: CharSequence,
+        start: Int,
+        end: Int,
+        x: Float,
+        top: Int,
+        y: Int,
+        bottom: Int,
+        paint: Paint
+    ) {
+        // Intentionally draw nothing.
+    }
+}
+
+private fun SpannableString.hideMarkup(start: Int, end: Int) {
+    if (start in 0 until end && end <= length) {
+        setSpan(HiddenMarkupSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
+private fun SpannableString.styleRange(span: Any, start: Int, end: Int) {
+    if (start in 0 until end && end <= length) {
+        setSpan(span, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
+/**
+ * Applies a conservative subset of markdown (ATX headings, **bold**, *italic*, `code`,
+ * ~~strikethrough~~) as visual spans over [text]. Only well-formed, clearly-delimited markers
+ * are styled; anything ambiguous (a lone asterisk, a bullet "* item", "2 * 3") is left as plain
+ * text so ordinary prose is never mangled.
+ */
+private fun applyMarkdownFormatting(spannable: SpannableString, text: String) {
+    if (text.isEmpty()) return
+    var lineStart = 0
+    while (lineStart <= text.length) {
+        val newline = text.indexOf('\n', lineStart)
+        val lineEnd = if (newline == -1) text.length else newline
+        applyMarkdownLine(spannable, text, lineStart, lineEnd)
+        if (newline == -1) break
+        lineStart = newline + 1
+    }
+}
+
+private fun applyMarkdownLine(spannable: SpannableString, text: String, lineStart: Int, lineEnd: Int) {
+    if (lineStart >= lineEnd) return
+    // ATX heading: optional leading spaces, 1–6 '#', then a space and the heading text.
+    var cursor = lineStart
+    while (cursor < lineEnd && text[cursor] == ' ') cursor++
+    var hashes = 0
+    while (cursor < lineEnd && text[cursor] == '#' && hashes < 6) {
+        cursor++
+        hashes++
+    }
+    if (hashes in 1..6 && cursor < lineEnd && text[cursor] == ' ') {
+        val contentStart = cursor + 1
+        spannable.hideMarkup(lineStart, contentStart)
+        val relativeSize = when (hashes) {
+            1 -> 1.4f
+            2 -> 1.25f
+            else -> 1.15f
+        }
+        spannable.styleRange(RelativeSizeSpan(relativeSize), contentStart, lineEnd)
+        spannable.styleRange(StyleSpan(Typeface.BOLD), contentStart, lineEnd)
+        applyInlineMarkdown(spannable, text, contentStart, lineEnd)
+        return
+    }
+
+    // Blockquote: starts with '>'
+    if (cursor < lineEnd && text[cursor] == '>') {
+        val quoteStart = if (cursor + 1 < lineEnd && text[cursor + 1] == ' ') cursor + 2 else cursor + 1
+        spannable.hideMarkup(lineStart, quoteStart)
+        spannable.styleRange(StyleSpan(Typeface.ITALIC), quoteStart, lineEnd)
+        applyInlineMarkdown(spannable, text, quoteStart, lineEnd)
+        return
+    }
+
+    val trimmedLine = text.substring(lineStart, lineEnd).trim()
+    // Tabular formatting with monospace for pipe-delimited tables
+    if (trimmedLine.startsWith("|") && trimmedLine.endsWith("|") && trimmedLine.length > 2) {
+        spannable.styleRange(TypefaceSpan("monospace"), lineStart, lineEnd)
+        return
+    }
+
+    // Chapter / section uppercase heading detection
+    if (trimmedLine.length in 4..60 && trimmedLine.any { it.isLetter() } && trimmedLine.all { !it.isLetter() || it.isUpperCase() }) {
+        spannable.styleRange(RelativeSizeSpan(1.15f), lineStart, lineEnd)
+        spannable.styleRange(StyleSpan(Typeface.BOLD), lineStart, lineEnd)
+        return
+    }
+
+    applyInlineMarkdown(spannable, text, lineStart, lineEnd)
+}
+
+private fun applyInlineMarkdown(spannable: SpannableString, text: String, start: Int, end: Int) {
+    var i = start
+    while (i < end) {
+        val c = text[i]
+        when {
+            // **bold**
+            c == '*' && i + 1 < end && text[i + 1] == '*' -> {
+                val close = text.indexOf("**", i + 2)
+                if (close != -1 && close + 2 <= end && close > i + 2) {
+                    spannable.styleRange(StyleSpan(Typeface.BOLD), i + 2, close)
+                    spannable.hideMarkup(i, i + 2)
+                    spannable.hideMarkup(close, close + 2)
+                    i = close + 2
+                    continue
+                }
+            }
+            // ~~strikethrough~~
+            c == '~' && i + 1 < end && text[i + 1] == '~' -> {
+                val close = text.indexOf("~~", i + 2)
+                if (close != -1 && close + 2 <= end && close > i + 2) {
+                    spannable.styleRange(StrikethroughSpan(), i + 2, close)
+                    spannable.hideMarkup(i, i + 2)
+                    spannable.hideMarkup(close, close + 2)
+                    i = close + 2
+                    continue
+                }
+            }
+            // `inline code`
+            c == '`' -> {
+                val close = text.indexOf('`', i + 1)
+                if (close != -1 && close < end && close > i + 1) {
+                    spannable.styleRange(TypefaceSpan("monospace"), i + 1, close)
+                    spannable.hideMarkup(i, i + 1)
+                    spannable.hideMarkup(close, close + 1)
+                    i = close + 1
+                    continue
+                }
+            }
+            // *italic* — only when the delimiters hug non-space text (so bullets "* item"
+            // and arithmetic "2 * 3" are never treated as emphasis).
+            c == '*' && i + 1 < end && !text[i + 1].isWhitespace() -> {
+                var j = i + 1
+                var close = -1
+                while (j < end) {
+                    val cj = text[j]
+                    if (cj == '\n') break
+                    if (cj == '*' && !text[j - 1].isWhitespace()) {
+                        close = j
+                        break
+                    }
+                    j++
+                }
+                if (close > i + 1) {
+                    spannable.styleRange(StyleSpan(Typeface.ITALIC), i + 1, close)
+                    spannable.hideMarkup(i, i + 1)
+                    spannable.hideMarkup(close, close + 1)
+                    i = close + 1
+                    continue
+                }
+            }
+        }
+        i++
+    }
 }
 
 private fun clearNativeTextSelection(textView: TextView?) {
@@ -1810,7 +2192,7 @@ private fun readerSelectionActionModeCallback(
             onSelectionChanged(selection)
             when (item.itemId) {
                 READER_SELECTION_READ_FROM_HERE -> {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                     if (!documentId.isNullOrBlank()) {
                         val intent = Intent(context, PlaybackService::class.java).apply {
                             action = PlaybackActions.ACTION_JUMP_TO
@@ -1931,7 +2313,7 @@ private fun SelectedTextToolbar(
             }
             TextButton(onClick = { onTranslate(); onDismiss() }) {
                 Icon(
-                    imageVector = Icons.Filled.Translate,
+                    imageVector = Icons.Outlined.Translate,
                     contentDescription = "Translate",
                     tint = MaterialTheme.colorScheme.inverseOnSurface,
                     modifier = Modifier.size(20.dp)
@@ -2048,17 +2430,22 @@ private fun SearchPanel(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
             .imePadding(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             IconButton(
                 onClick = {
@@ -2067,7 +2454,7 @@ private fun SearchPanel(
                 }
             ) {
                 Icon(
-                    imageVector = Icons.Default.Close,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Close search",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2083,8 +2470,26 @@ private fun SearchPanel(
                     Text(
                         "Search in document...",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Outlined.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { onQueryChange("") }) {
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = "Clear search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium,
@@ -2093,25 +2498,44 @@ private fun SearchPanel(
                     unfocusedBorderColor = Color.Transparent,
                     disabledBorderColor = Color.Transparent,
                     errorBorderColor = Color.Transparent,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
                 ),
-                shape = RoundedCornerShape(24.dp),
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        Text(
-                            text = if (matchCount > 0) "$currentMatch/$matchCount" else "0/0",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 8.dp)
-                        )
-                    }
-                }
+                shape = RoundedCornerShape(24.dp)
             )
+
+            if (matchCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.padding(horizontal = 2.dp)
+                ) {
+                    Text(
+                        text = "$currentMatch of $matchCount",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            } else if (query.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.padding(horizontal = 2.dp)
+                ) {
+                    Text(
+                        text = "0 found",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                    )
+                }
+            }
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 IconButton(
                     onClick = onPrevious,
@@ -2151,6 +2575,56 @@ private data class SmartOutlineEntry(
 
 private const val MAX_SMART_OUTLINE_SCAN_SENTENCES = 1200
 private const val MAX_SMART_OUTLINE_ENTRIES = 220
+/** How many leading sentences may hold a contents page. */
+private const val MAX_SMART_OUTLINE_TOC_SCAN = 400
+/** How far a contents listing may run past its heading. */
+private const val MAX_SMART_OUTLINE_TOC_SPAN = 120
+/**
+ * The span of sentences occupied by a table of contents, or null if there is none.
+ *
+ * Sentence splitting shreds a contents page: "The Sign of the Four . . . . . 63"
+ * arrives as a chunk reading "1 The Sign of the Four ." with the page number split
+ * away. Nothing about that fragment looks like a contents row any more — but it does
+ * satisfy the numbered-heading rule, so each fragment became its own outline entry
+ * pointing back at the contents page. Excluding the region by position is the only
+ * reliable defence, since the pattern is gone by the time we see it.
+ */
+private fun findContentsRange(chunks: List<String>): IntRange? {
+    val startIndex = chunks.take(MAX_SMART_OUTLINE_TOC_SCAN).indexOfFirst { chunk ->
+        val head = chunk.take(200)
+        head.contains("table of contents", ignoreCase = true) ||
+            chunk.lineSequence().any { it.trim().equals("contents", ignoreCase = true) }
+    }
+    if (startIndex < 0) return null
+
+    // Walk forward while the chunks still look like listing debris: very short, or
+    // leader dots, or a bare number, or a fragment opening with a page number.
+    var end = startIndex
+    var misses = 0
+    var index = startIndex + 1
+    while (index <= chunks.lastIndex && index - startIndex < MAX_SMART_OUTLINE_TOC_SPAN) {
+        val text = chunks[index].replace(Regex("\\s+"), " ").trim()
+        val debris = text.isBlank() ||
+            text.length < 60 ||
+            Regex("^[.\\s\\u00b7\\u2022]+$").matches(text) ||
+            Regex("^\\d{1,4}\\b").containsMatchIn(text) ||
+            Regex("[.\\s]{3,}$").containsMatchIn(text)
+        if (debris) {
+            end = index
+            misses = 0
+        } else {
+            misses++
+            if (misses >= 3) break
+        }
+        index++
+    }
+    return startIndex..end
+}
+
+/** Position markers offered only when a document has no detectable structure. */
+private const val MAX_SMART_OUTLINE_FALLBACK_MARKERS = 40
+/** A weak-signal heading repeating this often is a running header. */
+private const val MAX_OUTLINE_TITLE_REPEATS = 3
 
 @Composable
 private fun SmartOutlineDialog(
@@ -2275,24 +2749,19 @@ private fun SmartOutlineDialog(
                                         fontWeight = if (active || entry.isHeading) FontWeight.Black else FontWeight.SemiBold,
                                         color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                                     )
+                                    // Location only. The body preview that used to sit
+                                    // under each row was the sentence the entry lands on,
+                                    // which says nothing about the section and turned the
+                                    // list into a wall of prose. The dialog title already
+                                    // states whether this is a real table of contents.
                                     Text(
                                         listOfNotNull(
                                             entry.pageNumber?.let { "Page $it" },
-                                            "Sentence ${entry.index + 1}",
-                                            entry.source.takeIf { it.isNotBlank() }
+                                            "Sentence ${entry.index + 1}"
                                         ).joinToString(" • "),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    if (entry.preview.isNotBlank()) {
-                                        Text(
-                                            entry.preview,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -2307,30 +2776,28 @@ private fun SmartOutlineDialog(
 }
 
 private fun buildSmartOutline(chunks: List<String>): List<SmartOutlineEntry> {
-    val scanChunks = chunks.take(MAX_SMART_OUTLINE_SCAN_SENTENCES)
+    // Scan the whole document: capping structure detection at the first 1,200
+    // sentences meant a long book's outline stopped a few percent in.
+    val contentsRange = findContentsRange(chunks)
     val structuralEntries = (
-            extractTableOfContentsOutline(scanChunks) + extractHeadingOutline(scanChunks)
+            extractTableOfContentsOutline(chunks) + extractHeadingOutline(chunks, contentsRange)
             )
         .distinctBy { it.index }
+        .let(::dropRunningHeaders)
         .sortedBy { it.index }
         .take(MAX_SMART_OUTLINE_ENTRIES)
 
     if (structuralEntries.isNotEmpty()) return structuralEntries
 
-    val step = (chunks.size / MAX_SMART_OUTLINE_ENTRIES).coerceAtLeast(1)
-    val fallbackIndexes = buildSet {
-        scanChunks.forEachIndexed { index, chunk ->
-            val firstLine =
-                chunk.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
-            if (looksLikeOutlineHeading(firstLine)) add(index)
-        }
-        var index = 0
-        while (index < chunks.size) {
-            add(index)
-            index += step
-        }
-        if (chunks.isNotEmpty()) add(chunks.lastIndex)
-    }.sorted()
+    // No structure found. Offer evenly spaced position markers instead of adding
+    // every Nth sentence as though it were a heading, which buried any real entry
+    // among hundreds of arbitrary ones.
+    val markerCount = MAX_SMART_OUTLINE_FALLBACK_MARKERS.coerceAtMost(chunks.size)
+    if (markerCount <= 0) return emptyList()
+    val step = (chunks.size / markerCount).coerceAtLeast(1)
+    val fallbackIndexes = (0 until chunks.size step step).toMutableList().also { marks ->
+        if (chunks.isNotEmpty() && marks.lastOrNull() != chunks.lastIndex) marks.add(chunks.lastIndex)
+    }
 
     return fallbackIndexes.mapNotNull { index ->
         val chunk = chunks.getOrNull(index).orEmpty()
@@ -2355,28 +2822,74 @@ private fun buildSmartOutline(chunks: List<String>): List<SmartOutlineEntry> {
     }.take(MAX_SMART_OUTLINE_ENTRIES)
 }
 
-private fun extractTableOfContentsOutline(chunks: List<String>): List<SmartOutlineEntry> {
-    val tocLine = Regex("^(.{3,120}?)(?:\\.{2,}|\\s{3,}|\\t+)(\\d{1,4})$")
-    val entries = mutableListOf<SmartOutlineEntry>()
-    chunks.take(30).forEachIndexed { chunkIndex, chunk ->
-        val looksLikeContents = chunk.contains("table of contents", ignoreCase = true) ||
-                chunk.lineSequence().any { it.trim().equals("contents", ignoreCase = true) }
-        if (!looksLikeContents && entries.isEmpty()) return@forEachIndexed
+/**
+ * Removes running headers that repeat across the book.
+ *
+ * A book title printed at the top of every page produces one identical candidate per
+ * page — "The Hound of the Baskervilles" five times here — none of which is a section.
+ *
+ * Only the weak title-case and all-caps matches are filtered. Keyword and numbered
+ * headings are left alone deliberately: "CHAPTER I." legitimately recurs once per
+ * story in a collection, and frequency-filtering those would delete real entries.
+ */
+private fun dropRunningHeaders(entries: List<SmartOutlineEntry>): List<SmartOutlineEntry> {
+    val counts = entries.groupingBy { normalizeOutlineNeedle(it.title) }.eachCount()
+    return entries.filter { entry ->
+        val key = normalizeOutlineNeedle(entry.title)
+        val repeats = counts[key] ?: 0
+        if (repeats < MAX_OUTLINE_TITLE_REPEATS) return@filter true
+        // Keep a repeated title only when it carries an explicit structural marker.
+        Regex("^(chapter|part|section|book|adventure|volume)\\b", RegexOption.IGNORE_CASE)
+            .containsMatchIn(entry.title.trim()) ||
+            Regex("^\\d+[.)\\s]").containsMatchIn(entry.title.trim())
+    }
+}
 
-        chunk.lineSequence()
-            .map { it.trim() }
-            .filter { it.length in 6..140 }
-            .forEach { line ->
+
+/**
+ * Parses a table-of-contents page into outline entries.
+ *
+ * Extracted PDF text mangles contents pages two ways this has to survive. Leader dots
+ * end up inside the line ("The Red-Headed League . . . . . 119"), and adjacent rows
+ * often merge, so a line arrives carrying the *previous* entry's page number on the
+ * front ("63 The Adventures of Sherlock Holmes ... 119"). Both are stripped.
+ *
+ * Targets resolve from *after* the contents region. Searching the whole document
+ * matched each title inside the contents listing itself, so every entry navigated
+ * back to the table of contents instead of to its chapter.
+ */
+private fun extractTableOfContentsOutline(chunks: List<String>): List<SmartOutlineEntry> {
+    val tocLine = Regex("^(.{3,140}?)[\\s.]*?(?:\\.{2,}|\\s{3,}|\\t+)[\\s.]*(\\d{1,4})$")
+    val contentsIndexes = mutableListOf<Int>()
+    chunks.take(MAX_SMART_OUTLINE_TOC_SCAN).forEachIndexed { index, chunk ->
+        val isContents = chunk.take(400).contains("table of contents", ignoreCase = true) ||
+            chunk.lineSequence().any { it.trim().equals("contents", ignoreCase = true) }
+        if (isContents) contentsIndexes.add(index)
+    }
+    if (contentsIndexes.isEmpty()) return emptyList()
+
+    val tocStart = contentsIndexes.first()
+    val tocEnd = (contentsIndexes.last() + MAX_SMART_OUTLINE_TOC_SPAN).coerceAtMost(chunks.lastIndex)
+    val bodyStart = (tocEnd + 1).coerceAtMost(chunks.lastIndex)
+
+    val seen = mutableSetOf<String>()
+    val entries = mutableListOf<SmartOutlineEntry>()
+    for (index in tocStart..tocEnd) {
+        chunks.getOrNull(index)?.lineSequence()
+            ?.map { it.trim() }
+            ?.filter { it.length in 6..160 }
+            ?.forEach { line ->
                 val match = tocLine.matchEntire(line) ?: return@forEach
-                val rawTitle = match.groupValues[1].trim().trim('.', '-', '•')
-                if (rawTitle.length < 3) return@forEach
-                val targetIndex = locateOutlineTarget(chunks, rawTitle) ?: return@forEach
-                val clean =
-                    chunks.getOrNull(targetIndex).orEmpty().replace(Regex("\\s+"), " ").trim()
+                val title = cleanTocTitle(match.groupValues[1])
+                if (title.length < 3) return@forEach
+                val key = normalizeOutlineNeedle(title)
+                if (key.length < 4 || !seen.add(key)) return@forEach
+                val target = locateOutlineTarget(chunks, title, bodyStart) ?: return@forEach
+                val clean = chunks.getOrNull(target).orEmpty().replace(Regex("\\s+"), " ").trim()
                 entries.add(
                     SmartOutlineEntry(
-                        index = targetIndex,
-                        title = rawTitle.take(96),
+                        index = target,
+                        title = title.take(96),
                         preview = clean.take(180),
                         isHeading = true
                     )
@@ -2386,8 +2899,72 @@ private fun extractTableOfContentsOutline(chunks: List<String>): List<SmartOutli
     return entries
 }
 
-private fun extractHeadingOutline(chunks: List<String>): List<SmartOutlineEntry> {
+/**
+ * Strips leader dots and a stray leading page number from a contents line.
+ *
+ * The number in "63 The Adventures of Sherlock Holmes" belongs to the row above it.
+ * It is only dropped when enough text follows for that text to be the real title, so
+ * a genuinely numbered heading is left intact.
+ */
+private fun cleanTocTitle(raw: String): String {
+    var title = raw.trim().trim('.', '-', '\u2022', '\u00b7', ' ')
+    title = title.replace(Regex("[.\\s]{3,}$"), "").trim()
+    Regex("^(\\d{1,4})\\s+(\\p{L}.*)$").matchEntire(title)?.let { m ->
+        val rest = m.groupValues[2].trim()
+        if (rest.length >= 4) title = rest
+    }
+    return title.replace(Regex("\\s+"), " ").trim()
+}
+/**
+ * Reassembles a heading the text extractor split mid-word.
+ *
+ * "CHAPTER II." routinely arrives as two chunks — "CHAPT" then "ER II." — because the
+ * extractor breaks on the page's column boundary. Measured on The Complete Sherlock
+ * Holmes: 33 occurrences of the fragment "CHAPT", against 30 intact "CHAPTER n."
+ * lines, so roughly half the book's chapter headings were unreachable as headings and
+ * showed up as meaningless stubs instead.
+ *
+ * A join is only attempted when the first fragment is a short run of letters with no
+ * spaces and no terminal punctuation — a word cut in half, never a real short heading.
+ */
+private fun joinSplitHeading(chunks: List<String>, index: Int): String? {
+    val head = chunks.getOrNull(index)?.trim() ?: return null
+    if (head.length > 8 || head.isEmpty()) return null
+    if (head.any { it.isWhitespace() } || head.any { !it.isLetter() }) return null
+    val tail = chunks.getOrNull(index + 1)?.trim().orEmpty()
+    if (tail.isEmpty() || tail.first().isWhitespace()) return null
+    val joined = (head + tail).trim()
+    return joined.takeIf { it.length in 4..120 }
+}
+
+
+/**
+ * Headings found in the body of the document.
+ *
+ * Contents-page rows are excluded. A line like "1 The Sign of the Four . . . . 63"
+ * satisfies the numbered-heading rule, so every row of a table of contents used to
+ * become its own outline entry pointing at the contents page — which is why the
+ * outline read like the TOC and every entry jumped to the same few sentences.
+ */
+private fun extractHeadingOutline(
+    chunks: List<String>,
+    contentsRange: IntRange? = null
+): List<SmartOutlineEntry> {
     return chunks.mapIndexedNotNull { index, chunk ->
+        if (contentsRange != null && index in contentsRange) return@mapIndexedNotNull null
+        if (looksLikeTableOfContentsRow(chunk)) return@mapIndexedNotNull null
+
+        // A heading the extractor cut in half is repaired before it is judged.
+        joinSplitHeading(chunks, index)?.let { repaired ->
+            if (looksLikeOutlineHeading(repaired)) {
+                return@mapIndexedNotNull SmartOutlineEntry(
+                    index = index,
+                    title = outlineTitle(cleanTocTitle(repaired), index),
+                    preview = "",
+                    isHeading = true
+                )
+            }
+        }
         val heading = chunk.lineSequence()
             .map { it.trim() }
             .take(8)
@@ -2399,7 +2976,7 @@ private fun extractHeadingOutline(chunks: List<String>): List<SmartOutlineEntry>
         val clean = chunk.replace(Regex("\\s+"), " ").trim()
         SmartOutlineEntry(
             index = index,
-            title = outlineTitle(heading, index),
+            title = outlineTitle(cleanTocTitle(heading), index),
             preview = if (clean.startsWith(heading)) clean.removePrefix(heading).trim()
                 .take(180) else clean.take(180),
             isHeading = true
@@ -2407,22 +2984,42 @@ private fun extractHeadingOutline(chunks: List<String>): List<SmartOutlineEntry>
     }
 }
 
-private fun locateOutlineTarget(chunks: List<String>, title: String): Int? {
+/**
+ * True for a line shaped like a contents listing: leader dots or a wide gap followed
+ * by a page number, or a run of leader dots on its own.
+ */
+private fun looksLikeTableOfContentsRow(chunk: String): Boolean {
+    val line = chunk.lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.isNotBlank() }
+        .orEmpty()
+    if (line.isBlank()) return false
+    if (Regex("^[.\\s\\u00b7\\u2022]+$").matches(line)) return true
+    return Regex("(?:\\.\\s*){2,}\\s*\\d{1,4}\\s*$").containsMatchIn(line) ||
+        Regex("\\s{3,}\\d{1,4}\\s*$").containsMatchIn(line)
+}
+
+/**
+ * Finds where a contents title actually appears in the body.
+ *
+ * [from] skips the contents region so a title cannot resolve to its own listing, and
+ * the scan runs to the end of the document rather than stopping at a fixed window —
+ * chapter headings in a long book sit far past any leading cap.
+ */
+private fun locateOutlineTarget(chunks: List<String>, title: String, from: Int = 0): Int? {
     val needle = normalizeOutlineNeedle(title)
     if (needle.length < 4) return null
-    chunks.take(MAX_SMART_OUTLINE_SCAN_SENTENCES).forEachIndexed { index, chunk ->
-        val haystack = normalizeOutlineNeedle(chunk.take(600))
-        if (haystack.contains(needle)) return index
+    for (index in from..chunks.lastIndex) {
+        if (normalizeOutlineNeedle(chunks[index].take(600)).contains(needle)) return index
     }
-    val compactNeedle = needle.split(' ').take(6).joinToString(" ")
-    if (compactNeedle.length >= 8) {
-        chunks.take(MAX_SMART_OUTLINE_SCAN_SENTENCES).forEachIndexed { index, chunk ->
-            if (normalizeOutlineNeedle(chunk.take(600)).contains(compactNeedle)) return index
+    val compact = needle.split(' ').take(6).joinToString(" ")
+    if (compact.length >= 8) {
+        for (index in from..chunks.lastIndex) {
+            if (normalizeOutlineNeedle(chunks[index].take(600)).contains(compact)) return index
         }
     }
     return null
 }
-
 private fun normalizeOutlineNeedle(value: String): String {
     return value
         .replace(Regex("^\\d+(\\.\\d+)*\\s+"), "")
@@ -2445,22 +3042,29 @@ private fun looksLikeOutlineHeading(firstLine: String): Boolean {
     val clean = firstLine.trim().trim(':', '-', '•', '#')
     if (clean.length !in 3..120) return false
 
+    val words = clean.split(Regex("\\s+")).filter { word -> word.any { it.isLetter() } }
+
     val headingKeyword = Regex(
         pattern = "^(chapter|section|part|unit|lesson|module|book|article|introduction|conclusion|summary|abstract|contents|references|appendix|glossary|index|foreword|preface|prologue|epilogue|bibliography|afterword|notes|citations|sources)\\b",
         option = RegexOption.IGNORE_CASE
     ).containsMatchIn(clean)
 
-    val numberedHeading = Regex(
-        pattern = "^(\\d+|[ivxlcdm]+)(\\.\\d+)*[.)\\s:-]+",
-        option = RegexOption.IGNORE_CASE
-    ).containsMatchIn(clean)
+    // "1.2 Methods" or "IV. The Sign of the Four". The roman-numeral branch is
+    // deliberately case-SENSITIVE and refuses a bare "I": matching it case-insensitively
+    // made every sentence beginning "I " a heading — along with any opening on did,
+    // mix, civil or mild — which filled the outline of a novel with narration.
+    val arabicHeading = Regex("^\\d+(\\.\\d+)*[.)\\s:-]+").containsMatchIn(clean)
+    val romanHeading = Regex("^(?!I\\b)[IVXLCDM]{1,7}[.)\\s:-]+").containsMatchIn(clean)
+    val numberedHeading = arabicHeading || romanHeading
 
+    // Anchored to the start of the line. These are ordinary English words — "case",
+    // "step", "result", "goal" — so matching them anywhere marked any sentence that
+    // happened to contain one as a heading.
     val landmarkKeyword = Regex(
-        pattern = "\\b(Task|Requirement|Exercise|Solution|Example|Definition|Theorem|Lemma|Proof|Corollary|Proposition|Remark|Case|Scenario|Feature|Instruction|Step|Goal|Outcome|Impact|Conclusion|Recommendation|Background|Methodology|Result|Discussion|Future Work)\\b",
+        pattern = "^(Task|Requirement|Exercise|Solution|Example|Definition|Theorem|Lemma|Proof|Corollary|Proposition|Remark|Case|Scenario|Feature|Instruction|Step|Goal|Outcome|Impact|Conclusion|Recommendation|Background|Methodology|Result|Discussion|Future Work)\\b",
         option = RegexOption.IGNORE_CASE
     ).containsMatchIn(clean)
 
-    val words = clean.split(Regex("\\s+")).filter { word -> word.any { it.isLetter() } }
     val titleCaseWords =
         words.count { word -> word.firstOrNull { it.isLetter() }?.isUpperCase() == true }
     val mostlyTitleCase =
@@ -2469,12 +3073,27 @@ private fun looksLikeOutlineHeading(firstLine: String): Boolean {
         words.isNotEmpty() && words.all { word -> word.all { !it.isLetter() || it.isUpperCase() } }
     val compactHeading = !clean.endsWith(".") && clean.count { it == ',' } <= 1 && clean.length < 90
 
-    return headingKeyword || numberedHeading || landmarkKeyword || ((mostlyTitleCase || allCaps) && compactHeading)
+    // A heading is a label, not a sentence. Sentence-like punctuation disqualifies the
+    // weaker signals even when a keyword matched.
+    val sentenceLike = clean.length > 90 || clean.count { it == ',' } > 1 ||
+        Regex("[.!?]\\s+\\p{Lu}").containsMatchIn(clean)
+    if (sentenceLike) return false
+
+    // A bare page number off a running header is not a heading.
+    if (clean.none { it.isLetter() }) return false
+
+    // Neither is a one-word fragment such as the "CHAPT" left behind when a running
+    // header is split mid-word. Real one-word headings ("Introduction", "Appendix")
+    // come through the keyword rules instead.
+    if (words.size < 2 && !headingKeyword && !landmarkKeyword) return false
+
+    return headingKeyword || numberedHeading || landmarkKeyword ||
+        ((mostlyTitleCase || allCaps) && compactHeading)
 }
 
 
 @Composable
-fun DocumentNotesDialog(
+fun BooknotesDialog(
     document: ReaderDocument,
     annotations: List<ReaderAnnotation>,
     documentNote: String,
@@ -2504,12 +3123,19 @@ fun DocumentNotesDialog(
                     enabled = documentNote.isNotBlank() || notes.any { it.note.isNotBlank() },
                     shape = VeritasPackStyle.chipShape()
                 ) {
+                    Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text("Export")
                 }
                 TextButton(onClick = onDismiss, shape = VeritasPackStyle.chipShape()) { Text("Close") }
             }
         },
-        title = { Text("✏️ Document notes") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text("Booknotes")
+            }
+        },
         text = {
             Column(
                 modifier = Modifier
@@ -2549,7 +3175,7 @@ fun DocumentNotesDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Sentence notes", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
                         Text(
-                            "Pencil notes stay attached to individual sentences.",
+                            "Notes attached to individual sentences.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2558,7 +3184,9 @@ fun DocumentNotesDialog(
                         onClick = onAddCurrentNote,
                         shape = VeritasPackStyle.chipShape()
                     ) {
-                        Text("✏️ Add current")
+                        Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add current")
                     }
                 }
                 Text(
@@ -2598,10 +3226,10 @@ fun DocumentNotesDialog(
                                         modifier = Modifier.weight(1f),
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    Text(
-                                        "›",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.NavigateNext,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Text(
@@ -2623,6 +3251,33 @@ fun DocumentNotesDialog(
                 }
             }
         }
+    )
+}
+
+@Composable
+fun DocumentNotesDialog(
+    document: ReaderDocument,
+    annotations: List<ReaderAnnotation>,
+    documentNote: String,
+    currentIndex: Int,
+    onDocumentNoteChange: (String) -> Unit,
+    onSaveDocumentNote: () -> Unit,
+    onAddCurrentNote: () -> Unit,
+    onJumpToSection: (Int) -> Unit,
+    onExportNotes: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    BooknotesDialog(
+        document = document,
+        annotations = annotations,
+        documentNote = documentNote,
+        currentIndex = currentIndex,
+        onDocumentNoteChange = onDocumentNoteChange,
+        onSaveDocumentNote = onSaveDocumentNote,
+        onAddCurrentNote = onAddCurrentNote,
+        onJumpToSection = onJumpToSection,
+        onExportNotes = onExportNotes,
+        onDismiss = onDismiss
     )
 }
 
@@ -2764,6 +3419,51 @@ private fun BookmarksOverviewDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun VeritasThinRoundSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    steps: Int = 0,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    trackHeight: androidx.compose.ui.unit.Dp = 3.5.dp,
+    thumbSize: androidx.compose.ui.unit.Dp = 6.5.dp
+) {
+    Slider(
+        value = value,
+        onValueChange = rememberSliderHaptics(value, valueRange, steps, onValueChange),
+        valueRange = valueRange,
+        steps = steps,
+        enabled = enabled,
+        modifier = modifier,
+        thumb = {
+            Box(
+                modifier = Modifier
+                    .size(thumbSize)
+                    .clip(CircleShape)
+                    .background(
+                        if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
+                    .border(0.75.dp, MaterialTheme.colorScheme.surface, CircleShape)
+            )
+        },
+        track = { sliderState ->
+            SliderDefaults.Track(
+                sliderState = sliderState,
+                modifier = Modifier.height(trackHeight),
+                drawStopIndicator = null,
+                drawTick = { _, _ -> },
+                colors = SliderDefaults.colors(
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                )
+            )
+        }
+    )
+}
+
 private enum class DragValue { Collapsed, Expanded }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -2790,8 +3490,11 @@ private fun PlayerPanel(
     onOpenAudioMode: () -> Unit,
     voices: List<TtsVoiceOption>,
     voiceSettings: VoiceSettings,
-    onVoiceSelected: (TtsVoiceOption) -> Unit
+    onVoiceSelected: (TtsVoiceOption) -> Unit,
+    documentId: String? = null,
+    onToggleDocumentMode: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val density = LocalDensity.current
     val maxOffsetPx = with(density) { 150.dp.toPx() } // height diff
 
@@ -2819,7 +3522,7 @@ private fun PlayerPanel(
 
     val currentOffset = if (draggableState.offset.isNaN()) maxOffsetPx else draggableState.requireOffset()
     val progress = (1f - (currentOffset / maxOffsetPx)).coerceIn(0f, 1f)
-    val heightDp = 72.dp + (150.dp * progress) // Varies from 72dp to 222dp
+    val heightDp = 72.dp + (160.dp * progress)
 
     val currentLocaleTag = voiceSettings.localeTag
     val availableVoices = remember(voices, currentLocaleTag) {
@@ -2831,68 +3534,189 @@ private fun PlayerPanel(
     }
 
     val coroutineScope = rememberCoroutineScope()
+    val coverFile = remember(documentId) { CoverExtractor.coverFile(context, documentId.orEmpty()) }
+    val coverBitmap = remember(coverFile) {
+        if (coverFile != null && coverFile.exists()) {
+            try {
+                android.graphics.BitmapFactory.decodeFile(coverFile.absolutePath)
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+    }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
             .height(heightDp)
             .anchoredDraggable(
                 state = draggableState,
                 orientation = Orientation.Vertical
             )
             .onGloballyPositioned { OnboardingController.updateBounds("player_panel_header", it) },
-        shape = VeritasPackStyle.cardShape(),
-        tonalElevation = 2.dp,
-        shadowElevation = 2.dp,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+        shape = RoundedCornerShape(24.dp),
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
+        ),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Header Row (visible in both states)
+            // Header Row (Capsule Main Controls)
             Row(
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // BrandMark Logo (clicking transitions state)
-                TextButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            draggableState.animateTo(
-                                if (draggableState.currentValue == DragValue.Collapsed) DragValue.Expanded else DragValue.Collapsed
-                            )
-                        }
-                    },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    BrandMark(compact = true)
-                }
-
-                // Playback Controls Row
+                // Left: Book Cover / Veritas Mode Toggle & 1-tap Speed Cycler Pill
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    BouncyTextButton(icon = Icons.AutoMirrored.Filled.NavigateBefore, label = "Previous", enabled = canGoPrevious, onClick = onPrevious)
-                    BouncyFilledButton(icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, label = if (isPlaying) "Pause" else "Play", onClick = onPlayPause)
-                    BouncyTextButton(icon = Icons.AutoMirrored.Filled.NavigateNext, label = "Next", enabled = canGoNext, onClick = onNext)
+                    IconButton(
+                        onClick = onToggleDocumentMode,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        if (coverBitmap != null) {
+                            Image(
+                                bitmap = coverBitmap.asImageBitmap(),
+                                contentDescription = "Switch to Original Document",
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(6.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            BrandMark(compact = true)
+                        }
+                    }
+
+                    // Speed cycle chip
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .clickable {
+                                val nextRate = when {
+                                    rate < 0.95f -> 1.0f
+                                    rate < 1.20f -> 1.25f
+                                    rate < 1.45f -> 1.5f
+                                    rate < 1.95f -> 2.0f
+                                    else -> 0.75f
+                                }
+                                onRateChange(nextRate)
+                            }
+                            .padding(horizontal = 7.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "${"%.2f".format(rate).trimEnd('0').trimEnd('.')}x",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
 
-                // Audio Mode Button
-                BouncyTextButton(
-                    icon = Icons.Filled.Headphones,
-                    label = "Audio Mode",
-                    onClick = onOpenAudioMode
-                )
+                // Center: Previous, Morphing Play/Pause, Next
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    IconButton(
+                        onClick = onPrevious,
+                        enabled = canGoPrevious,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.NavigateBefore,
+                            contentDescription = "Previous",
+                            tint = if (canGoPrevious) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    // Morphing high-contrast Play/Pause circle
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable { onPlayPause() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onNext,
+                        enabled = canGoNext,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.NavigateNext,
+                            contentDescription = "Next",
+                            tint = if (canGoNext) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // Right: Audio Immersion Button & Expand Chevron
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    IconButton(
+                        onClick = onOpenAudioMode,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Headphones,
+                            contentDescription = "Audio Immersion Mode",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                draggableState.animateTo(
+                                    if (draggableState.currentValue == DragValue.Collapsed) DragValue.Expanded else DragValue.Collapsed
+                                )
+                            }
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (draggableState.currentValue == DragValue.Expanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
+                            contentDescription = "Expand Player Panel",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
 
-            // Expanded Area (Speed, Pitch, Font size, Quick Voice Picker)
+            // Expanded Area (Speed Presets, Pitch, Font size, Quick Voice Picker)
             if (progress > 0.05f) {
                 Column(
                     modifier = Modifier
@@ -2901,7 +3725,7 @@ private fun PlayerPanel(
                         .graphicsLayer { alpha = progress }
                         .verticalScroll(rememberScrollState())
                         .padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     // Status/Playback message
                     Text(
@@ -2915,9 +3739,11 @@ private fun PlayerPanel(
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
 
-                    // Speed Slider Row
+                    // Speed Section with 1-tap Preset Chips
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -2927,39 +3753,41 @@ private fun PlayerPanel(
                             color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(
-                                onClick = { onRateChange((rate - 0.05f).coerceIn(0.5f, 2.0f)) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text("-", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                            TextButton(
-                                onClick = { onRateChange((rate + 0.05f).coerceIn(0.5f, 2.0f)) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text("+", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+
+                        // 1-tap speed preset chips
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { speedPreset ->
+                                val isSelected = kotlin.math.abs(rate - speedPreset) < 0.04f
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                        .clickable { onRateChange(speedPreset) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        "${speedPreset}x",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
                             }
                         }
                     }
-                    Slider(
+
+                    VeritasThinRoundSlider(
                         value = rate,
                         onValueChange = onRateChange,
-                        valueRange = 0.5f..2.0f,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
-                            activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                            inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                        )
+                        valueRange = 0.5f..2.5f,
+                        modifier = Modifier.padding(horizontal = 8.dp)
                     )
 
-                    // Pitch & Font Size
+                    // Pitch & Font Size Sliders
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
@@ -2969,17 +3797,10 @@ private fun PlayerPanel(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Slider(
+                            VeritasThinRoundSlider(
                                 value = pitch,
                                 onValueChange = onPitchChange,
-                                valueRange = 0.7f..1.4f,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
-                                    activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                                    inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                )
+                                valueRange = 0.7f..1.4f
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
@@ -2989,18 +3810,11 @@ private fun PlayerPanel(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Slider(
+                            VeritasThinRoundSlider(
                                 value = fontSizeSp.toFloat(),
                                 onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
                                 valueRange = 14f..28f,
-                                steps = 13,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
-                                    activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                                    inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                )
+                                steps = 13
                             )
                         }
                     }

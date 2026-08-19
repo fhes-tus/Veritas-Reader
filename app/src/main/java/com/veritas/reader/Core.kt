@@ -252,33 +252,65 @@ data class GeneralNote(
     val isChecklist: Boolean = false,
     val imageUrl: String? = null,
     val audioUrl: String? = null,
-    val reminderAt: Long? = null
+    val reminderAt: Long? = null,
+    val audioUrls: List<String> = emptyList()
 ) {
-    fun toJson(): JSONObject = JSONObject()
-        .put("id", id)
-        .put("title", title)
-        .put("content", content)
-        .put("updatedAt", updatedAt)
-        .put("color", color ?: "")
-        .put("pinned", pinned)
-        .put("isChecklist", isChecklist)
-        .put("imageUrl", imageUrl ?: "")
-        .put("audioUrl", audioUrl ?: "")
-        .put("reminderAt", reminderAt ?: 0L)
+    val allAudioUrls: List<String>
+        get() {
+            val list = mutableListOf<String>()
+            audioUrls.forEach { if (it.isNotBlank() && !list.contains(it)) list.add(it) }
+            if (!audioUrl.isNullOrBlank() && !list.contains(audioUrl)) {
+                list.add(0, audioUrl)
+            }
+            return list
+        }
+
+    fun toJson(): JSONObject {
+        val urls = allAudioUrls
+        val jsonAudioUrls = JSONArray()
+        urls.forEach { jsonAudioUrls.put(it) }
+        return JSONObject()
+            .put("id", id)
+            .put("title", title)
+            .put("content", content)
+            .put("updatedAt", updatedAt)
+            .put("color", color ?: "")
+            .put("pinned", pinned)
+            .put("isChecklist", isChecklist)
+            .put("imageUrl", imageUrl ?: "")
+            .put("audioUrl", urls.firstOrNull() ?: "")
+            .put("audioUrls", jsonAudioUrls)
+            .put("reminderAt", reminderAt ?: 0L)
+    }
 
     companion object {
-        fun fromJson(obj: JSONObject): GeneralNote = GeneralNote(
-            id = obj.optString("id", ""),
-            title = obj.optString("title", ""),
-            content = obj.optString("content", ""),
-            updatedAt = obj.optLong("updatedAt", 0L),
-            color = obj.optString("color", "").takeIf { it.isNotBlank() },
-            pinned = obj.optBoolean("pinned", false),
-            isChecklist = obj.optBoolean("isChecklist", false),
-            imageUrl = obj.optString("imageUrl", "").takeIf { it.isNotBlank() },
-            audioUrl = obj.optString("audioUrl", "").takeIf { it.isNotBlank() },
-            reminderAt = obj.optLong("reminderAt", 0L).takeIf { it > 0L }
-        )
+        fun fromJson(obj: JSONObject): GeneralNote {
+            val list = mutableListOf<String>()
+            val arr = obj.optJSONArray("audioUrls")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val u = arr.optString(i, "")
+                    if (u.isNotBlank() && !list.contains(u)) list.add(u)
+                }
+            }
+            val single = obj.optString("audioUrl", "").takeIf { it.isNotBlank() }
+            if (single != null && !list.contains(single)) {
+                list.add(0, single)
+            }
+            return GeneralNote(
+                id = obj.optString("id", ""),
+                title = obj.optString("title", ""),
+                content = obj.optString("content", ""),
+                updatedAt = obj.optLong("updatedAt", 0L),
+                color = obj.optString("color", "").takeIf { it.isNotBlank() },
+                pinned = obj.optBoolean("pinned", false),
+                isChecklist = obj.optBoolean("isChecklist", false),
+                imageUrl = obj.optString("imageUrl", "").takeIf { it.isNotBlank() },
+                audioUrl = list.firstOrNull(),
+                reminderAt = obj.optLong("reminderAt", 0L).takeIf { it > 0L },
+                audioUrls = list
+            )
+        }
     }
 }
 
@@ -503,8 +535,6 @@ object VeritasThemeCatalog {
         "light" to "Light",
         "neon" to "Neon",
         "default_dark_2026" to "Default Dark 2026",
-        "solarized_dark" to "Solarized Dark",
-        "tomorrow_night_blue" to "Tomorrow Night Blue",
         "dark_high_contrast" to "Dark High Contrast",
         "white_high_contrast" to "White High Contrast",
         "bw_gradient_light" to "B/W Gradient Light",
@@ -545,7 +575,10 @@ data class ReaderSettings(
     val dailyGoalMinutes: Int = 0,
     val streakReminderEnabled: Boolean = false,
     // Accessibility: collapse decorative motion (entrances, pulses) to instants.
-    val reduceMotion: Boolean = false
+    val reduceMotion: Boolean = false,
+    // Typeface for the whole app, chrome and reading text alike. "system" keeps the
+    // platform default; see VeritasUiFont.
+    val uiFontId: String = "system"
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("fontSizeSp", fontSizeSp)
@@ -560,6 +593,7 @@ data class ReaderSettings(
         .put("dailyGoalMinutes", dailyGoalMinutes)
         .put("streakReminderEnabled", streakReminderEnabled)
         .put("reduceMotion", reduceMotion)
+        .put("uiFontId", uiFontId)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderSettings {
@@ -578,7 +612,8 @@ data class ReaderSettings(
                 autoBackupWeekly = obj.optBoolean("autoBackupWeekly", true),
                 dailyGoalMinutes = obj.optInt("dailyGoalMinutes", 0).coerceIn(0, 180),
                 streakReminderEnabled = obj.optBoolean("streakReminderEnabled", false),
-                reduceMotion = obj.optBoolean("reduceMotion", false)
+                reduceMotion = obj.optBoolean("reduceMotion", false),
+                uiFontId = obj.optString("uiFontId", "system")
             )
         }
     }
@@ -628,6 +663,34 @@ data class VoiceSettings(
 
 
 
+data class BookCharacter(
+    val id: String,
+    val name: String,
+    val genderLabel: String = "Neutral",
+    val voiceName: String? = null,
+    val pitchMultiplier: Float = 1.0f,
+    val rateMultiplier: Float = 1.0f
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("name", name)
+        .put("genderLabel", genderLabel)
+        .put("voiceName", voiceName ?: "")
+        .put("pitchMultiplier", pitchMultiplier.toDouble())
+        .put("rateMultiplier", rateMultiplier.toDouble())
+
+    companion object {
+        fun fromJson(obj: JSONObject): BookCharacter = BookCharacter(
+            id = obj.optString("id").ifBlank { UUID.randomUUID().toString() },
+            name = obj.optString("name", "Character"),
+            genderLabel = obj.optString("genderLabel", "Neutral"),
+            voiceName = obj.optString("voiceName").takeIf { it.isNotBlank() },
+            pitchMultiplier = obj.optDouble("pitchMultiplier", 1.0).toFloat().coerceIn(0.70f, 1.40f),
+            rateMultiplier = obj.optDouble("rateMultiplier", 1.0).toFloat().coerceIn(0.50f, 2.00f)
+        )
+    }
+}
+
 data class NarrationSettings(
     val enabled: Boolean = false,
     val dialogueDetection: Boolean = true,
@@ -635,27 +698,53 @@ data class NarrationSettings(
     val narratorPitchMultiplier: Float = 1.0f,
     val dialogueRateMultiplier: Float = 1.03f,
     val dialoguePitchMultiplier: Float = 1.08f,
-    val showDialogueBadges: Boolean = true
+    val showDialogueBadges: Boolean = true,
+    val fullCastEnabled: Boolean = true,
+    val characterProfiles: List<BookCharacter> = listOf(
+        BookCharacter(id = "narrator", name = "Narrator", genderLabel = "Neutral", pitchMultiplier = 1.0f, rateMultiplier = 1.0f),
+        BookCharacter(id = "dialogue", name = "Dialogue (Default)", genderLabel = "Female", pitchMultiplier = 1.08f, rateMultiplier = 1.03f)
+    )
 ) {
-    fun toJson(): JSONObject = JSONObject()
-        .put("enabled", enabled)
-        .put("dialogueDetection", dialogueDetection)
-        .put("narratorRateMultiplier", narratorRateMultiplier.toDouble())
-        .put("narratorPitchMultiplier", narratorPitchMultiplier.toDouble())
-        .put("dialogueRateMultiplier", dialogueRateMultiplier.toDouble())
-        .put("dialoguePitchMultiplier", dialoguePitchMultiplier.toDouble())
-        .put("showDialogueBadges", showDialogueBadges)
+    fun toJson(): JSONObject {
+        val array = JSONArray()
+        characterProfiles.forEach { array.put(it.toJson()) }
+        return JSONObject()
+            .put("enabled", enabled)
+            .put("dialogueDetection", dialogueDetection)
+            .put("narratorRateMultiplier", narratorRateMultiplier.toDouble())
+            .put("narratorPitchMultiplier", narratorPitchMultiplier.toDouble())
+            .put("dialogueRateMultiplier", dialogueRateMultiplier.toDouble())
+            .put("dialoguePitchMultiplier", dialoguePitchMultiplier.toDouble())
+            .put("showDialogueBadges", showDialogueBadges)
+            .put("fullCastEnabled", fullCastEnabled)
+            .put("characterProfiles", array)
+    }
 
     companion object {
-        fun fromJson(obj: JSONObject): NarrationSettings = NarrationSettings(
-            enabled = obj.optBoolean("enabled", false),
-            dialogueDetection = obj.optBoolean("dialogueDetection", true),
-            narratorRateMultiplier = obj.optDouble("narratorRateMultiplier", 1.0).toFloat().coerceIn(0.75f, 1.25f),
-            narratorPitchMultiplier = obj.optDouble("narratorPitchMultiplier", 1.0).toFloat().coerceIn(0.80f, 1.25f),
-            dialogueRateMultiplier = obj.optDouble("dialogueRateMultiplier", 1.03).toFloat().coerceIn(0.75f, 1.25f),
-            dialoguePitchMultiplier = obj.optDouble("dialoguePitchMultiplier", 1.08).toFloat().coerceIn(0.80f, 1.25f),
-            showDialogueBadges = obj.optBoolean("showDialogueBadges", true)
-        )
+        fun fromJson(obj: JSONObject): NarrationSettings {
+            val list = mutableListOf<BookCharacter>()
+            val array = obj.optJSONArray("characterProfiles")
+            if (array != null) {
+                for (i in 0 until array.length()) {
+                    array.optJSONObject(i)?.let { list.add(BookCharacter.fromJson(it)) }
+                }
+            }
+            if (list.isEmpty()) {
+                list.add(BookCharacter(id = "narrator", name = "Narrator", genderLabel = "Neutral", pitchMultiplier = 1.0f, rateMultiplier = 1.0f))
+                list.add(BookCharacter(id = "dialogue", name = "Dialogue (Default)", genderLabel = "Female", pitchMultiplier = 1.08f, rateMultiplier = 1.03f))
+            }
+            return NarrationSettings(
+                enabled = obj.optBoolean("enabled", false),
+                dialogueDetection = obj.optBoolean("dialogueDetection", true),
+                narratorRateMultiplier = obj.optDouble("narratorRateMultiplier", 1.0).toFloat().coerceIn(0.75f, 1.25f),
+                narratorPitchMultiplier = obj.optDouble("narratorPitchMultiplier", 1.0).toFloat().coerceIn(0.80f, 1.25f),
+                dialogueRateMultiplier = obj.optDouble("dialogueRateMultiplier", 1.03).toFloat().coerceIn(0.75f, 1.25f),
+                dialoguePitchMultiplier = obj.optDouble("dialoguePitchMultiplier", 1.08).toFloat().coerceIn(0.80f, 1.25f),
+                showDialogueBadges = obj.optBoolean("showDialogueBadges", true),
+                fullCastEnabled = obj.optBoolean("fullCastEnabled", true),
+                characterProfiles = list
+            )
+        }
     }
 }
 
@@ -685,43 +774,88 @@ data class AskAiSettings(
 }
 
 object NarrationAnalyzer {
-    private val quotePattern = Regex("[\"“][^\"”]{4,}[\"”]|['‘](?:[^'’]|(?<=\\p{L})'(?=\\p{L})){4,}['’]")
-    private val speakerPattern = Regex("\\b(said|asked|replied|answered|whispered|shouted|cried|murmured|continued|responded)\\b", RegexOption.IGNORE_CASE)
-    private val dashDialoguePattern = Regex("^\\s*[—–-]\\s+\\S+")
+    // Spoken speech attribution verbs
+    private val speakerVerbPattern = Regex(
+        "\\b(said|asked|replied|answered|whispered|shouted|cried|murmured|continued|responded|exclaimed|yelled|muttered|insisted|warned|demanded|explained|added|remarked|grunted|sighed|urged|begged|groaned|thought|screamed|barked|snapped)\\b",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Dash dialogue: e.g. "— Where are you going?"
+    private val dashDialoguePattern = Regex("^\\s*[—–-]\\s*[\"“'‘]?\\S+")
+
+    // Spoken dialogue inside quotes: must contain spoken punctuation (?, !, comma-quote) or conversational pronouns/contractions
+    private val spokenDialogueQuotePattern = Regex("[\"“]([^\"”]*[?!,]|[^\"”]{3,}\\b(I|you|we|me|my|your|us|our|can't|don't|won't|I'm|you're|it's|what|where|why|how|who)\\b[^\"”]*?)[\"”]")
+
+    // Non-dialogue quotes: single word quotes, scare quotes, title references, e.g. "Chapter 1", "Section A", "so-called"
+    private val nonDialogueTitlePattern = Regex("^[A-Z0-9][A-Za-z0-9\\s]{1,25}$")
 
     fun isDialogue(text: String): Boolean {
         val trimmed = text.trim()
         if (trimmed.isBlank()) return false
-        if (dashDialoguePattern.containsMatchIn(trimmed)) return true
-        if (quotePattern.containsMatchIn(trimmed)) return true
-        return speakerPattern.containsMatchIn(trimmed) && trimmed.any { it == '\"' || it == '“' || it == '”' || it == '‘' || it == '’' || it == '\'' }
+
+        // 1. Dash-prefixed speech lines (very common in novel dialogue)
+        if (dashDialoguePattern.containsMatchIn(trimmed) && trimmed.length > 3) return true
+
+        // 2. Explicit speaker attribution verbs accompanied by quotes (e.g. "Yes," he said)
+        val hasQuoteChar = trimmed.any { it == '\"' || it == '“' || it == '”' || it == '‘' || it == '’' }
+        val hasSpeakerVerb = speakerVerbPattern.containsMatchIn(trimmed)
+        if (hasSpeakerVerb && hasQuoteChar) return true
+
+        // 3. Spoken dialogue in quotes with spoken punctuation or conversational pronouns/contractions
+        val match = spokenDialogueQuotePattern.find(trimmed)
+        if (match != null) {
+            val contentInsideQuote = match.groupValues.getOrNull(1)?.trim() ?: ""
+            // Filter out titles or single scare-quoted terms like "Chapter 1" or "so-called"
+            if (contentInsideQuote.isNotBlank() && !nonDialogueTitlePattern.matches(contentInsideQuote)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    fun extractSpeakerName(text: String): String? {
+        val pattern = Regex("[\"”']\\s*(?:said|asked|replied|whispered|shouted|cried|muttered|insisted|exclaimed|yelled|grunted|sighed|demanded|warned)\\s+([A-Z][a-z]+)", RegexOption.IGNORE_CASE)
+        val match = pattern.find(text)
+        if (match != null) return match.groupValues.getOrNull(1)
+
+        val reversePattern = Regex("([A-Z][a-z]+)\\s+(?:said|asked|replied|whispered|shouted|cried|muttered|insisted|exclaimed|yelled|grunted|sighed|demanded|warned)\\s*[\"“']", RegexOption.IGNORE_CASE)
+        val matchRev = reversePattern.find(text)
+        if (matchRev != null) return matchRev.groupValues.getOrNull(1)
+
+        return null
+    }
+
+    fun getActiveCharacter(text: String, settings: NarrationSettings): BookCharacter {
+        if (!settings.enabled || !settings.dialogueDetection || !isDialogue(text)) {
+            return settings.characterProfiles.firstOrNull { it.id == "narrator" }
+                ?: BookCharacter("narrator", "Narrator", pitchMultiplier = settings.narratorPitchMultiplier, rateMultiplier = settings.narratorRateMultiplier)
+        }
+        val speakerName = extractSpeakerName(text)
+        if (speakerName != null) {
+            val found = settings.characterProfiles.firstOrNull { it.name.equals(speakerName, ignoreCase = true) }
+            if (found != null) return found
+        }
+        return settings.characterProfiles.firstOrNull { it.id == "dialogue" }
+            ?: BookCharacter("dialogue", "Dialogue (Default)", pitchMultiplier = settings.dialoguePitchMultiplier, rateMultiplier = settings.dialogueRateMultiplier)
     }
 
     fun labelFor(text: String, settings: NarrationSettings): String {
         if (!settings.enabled) return "Narrator"
-        return if (settings.dialogueDetection && isDialogue(text)) "Dialogue" else "Narrator"
+        val char = getActiveCharacter(text, settings)
+        return char.name
     }
 
     fun effectiveRate(baseRate: Float, settings: NarrationSettings, text: String): Float {
-        val multiplier = if (settings.enabled && settings.dialogueDetection && isDialogue(text)) {
-            settings.dialogueRateMultiplier
-        } else if (settings.enabled) {
-            settings.narratorRateMultiplier
-        } else {
-            1.0f
-        }
-        return (baseRate * multiplier).coerceIn(0.5f, 2.0f)
+        if (!settings.enabled) return baseRate
+        val char = getActiveCharacter(text, settings)
+        return (baseRate * char.rateMultiplier).coerceIn(0.5f, 2.0f)
     }
 
     fun effectivePitch(basePitch: Float, settings: NarrationSettings, text: String): Float {
-        val multiplier = if (settings.enabled && settings.dialogueDetection && isDialogue(text)) {
-            settings.dialoguePitchMultiplier
-        } else if (settings.enabled) {
-            settings.narratorPitchMultiplier
-        } else {
-            1.0f
-        }
-        return (basePitch * multiplier).coerceIn(0.7f, 1.4f)
+        if (!settings.enabled) return basePitch
+        val char = getActiveCharacter(text, settings)
+        return (basePitch * char.pitchMultiplier).coerceIn(0.7f, 1.4f)
     }
 }
 
@@ -744,9 +878,11 @@ data class StorageBreakdown(
     val textBytes: Long,
     val originalsBytes: Long,
     val coversBytes: Long,
+    val cacheBytes: Long = 0L,
+    val databaseBytes: Long = 0L,
     val documentCount: Int
 ) {
-    val totalBytes: Long get() = textBytes + originalsBytes + coversBytes
+    val totalBytes: Long get() = textBytes + originalsBytes + coversBytes + cacheBytes + databaseBytes
 }
 
 data class LibrarySearchHit(
@@ -967,11 +1103,26 @@ data class QuestProgress(
     val bookmarkDone: Boolean
 )
 
+data class PersistedResumePoint(
+    val documentId: String,
+    val chunkIndex: Int,
+    val charOffset: Int,
+    val wordCount: Int
+)
+
 class DocumentRepository(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("veritas_reader_library", Context.MODE_PRIVATE)
     private val docsDir: File = File(appContext.filesDir, "reader_documents").apply { mkdirs() }
     private val originalsDir: File = File(appContext.filesDir, "original_documents").apply { mkdirs() }
+
+    // applyPronunciationRules() runs once per spoken sentence. Re-reading prefs, re-parsing the
+    // JSON, and recompiling every rule's Regex on each call was measurable TTS-start latency
+    // once a user had several rules. Cache the compiled rules keyed by the raw stored string so
+    // the expensive work happens only when the rules actually change.
+    private class CompiledPronunciationRule(val regex: Regex, val replaceWith: String)
+    private var pronunciationRulesRaw: String? = null
+    private var compiledPronunciationRules: List<CompiledPronunciationRule> = emptyList()
 
     fun saveDocumentTitle(documentId: String, title: String) {
         val raw = prefs.getString("document_titles", "{}") ?: "{}"
@@ -1031,6 +1182,33 @@ class DocumentRepository(context: Context) {
             .apply()
     }
 
+    fun savePersistedResumePoint(documentId: String, chunkIndex: Int, charOffset: Int, wordCount: Int) {
+        prefs.edit()
+            .putString("resume_document_id", documentId)
+            .putInt("resume_chunk_index", chunkIndex)
+            .putInt("resume_char_offset", charOffset)
+            .putInt("resume_word_count", wordCount)
+            .apply()
+    }
+
+    fun loadPersistedResumePoint(): PersistedResumePoint? {
+        val docId = prefs.getString("resume_document_id", null) ?: return null
+        val index = prefs.getInt("resume_chunk_index", -1)
+        if (index < 0) return null
+        val offset = prefs.getInt("resume_char_offset", 0)
+        val words = prefs.getInt("resume_word_count", 0)
+        return PersistedResumePoint(docId, index, offset, words)
+    }
+
+    fun clearPersistedResumePoint() {
+        prefs.edit()
+            .remove("resume_document_id")
+            .remove("resume_chunk_index")
+            .remove("resume_char_offset")
+            .remove("resume_word_count")
+            .apply()
+    }
+
     fun loadPersistedSleepTimer(nowMillis: Long = System.currentTimeMillis()): VeritasSleepTimerSnapshot? {
         val duration = prefs.getLong("sleep_timer_duration", 0L)
         val endsAt = prefs.getLong("sleep_timer_ends_at", 0L)
@@ -1087,7 +1265,27 @@ class DocumentRepository(context: Context) {
             originalFile(doc)?.let { originals += it.length() }
             CoverExtractor.coverFile(appContext, doc.id)?.let { covers += it.length() }
         }
-        return StorageBreakdown(textBytes = text, originalsBytes = originals, coversBytes = covers, documentCount = docs.size)
+
+        fun dirSize(file: File?): Long {
+            if (file == null || !file.exists()) return 0L
+            if (file.isFile) return file.length()
+            var total = 0L
+            file.listFiles()?.forEach { child -> total += dirSize(child) }
+            return total
+        }
+
+        val cache = dirSize(appContext.cacheDir) + dirSize(appContext.externalCacheDir)
+        val dbFile = appContext.getDatabasePath("veritas_reader_db")
+        val database = dirSize(dbFile.parentFile)
+
+        return StorageBreakdown(
+            textBytes = text,
+            originalsBytes = originals,
+            coversBytes = covers,
+            cacheBytes = cache,
+            databaseBytes = database,
+            documentCount = docs.size
+        )
     }
 
     /**
@@ -1107,10 +1305,22 @@ class DocumentRepository(context: Context) {
         }.sortedByDescending { it.second }
     }
 
+    /**
+     * Deletes the stored original files for the given documents.
+     *
+     * A cover can only ever be extracted from the original, so removing it without
+     * one first makes that document's cover unrecoverable — the backfill in
+     * ReaderViewModel needs the file that is about to be deleted. A cover is ~40KB
+     * against an original of several megabytes, so it is always worth rendering
+     * before the file goes.
+     */
     fun removeOriginals(documentIds: Set<String>): Long {
         var freed = 0L
         loadDocuments().filter { it.id in documentIds }.forEach { doc ->
             originalFile(doc)?.let { file ->
+                if (CoverExtractor.coverFile(appContext, doc.id) == null) {
+                    runCatching { CoverExtractor.extractCoverFromFile(appContext, doc.id, file) }
+                }
                 freed += file.length()
                 runCatching { file.delete() }
             }
@@ -1955,6 +2165,14 @@ class DocumentRepository(context: Context) {
         prefs.edit { putString(KEY_USER_NAME, name.trim().take(48)) }
     }
 
+    fun loadReadingInterest(): String {
+        return prefs.getString(KEY_READING_INTEREST, "Books & Novels") ?: "Books & Novels"
+    }
+
+    fun saveReadingInterest(interest: String) {
+        prefs.edit { putString(KEY_READING_INTEREST, interest) }
+    }
+
     fun markOnboardingComplete(name: String) {
         prefs.edit {
             putBoolean(KEY_ONBOARDING_TUTORIAL_SEEN, true)
@@ -2098,9 +2316,17 @@ class DocumentRepository(context: Context) {
 
     fun loadDocumentOutline(document: SavedDocument, chunks: List<String>): List<VeritasDocumentOutlineEntry> {
         val original = originalFile(document) ?: return emptyList()
-        val isPdf = document.originalMimeType.contains("pdf", ignoreCase = true) ||
-            document.originalFileName.endsWith(".pdf", ignoreCase = true) ||
-            original.extension.equals("pdf", ignoreCase = true)
+        // Sniff the header rather than trusting the name or the mime type. Originals
+        // are stored as "<uuid>.bin" and originalMimeType is empty on every document,
+        // so all three of the old checks failed for every file — which meant the
+        // embedded table of contents was never read for any PDF, and the reader always
+        // fell back to guessing headings out of the prose.
+        val isPdf = runCatching {
+            original.inputStream().use { input ->
+                val header = ByteArray(5)
+                input.read(header) == 5 && header.decodeToString() == "%PDF-"
+            }
+        }.getOrDefault(false)
         if (!isPdf) return emptyList()
         return runCatching {
             PDFBoxResourceLoader.init(appContext)
@@ -2541,27 +2767,43 @@ class DocumentRepository(context: Context) {
     }
 
     fun applyPronunciationRules(text: String): String {
+        val rules = compiledPronunciationRules()
+        if (rules.isEmpty()) return text
         var output = text
-        loadPronunciationRules()
-            .filter { it.enabled && it.find.isNotBlank() }
-            .forEach { rule ->
-                val escapedFind = Regex.escape(rule.find)
-                val isWord = rule.find.all { it.isLetterOrDigit() || it == '_' }
-                val pattern = if (isWord) "\\b$escapedFind\\b" else escapedFind
-                val regex = Regex(pattern, RegexOption.IGNORE_CASE)
-                output = regex.replace(output) { matchResult ->
-                    val matchedText = matchResult.value
-                    val replacement = rule.replaceWith
-                    when {
-                        matchedText.all { it.isUpperCase() } -> replacement.uppercase()
-                        matchedText.firstOrNull()?.isUpperCase() == true -> {
-                            replacement.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-                        }
-                        else -> replacement
+        rules.forEach { rule ->
+            output = rule.regex.replace(output) { matchResult ->
+                val matchedText = matchResult.value
+                val replacement = rule.replaceWith
+                when {
+                    replacement.isEmpty() -> ""
+                    matchedText.all { it.isUpperCase() } -> replacement.uppercase()
+                    matchedText.firstOrNull()?.isUpperCase() == true -> {
+                        replacement.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
                     }
+                    else -> replacement
                 }
             }
+        }
         return output
+    }
+
+    private fun compiledPronunciationRules(): List<CompiledPronunciationRule> {
+        val raw = prefs.getString(KEY_PRONUNCIATION_RULES, "[]") ?: "[]"
+        if (raw == pronunciationRulesRaw) return compiledPronunciationRules
+        val compiled = loadPronunciationRules()
+            .filter { it.enabled && it.find.isNotBlank() }
+            .map { rule ->
+                val escapedFind = Regex.escape(rule.find)
+                val startsWithWordChar = rule.find.firstOrNull()?.let { it.isLetterOrDigit() || it == '_' } == true
+                val endsWithWordChar = rule.find.lastOrNull()?.let { it.isLetterOrDigit() || it == '_' } == true
+                val prefix = if (startsWithWordChar) "\\b" else ""
+                val suffix = if (endsWithWordChar) "\\b" else ""
+                val pattern = "$prefix$escapedFind$suffix"
+                CompiledPronunciationRule(Regex(pattern, RegexOption.IGNORE_CASE), rule.replaceWith)
+            }
+        pronunciationRulesRaw = raw
+        compiledPronunciationRules = compiled
+        return compiled
     }
 
     fun loadReaderSettings(): ReaderSettings {
@@ -2972,6 +3214,7 @@ class DocumentRepository(context: Context) {
         private const val KEY_AI_HISTORY = "ai_prompt_history"
         private const val KEY_ONBOARDING_TUTORIAL_SEEN = "onboarding_tutorial_seen"
         private const val KEY_USER_NAME = "user_name"
+        private const val KEY_READING_INTEREST = "reading_interest"
         private const val KEY_HAS_IMPORTED_OR_OPENED_DOCUMENT = "has_imported_or_opened_document"
         private const val KEY_QUEST_TOUR_DONE = "quest_tour_done"
         private const val KEY_QUEST_IMPORT_DONE = "quest_import_done"
@@ -3037,6 +3280,6 @@ object TextChunker {
 }
 
 fun formatUpdated(timestamp: Long): String {
-    val formatter = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())
+    val formatter = SimpleDateFormat("dd/MM/yyyy, HH:mm", Locale.getDefault())
     return formatter.format(Date(timestamp))
 }

@@ -53,6 +53,9 @@ class AudioExportManager(private val context: Context) {
         val voiceSettings = repository.loadVoiceSettings()
         val narrationSettings = repository.loadNarrationSettings()
         val tts = createReadyTts(voiceSettings)
+        // Keep the configured engine voice so a per-character voice does not spill into
+        // following parts that intentionally use the default voice.
+        val baseVoice = tts.voice
         val tempDir = File(context.cacheDir, "tts_export_${UUID.randomUUID()}").apply { mkdirs() }
         val partFiles = mutableListOf<File>()
 
@@ -62,6 +65,13 @@ class AudioExportManager(private val context: Context) {
 
             speechParts.forEachIndexed { index, text ->
                 coroutineContext.ensureActive()
+                val activeChar = NarrationAnalyzer.getActiveCharacter(text, narrationSettings)
+                val characterVoice = if (narrationSettings.enabled && narrationSettings.fullCastEnabled) {
+                    activeChar.voiceName?.let { name -> tts.voices?.find { it.name == name } }
+                } else {
+                    null
+                }
+                (characterVoice ?: baseVoice)?.let { tts.voice = it }
                 tts.setSpeechRate(NarrationAnalyzer.effectiveRate(rate, narrationSettings, text))
                 tts.setPitch(NarrationAnalyzer.effectivePitch(pitch, narrationSettings, text))
                 val partFile = File(tempDir, "part_${index.toString().padStart(5, '0')}.wav")
@@ -115,27 +125,29 @@ class AudioExportManager(private val context: Context) {
         }
     }
 
-    private suspend fun createReadyTts(voiceSettings: VoiceSettings): TextToSpeech = suspendCancellableCoroutine { continuation ->
-        var engine: TextToSpeech? = null
-        val requestedEngine = voiceSettings.enginePackage.ifBlank { null }
-        val listener = TextToSpeech.OnInitListener { status ->
-            val current = engine
-            if (current == null) {
-                if (continuation.isActive) continuation.resumeWithException(IllegalStateException("TTS engine was not created."))
-            } else if (status == TextToSpeech.SUCCESS) {
-                VoiceConfigurator.apply(current, voiceSettings)
-                if (continuation.isActive) continuation.resume(current)
-            } else {
-                runCatching { current.shutdown() }
-                if (continuation.isActive) continuation.resumeWithException(IllegalStateException("Could not initialize the TTS engine."))
+    private suspend fun createReadyTts(voiceSettings: VoiceSettings): TextToSpeech = withTimeout(10_000L) {
+        suspendCancellableCoroutine { continuation ->
+            var engine: TextToSpeech? = null
+            val requestedEngine = voiceSettings.enginePackage.ifBlank { null }
+            val listener = TextToSpeech.OnInitListener { status ->
+                val current = engine
+                if (current == null) {
+                    if (continuation.isActive) continuation.resumeWithException(IllegalStateException("TTS engine was not created."))
+                } else if (status == TextToSpeech.SUCCESS) {
+                    VoiceConfigurator.apply(current, voiceSettings)
+                    if (continuation.isActive) continuation.resume(current)
+                } else {
+                    runCatching { current.shutdown() }
+                    if (continuation.isActive) continuation.resumeWithException(IllegalStateException("Could not initialize the TTS engine."))
+                }
             }
+            engine = if (requestedEngine == null) {
+                TextToSpeech(context.applicationContext, listener)
+            } else {
+                TextToSpeech(context.applicationContext, listener, requestedEngine)
+            }
+            continuation.invokeOnCancellation { runCatching { engine.shutdown() } }
         }
-        engine = if (requestedEngine == null) {
-            TextToSpeech(context.applicationContext, listener)
-        } else {
-            TextToSpeech(context.applicationContext, listener, requestedEngine)
-        }
-        continuation.invokeOnCancellation { runCatching { engine.shutdown() } }
     }
 
     private suspend fun synthesizePart(

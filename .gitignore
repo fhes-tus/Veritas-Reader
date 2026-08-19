@@ -62,3 +62,8 @@ desktop.ini
 # Release APKs - store locally only
 releases/
 apks/
+*.tar.bz2
+*.bz2
+kokoro-en-v0_19/
+piper_out/
+ui_concepts/

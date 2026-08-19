@@ -1597,6 +1597,48 @@ fun String.smartFormatPdfContent(): String {
         .trim()
 }
 
+/**
+ * Turns a raw file name into something worth showing as a title.
+ *
+ * Downloads and shares arrive as things like
+ * "1741927936_Good_Vibes,_Good_Life_(Vex_King)_(1).pdf", and that string was
+ * being used verbatim as the reading's title everywhere in the app.
+ *
+ * Drops the extension, a leading epoch/id prefix, a trailing copy counter, and
+ * separator underscores/dots. Deliberately conservative: anything it cannot
+ * confidently improve is returned unchanged, and it never returns blank.
+ */
+fun cleanDocumentTitle(fileName: String): String {
+    val withoutExtension = fileName.trim().let { name ->
+        val dot = name.lastIndexOf('.')
+        // Only strip a plausible extension, not the dot in "Vol. 2".
+        if (dot > 0 && name.length - dot in 2..6 && name.drop(dot + 1).all { it.isLetterOrDigit() }) {
+            name.take(dot)
+        } else {
+            name
+        }
+    }
+
+    var title = withoutExtension
+        // "1741927936_Good_Vibes" / "20260802-notes" — a long digit run up front is
+        // a timestamp or export id, never part of the title.
+        .replace(Regex("^\\d{6,}[_\\-\\s.]+"), "")
+        // "report (1)" / "report(2)" / "report - Copy" — download de-duplication.
+        .replace(Regex("\\s*[_\\-]?\\(\\d+\\)$"), "")
+        .replace(Regex("\\s*-\\s*Copy$", RegexOption.IGNORE_CASE), "")
+
+    // Underscores are separators in file names but never in prose.
+    if (title.contains('_')) title = title.replace('_', ' ')
+    // Same for dot-separated names, but only when there are no spaces already.
+    if (!title.contains(' ') && title.count { it == '.' } >= 2) title = title.replace('.', ' ')
+
+    title = title.replace(Regex("\\s{2,}"), " ").trim().trim('-', '_', '.', ' ')
+
+    // Blank here means the name was nothing but separators — there is no title to
+    // recover, so falling back to the raw string would just restore the junk.
+    return title.ifBlank { "Imported document" }
+}
+
 fun getDisplayName(context: Context, uri: Uri): String {
     val fallback = uri.lastPathSegment?.substringAfterLast('/') ?: "Imported text"
     return runCatching {

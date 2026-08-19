@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Background TTS is the app's core function; without the Doze exemption,
          battery optimization stops playback minutes after the screen turns off. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -33,6 +35,8 @@
         <package android:name="com.xai.grok" />
         <package android:name="ai.x.grok" />
     </queries>
+
+        <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <application
         android:allowBackup="false"
@@ -113,17 +117,24 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <receiver
-            android:name=".MediaButtonReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MEDIA_BUTTON" />
-            </intent-filter>
-        </receiver>
+        <!-- Media buttons (Bluetooth/headset) are routed by media3's MediaSession to
+             PlaybackService via the MEDIA_BUTTON action on the <service> below. A separate
+             MediaButtonReceiver is unnecessary and caused conflicting/duplicate delivery. -->
 
         <receiver
             android:name=".NoteReminderReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".NoteReminderBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".VeritasPlayerWidgetProvider"

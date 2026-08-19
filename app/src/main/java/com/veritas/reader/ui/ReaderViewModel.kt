@@ -65,6 +65,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private var importJob: Job? = null
     private var exportJob: Job? = null
     private var backupJob: Job? = null
+    private var outlineJob: Job? = null
     private var voiceJob: Job? = null
     private var scanJob: Job? = null
     private var appSessionStartedAt: Long = 0L
@@ -106,7 +107,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
         viewModelScope.launch(Dispatchers.IO) {
             val trackerSnapshot = repository.recordAppOpen()
-            val documents = repository.loadDocuments()
+            var documents = repository.loadDocuments()
             val documentReadingTimes = repository.loadDocReadingTimes()
             val queuedDocuments = repository.loadQueueDocuments()
             val pronunciationRules = repository.loadPronunciationRules()
@@ -126,11 +127,56 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val generalNotes = repository.loadGeneralNotes()
             val flashcards = repository.loadAllFlashcards()
             val userName = repository.loadUserName()
+            val readingInterest = repository.loadReadingInterest()
             val hasCompletedOnboarding = repository.hasSeenOnboardingTutorial()
             val hasImportedOrOpenedDocument = repository.hasImportedOrOpenedDocument()
             val questProgress = repository.loadQuestProgress()
+            val hasCheeseDoc = documents.any { it.title.contains("Who Moved My Cheese", ignoreCase = true) }
+            if (!hasCheeseDoc) {
+                val cheeseText = runCatching {
+                    application.assets.open("books/who_moved_my_cheese.txt").bufferedReader().use { it.readText() }
+                }.getOrNull()
+                if (!cheeseText.isNullOrBlank()) {
+                    val cheeseDoc = repository.createDocument(
+                        title = "Who Moved My Cheese?",
+                        text = cheeseText,
+                        sourceLabel = "Spencer Johnson, M.D.",
+                        originalDisplayName = "Who Moved My Cheese? - Spencer Johnson, M.D."
+                    )
+                    runCatching {
+                        application.assets.open("covers/who_moved_my_cheese.jpg").use { input ->
+                            val coversDir = CoverExtractor.coversDir(application)
+                            val coverFile = File(coversDir, "${cheeseDoc.id}.cover.jpg")
+                            coverFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
+            }
+            if (documents.isEmpty()) {
+                repository.createDocument(
+                    title = "Veritas Welcome Guide",
+                    text = "Welcome to Veritas Reader! This is a sample document designed to help you explore the reading environment. Veritas lets you convert research papers, textbooks, EPUBs, docx files, web articles, and images into high-quality spoken audio. Long-press any sentence in this guide to try highlighting, bookmarking, adding study notes, or asking the AI Assistant a question. Adjust the voice speed or select premium voices in the expandable player panel below. Toggle different layout modes like TEXT for clean reading or LISTEN to follow along sentence-by-sentence. Enjoy your reading journey!",
+                    sourceLabel = "System"
+                )
+            }
+            if (!hasCheeseDoc || documents.isEmpty()) {
+                documents = repository.loadDocuments()
+            }
             // Repair missing covers for existing files
             documents.forEach { doc ->
+                if (doc.title.contains("Who Moved My Cheese", ignoreCase = true) && CoverExtractor.coverFile(application, doc.id) == null) {
+                    runCatching {
+                        application.assets.open("covers/who_moved_my_cheese.jpg").use { input ->
+                            val coversDir = CoverExtractor.coversDir(application)
+                            val coverFile = File(coversDir, "${doc.id}.cover.jpg")
+                            coverFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
                 if (doc.originalFileName.isNotBlank() && CoverExtractor.coverFile(application, doc.id) == null) {
                     val originalFile = repository.originalFile(doc)
                     if (originalFile != null && originalFile.exists()) {
@@ -176,7 +222,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     annotationCount = annotationCount,
                     fileBrowserRoots = fileBrowserRoots,
                     fileBrowserAllFilesGranted = hasAllFilesAccess(),
-                     userName = userName,
+                    userName = userName,
+                    readingInterest = readingInterest,
                     hasCompletedOnboarding = hasCompletedOnboarding,
                     hasImportedOrOpenedDocument = hasImportedOrOpenedDocument,
                     questTourDone = questProgress.tourDone,
@@ -340,6 +387,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 _uiState.update { it.copy(readerSettings = saved) }
                 VeritasThemeState.themeId = saved.themeId
                 VeritasThemeState.themePackId = saved.themePackId
+                VeritasThemeState.uiFontId = saved.uiFontId
                 PlaybackStateStore.autoPlayQueue = saved.autoPlayQueue
             }
         }
@@ -516,6 +564,52 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun completeRevampedOnboarding(
+        name: String,
+        interest: String,
+        aiAssistant: String,
+        speedRate: Float,
+        pitchRate: Float
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.markOnboardingComplete(name)
+            repository.saveReadingInterest(interest)
+            val currentAi = repository.loadAskAiSettings()
+            val updatedAi = currentAi.copy(
+                assistantId = aiAssistant,
+                assistantLabel = when (aiAssistant.lowercase(Locale.getDefault())) {
+                    "gemini" -> "Google Gemini"
+                    "chatgpt" -> "ChatGPT"
+                    "claude" -> "Claude"
+                    "copilot" -> "Microsoft Copilot"
+                    "perplexity" -> "Perplexity"
+                    "grok" -> "xAI Grok"
+                    else -> currentAi.assistantLabel
+                }
+            )
+            repository.saveAskAiSettings(updatedAi)
+            val updatedVoice = repository.loadVoiceSettings().copy(
+                preferredRate = speedRate,
+                preferredPitch = pitchRate
+            )
+            repository.saveVoiceSettings(updatedVoice)
+            val savedName = repository.loadUserName()
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        showTutorial = true,
+                        userName = savedName,
+                        readingInterest = interest,
+                        hasCompletedOnboarding = true,
+                        askAiSettings = updatedAi,
+                        voiceSettings = updatedVoice,
+                        questTourDone = false
+                    )
+                }
+            }
+        }
+    }
+
     fun resetQuestProgress() {
         viewModelScope.launch(Dispatchers.IO) {
             repository.saveQuestProgress(tour = false, import = false, speed = false, bookmark = false)
@@ -550,6 +644,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 checkOnboardingOverallCompletion()
             }
         }
+    }
+
+    fun dismissQuestChecklist() {
+        _uiState.update { it.copy(questChecklistDismissed = true) }
     }
 
     fun completeQuestImport() {
@@ -643,7 +741,29 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun previewVoice(voice: TtsVoiceOption) {
         val enginePackage = uiState.value.voiceSettings.enginePackage
-        VoiceManager.previewVoice(getApplication(), enginePackage, voice.name, "Surely there is a future, and your hope shall not be cut off")
+        VoiceManager.previewVoice(
+            context = getApplication(),
+            enginePackage = enginePackage,
+            voiceName = voice.name,
+            text = "There is surely a future for you, and your hope will not be cut off",
+            rate = 1.0f,
+            pitch = 1.0f
+        )
+    }
+
+    fun previewActiveVoiceWithPreset() {
+        val settings = uiState.value.voiceSettings
+        val voiceName = settings.voiceName
+        val enginePackage = settings.enginePackage
+        val sampleText = "Brethren, whatever things are true, noble, just, pure, lovely, whatever things are of good report, - if anything is excellent or praiseworthy, - think about such things"
+        VoiceManager.previewVoice(
+            context = getApplication(),
+            enginePackage = enginePackage,
+            voiceName = voiceName,
+            text = sampleText,
+            rate = settings.preferredRate,
+            pitch = settings.preferredPitch
+        )
     }
 
     fun openSystemTtsSettings() {
@@ -760,6 +880,31 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             withContext(Dispatchers.Main) {
                 _uiState.update { it.copy(documents = docs) }
                 stopPlaybackIfDocumentsRemoved(ids)
+            }
+        }
+    }
+
+
+    /**
+     * Reads a PDF's embedded outline off the critical path.
+     *
+     * PDFBox has to parse the whole file to reach its bookmarks — on a 1,600-page book
+     * that is tens of seconds — and this used to run before `activeDocument` was set,
+     * so opening any large PDF blocked for the entire parse. The reader now appears at
+     * once and the outline populates when it is ready; until then the Outline sheet
+     * falls back to its heuristics, exactly as it does for files with no bookmarks.
+     */
+    private fun loadOutlineInBackground(document: SavedDocument, chunks: List<String>) {
+        outlineJob?.cancel()
+        outlineJob = viewModelScope.launch(Dispatchers.IO) {
+            val outline = runCatching { repository.loadDocumentOutline(document, chunks) }
+                .getOrDefault(emptyList())
+            if (outline.isEmpty()) return@launch
+            withContext(Dispatchers.Main) {
+                // Ignore a late result for a document the user has already left.
+                if (_uiState.value.activeDocument?.id == document.id) {
+                    _uiState.update { it.copy(documentOutline = outline) }
+                }
             }
         }
     }
@@ -927,7 +1072,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
             val annotations = repository.loadAnnotations(latestMetadata.id)
             val documentNote = repository.loadDocumentNote(latestMetadata.id)
-            val outline = repository.loadDocumentOutline(latestMetadata, readerDocument.chunks)
             val targetIndex = startIndex 
                 ?: (if (PlaybackStateStore.activeDocumentId == latestMetadata.id) PlaybackStateStore.currentIndex else latestMetadata.currentIndex)
             repository.markImportedOrOpenedDocument()
@@ -939,7 +1083,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         activeDocument = readerDocument,
                         annotations = annotations,
                         documentNoteDraft = documentNote,
-                        documentOutline = outline,
+                        // Filled in by loadOutlineInBackground once PDFBox has parsed the
+                        // file; the reader must not wait on it.
+                        documentOutline = emptyList(),
                         searchQuery = "",
                         searchMatches = emptyList(),
                         searchCursor = 0,
@@ -953,6 +1099,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 startActiveDocSessionTime()
                 syncPlaybackStateForDocument(readerDocument, targetIndex)
             }
+            loadOutlineInBackground(latestMetadata, readerDocument.chunks)
         }
     }
 
@@ -1078,9 +1225,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             // Same name AND same byte size as a stored original = the same file:
             // open the existing reading instead of importing a second copy.
             val baseName = name.substringBeforeLast('.').trim()
+            // Imports store a cleaned title now, so match on that too — readings
+            // saved before the cleanup still carry the raw file name.
+            val cleanedName = cleanDocumentTitle(name)
             val duplicate = repository.loadDocuments().firstOrNull { doc ->
                 val titleMatches = doc.title.trim().equals(baseName, ignoreCase = true) ||
-                    doc.title.trim().equals(name.trim(), ignoreCase = true)
+                    doc.title.trim().equals(name.trim(), ignoreCase = true) ||
+                    doc.title.trim().equals(cleanedName, ignoreCase = true)
                 titleMatches && sizeBytes > 0L && repository.originalFile(doc)?.length() == sizeBytes
             }
             if (duplicate != null) {
@@ -1158,7 +1309,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         openAfterImport: Boolean = true
     ) {
         val app = getApplication<Application>()
-        val title = customTitle?.ifBlank { null } ?: getDisplayName(app, uri).ifBlank { "Imported document" }
+        val title = customTitle?.ifBlank { null }
+            ?: cleanDocumentTitle(getDisplayName(app, uri)).ifBlank { "Imported document" }
         _uiState.update {
             if (openAfterImport) {
                 it.copy(showFileBrowser = false, importMessage = "Importing $title in background...", isOpeningDocument = true)
@@ -2082,13 +2234,47 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveRecordedSoundFile() {
         val file = uiState.value.exportedAudioFile
+        val doc = uiState.value.activeDocument
+        if (file != null && file.exists()) {
+            val now = System.currentTimeMillis()
+            val docTitle = doc?.title?.ifBlank { "Recorded Audio" } ?: "Recorded Audio"
+            val newMemo = GeneralNote(
+                id = java.util.UUID.randomUUID().toString(),
+                title = "Voice Memo: $docTitle",
+                content = "Sound recording from $docTitle\nRecorded ${java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(now))}",
+                updatedAt = now,
+                audioUrl = file.absolutePath,
+                audioUrls = listOf(file.absolutePath)
+            )
+            val existingNotes = repository.loadGeneralNotes()
+            repository.saveGeneralNotes(listOf(newMemo) + existingNotes)
+        }
         _uiState.update {
             it.copy(
                 recordMode = false,
                 recordAwaitingDecision = false,
                 exportInProgress = false,
-                exportMessage = file?.let { saved -> "Sound file saved: ${saved.name}" } ?: "No sound file was created."
+                exportMessage = file?.let { saved -> "Sound file saved to Voice Memos: ${saved.name}" } ?: "No sound file was created."
             )
+        }
+    }
+
+    fun exportAudioToDevice(file: File, destinationUri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val success = runCatching {
+                getApplication<Application>().contentResolver.openOutputStream(destinationUri)?.use { output ->
+                    file.inputStream().use { input ->
+                        input.copyTo(output)
+                    }
+                }
+            }.isSuccess
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        exportMessage = if (success) "Audio file exported to device storage successfully." else "Failed to export audio file to device."
+                    )
+                }
+            }
         }
     }
 
@@ -2457,12 +2643,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         imageUrl: String? = null,
         audioUrl: String? = null,
         reminderAt: Long? = null,
-        closeEditor: Boolean = true
+        closeEditor: Boolean = true,
+        audioUrls: List<String> = emptyList()
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.loadGeneralNotes().toMutableList()
             val target = uiState.value.generalNoteEditorTarget
             val savedNote: GeneralNote
+            val resolvedAudioUrls = if (audioUrls.isNotEmpty()) audioUrls else listOfNotNull(audioUrl)
             if (target == null) {
                 savedNote = GeneralNote(
                     id = java.util.UUID.randomUUID().toString(),
@@ -2473,7 +2661,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     pinned = pinned,
                     isChecklist = isChecklist,
                     imageUrl = imageUrl,
-                    audioUrl = audioUrl,
+                    audioUrl = resolvedAudioUrls.firstOrNull(),
+                    audioUrls = resolvedAudioUrls,
                     reminderAt = reminderAt
                 )
                 existing.add(0, savedNote)
@@ -2487,7 +2676,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     pinned = pinned,
                     isChecklist = isChecklist,
                     imageUrl = imageUrl,
-                    audioUrl = audioUrl,
+                    audioUrl = resolvedAudioUrls.firstOrNull(),
+                    audioUrls = resolvedAudioUrls,
                     reminderAt = reminderAt
                 )
                 if (index != -1) existing[index] = savedNote
@@ -2648,7 +2838,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun appendVocabularyWord(word: String, explanation: String) {
+    fun appendVocabularyWord(word: String, explanation: String, selectedContext: String? = null) {
         val activeDoc = uiState.value.activeDocument ?: return
         val docId = activeDoc.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
@@ -2667,7 +2857,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val textModel = ReaderTextIndex.build(activeDoc.rawText, activeDoc.pageCount)
             val part = textModel.partForSentence(currentIndex)
             val sectionNum = (part?.index ?: 0) + 1
-            val contextSentence = activeDoc.sentences.getOrNull(currentIndex)?.trim()
+            val contextSentence = selectedContext?.trim()
+                .takeIf { !it.isNullOrBlank() }
+                ?: activeDoc.sentences.getOrNull(currentIndex)?.trim()
 
             val entryText = buildString {
                 appendLine(word.trim())
@@ -2813,7 +3005,35 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun createWelcomeDocumentSilently() {
         viewModelScope.launch(Dispatchers.IO) {
-            if (repository.loadDocuments().isEmpty()) {
+            val existingDocs = repository.loadDocuments()
+            if (existingDocs.isEmpty()) {
+                val context = getApplication<Application>()
+                
+                // 1. Seed default classic book: "Who Moved My Cheese?"
+                val cheeseText = runCatching {
+                    context.assets.open("books/who_moved_my_cheese.txt").bufferedReader().use { it.readText() }
+                }.getOrNull()
+                
+                if (!cheeseText.isNullOrBlank()) {
+                    val cheeseDoc = repository.createDocument(
+                        title = "Who Moved My Cheese?",
+                        text = cheeseText,
+                        sourceLabel = "Spencer Johnson, M.D.",
+                        originalDisplayName = "Who Moved My Cheese? - Spencer Johnson, M.D."
+                    )
+                    // Copy default cover image from assets
+                    runCatching {
+                        context.assets.open("covers/who_moved_my_cheese.jpg").use { input ->
+                            val coversDir = CoverExtractor.coversDir(context)
+                            val coverFile = File(coversDir, "${cheeseDoc.id}.cover.jpg")
+                            coverFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
+
+                // 2. Seed interactive Veritas Welcome Guide
                 repository.createDocument(
                     title = "Veritas Welcome Guide",
                     text = "Welcome to Veritas Reader! This is a sample document designed to help you explore the reading environment. Veritas lets you convert research papers, textbooks, EPUBs, docx files, web articles, and images into high-quality spoken audio. Long-press any sentence in this guide to try highlighting, bookmarking, adding study notes, or asking the AI Assistant a question. Adjust the voice speed or select premium voices in the expandable player panel below. Toggle different layout modes like TEXT for clean reading or LISTEN to follow along sentence-by-sentence. Enjoy your reading journey!",
@@ -2854,7 +3074,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 val localVersion = runCatching {
                     val context = getApplication<Application>()
                     context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                }.getOrNull() ?: "1.1.0"
+                }.getOrNull() ?: "2.0.0"
                 if (isVersionNewer(localVersion, cleanTagName)) {
                     val htmlUrl = json.optString("html_url", "https://github.com/fhes-tus/Veritas-Reader/releases")
                     val body = json.optString("body", "")

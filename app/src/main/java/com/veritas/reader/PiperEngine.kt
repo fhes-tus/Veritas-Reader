@@ -1,1 +1,3 @@
-// PiperEngine implementation has been disabled/wrapped up for now as per request.
+package com.veritas.reader
+
+typealias PiperEngine = com.veritas.reader.tts.PiperEngine

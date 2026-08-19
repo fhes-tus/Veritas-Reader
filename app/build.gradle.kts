@@ -27,6 +27,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".preview"
+            resValue("string", "app_name", "Veritas Preview")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -49,16 +53,26 @@ android {
         applicationId = "com.veritas.reader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 27
-        versionName = "1.1.0"
+        versionCode = 28
+        versionName = "2.0.0"
 
         ndk {
             abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a"))
         }
     }
 
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = true
+        }
+    }
+
     buildFeatures {
         compose = true
+        resValues = true
     }
 
     compileOptions {
@@ -94,6 +108,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
     implementation("com.google.android.gms:play-services-mlkit-language-id:17.0.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("org.apache.commons:commons-compress:1.26.1")
     constraints {
         implementation("org.bouncycastle:bcpkix-jdk15to18:1.84") {
             because("Keep PDFBox Android's certificate/parser dependency line current for lint and security review.")

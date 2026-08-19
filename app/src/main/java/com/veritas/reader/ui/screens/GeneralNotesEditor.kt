@@ -23,6 +23,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -76,7 +77,7 @@ enum class NotesToolbarMenu {
 @Composable
 fun GeneralNotesEditor(
     note: GeneralNote?,
-    onSave: (String, String, String?, Boolean, Boolean, String?, String?, Long?, Boolean) -> Unit,
+    onSave: (String, String, String?, Boolean, Boolean, String?, String?, Long?, Boolean, List<String>) -> Unit,
     onDelete: (String) -> Unit,
     onCopy: () -> Unit,
     onDismiss: () -> Unit
@@ -89,7 +90,7 @@ fun GeneralNotesEditor(
     var isPinned by remember { mutableStateOf(note?.pinned ?: false) }
     var isChecklist by remember { mutableStateOf(note?.isChecklist ?: false) }
     var imageUrl by remember { mutableStateOf(note?.imageUrl) }
-    var audioUrl by remember { mutableStateOf(note?.audioUrl) }
+    var audioUrls by remember { mutableStateOf(note?.allAudioUrls ?: emptyList()) }
     var reminderAt by remember { mutableStateOf(note?.reminderAt) }
     var showColorPicker by remember { mutableStateOf(false) }
     var showReminderMenu by remember { mutableStateOf(false) }
@@ -309,8 +310,11 @@ fun GeneralNotesEditor(
             }
             mediaRecorder = null
             isRecording = false
-            audioUrl = recordFilePath
-            Toast.makeText(context, "Recording saved and attached", Toast.LENGTH_SHORT).show()
+            val newPath = recordFilePath
+            if (!newPath.isNullOrBlank() && File(newPath).exists()) {
+                audioUrls = audioUrls + newPath
+                Toast.makeText(context, "Voice memo saved (${audioUrls.size} total)", Toast.LENGTH_SHORT).show()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(context, "Failed to stop recording: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -349,14 +353,36 @@ fun GeneralNotesEditor(
         }
     }
 
+    var activePlayingAudioPath by remember { mutableStateOf<String?>(null) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var playProgress by remember { mutableStateOf(0f) }
     var currentPosition by remember { mutableStateOf("0:00") }
-    var totalDuration by remember { mutableStateOf("0:00") }
+    var audioDurations by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
-    LaunchedEffect(isPlaying) {
-        if (isPlaying) {
+    LaunchedEffect(audioUrls) {
+        val durations = mutableMapOf<String, String>()
+        audioUrls.forEach { path ->
+            try {
+                val file = File(path)
+                if (file.exists()) {
+                    val retriever = android.media.MediaMetadataRetriever()
+                    retriever.setDataSource(path)
+                    val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    val durMs = durStr?.toLongOrNull() ?: 0L
+                    val durSecs = durMs / 1000
+                    durations[path] = String.format(Locale.US, "%d:%02d", durSecs / 60, durSecs % 60)
+                    retriever.release()
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+        audioDurations = durations
+    }
+
+    LaunchedEffect(isPlaying, activePlayingAudioPath) {
+        if (isPlaying && activePlayingAudioPath != null) {
             while (isPlaying && mediaPlayer != null) {
                 try {
                     val current = mediaPlayer?.currentPosition ?: 0
@@ -366,7 +392,6 @@ fun GeneralNotesEditor(
                     val curSecs = current / 1000
                     val durSecs = duration / 1000
                     currentPosition = String.format("%d:%02d", curSecs / 60, curSecs % 60)
-                    totalDuration = String.format("%d:%02d", durSecs / 60, durSecs % 60)
                 } catch (e: Exception) {
                     // ignore
                 }
@@ -375,26 +400,34 @@ fun GeneralNotesEditor(
         }
     }
 
-    fun togglePlayPause() {
-        val path = audioUrl ?: return
+    fun togglePlayPause(path: String) {
         try {
-            if (isPlaying) {
+            if (activePlayingAudioPath == path && isPlaying) {
                 mediaPlayer?.pause()
                 isPlaying = false
-            } else {
-                if (mediaPlayer == null) {
-                    val player = MediaPlayer().apply {
-                        setDataSource(path)
-                        prepare()
-                        setOnCompletionListener {
-                            isPlaying = false
-                            playProgress = 0f
-                            currentPosition = "0:00"
-                        }
-                    }
-                    mediaPlayer = player
-                }
+            } else if (activePlayingAudioPath == path && mediaPlayer != null) {
                 mediaPlayer?.start()
+                isPlaying = true
+            } else {
+                mediaPlayer?.stop()
+                mediaPlayer?.release()
+                mediaPlayer = null
+                playProgress = 0f
+                currentPosition = "0:00"
+
+                val player = MediaPlayer().apply {
+                    setDataSource(path)
+                    prepare()
+                    setOnCompletionListener {
+                        isPlaying = false
+                        playProgress = 0f
+                        currentPosition = "0:00"
+                        activePlayingAudioPath = null
+                    }
+                }
+                mediaPlayer = player
+                activePlayingAudioPath = path
+                player.start()
                 isPlaying = true
             }
         } catch (e: Exception) {
@@ -403,15 +436,17 @@ fun GeneralNotesEditor(
         }
     }
 
-    fun removeAudio() {
+    fun removeAudio(path: String) {
         try {
-            mediaPlayer?.release()
-            mediaPlayer = null
-            isPlaying = false
-            audioUrl = null
-            playProgress = 0f
-            currentPosition = "0:00"
-            totalDuration = "0:00"
+            if (activePlayingAudioPath == path) {
+                mediaPlayer?.release()
+                mediaPlayer = null
+                isPlaying = false
+                activePlayingAudioPath = null
+                playProgress = 0f
+                currentPosition = "0:00"
+            }
+            audioUrls = audioUrls.filter { it != path }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -430,10 +465,10 @@ fun GeneralNotesEditor(
     // Debounced save: fires 800 ms after the user stops typing.
     // This covers fast edits without hammering storage on every keystroke.
     val autoSaveContent = if (isChecklist) contentText else contentValue.text
-    LaunchedEffect(title, autoSaveContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt) {
+    LaunchedEffect(title, autoSaveContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls, reminderAt) {
         kotlinx.coroutines.delay(800)
-        if (title.isNotBlank() || autoSaveContent.isNotBlank() || imageUrl != null || audioUrl != null) {
-            onSave(title, autoSaveContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt, false)
+        if (title.isNotBlank() || autoSaveContent.isNotBlank() || imageUrl != null || audioUrls.isNotEmpty()) {
+            onSave(title, autoSaveContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls.firstOrNull(), reminderAt, false, audioUrls)
         }
     }
     // Heartbeat save: fires every 2 seconds while the editor is open.
@@ -443,8 +478,8 @@ fun GeneralNotesEditor(
         while (true) {
             kotlinx.coroutines.delay(2_000)
             val currentContent = if (isChecklist) contentText else contentValue.text
-            if (title.isNotBlank() || currentContent.isNotBlank() || imageUrl != null || audioUrl != null) {
-                onSave(title, currentContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt, false)
+            if (title.isNotBlank() || currentContent.isNotBlank() || imageUrl != null || audioUrls.isNotEmpty()) {
+                onSave(title, currentContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls.firstOrNull(), reminderAt, false, audioUrls)
             }
         }
     }
@@ -564,7 +599,7 @@ fun GeneralNotesEditor(
 
     fun performSave() {
         val finalContent = if (isChecklist) contentText else contentValue.text
-        onSave(title, finalContent, noteColor, isPinned, isChecklist, imageUrl, audioUrl, reminderAt, true)
+        onSave(title, finalContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls.firstOrNull(), reminderAt, true, audioUrls)
     }
 
     Scaffold(
@@ -574,7 +609,7 @@ fun GeneralNotesEditor(
                 navigationIcon = {
                     IconButton(onClick = {
                         val finalContent = if (isChecklist) contentText else contentValue.text
-                        if (title.isNotBlank() || finalContent.isNotBlank() || imageUrl != null || audioUrl != null) {
+                        if (title.isNotBlank() || finalContent.isNotBlank() || imageUrl != null || audioUrls.isNotEmpty()) {
                             performSave()
                         } else {
                             onDismiss()
@@ -785,9 +820,9 @@ fun GeneralNotesEditor(
                                     }
                                 }) {
                                     Icon(
-                                        imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrl != null) Icons.Filled.Mic else Icons.Outlined.Mic),
+                                        imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrls.isNotEmpty()) Icons.Filled.Mic else Icons.Outlined.Mic),
                                         contentDescription = if (isRecording) "Stop Recording" else "Record Audio",
-                                        tint = if (isRecording) MaterialTheme.colorScheme.error else (if (audioUrl != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f))
+                                        tint = if (isRecording) MaterialTheme.colorScheme.error else (if (audioUrls.isNotEmpty()) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f))
                                     )
                                 }
                             }
@@ -801,11 +836,28 @@ fun GeneralNotesEditor(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     IconButton(onClick = { expandedMenu = NotesToolbarMenu.ATTACHMENTS }) {
                                         Icon(Icons.Filled.AddBox, contentDescription = "Add Attachments", tint = onCardColor.copy(alpha = 0.8f))
+                                    }
+                                    IconButton(onClick = {
+                                        if (isRecording) {
+                                            stopRecording()
+                                        } else {
+                                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                                startRecording()
+                                            } else {
+                                                recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                        }
+                                    }) {
+                                        Icon(
+                                            imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrls.isNotEmpty()) Icons.Filled.Mic else Icons.Outlined.Mic),
+                                            contentDescription = if (isRecording) "Stop Recording" else "Record Audio",
+                                            tint = if (isRecording) MaterialTheme.colorScheme.error else (if (audioUrls.isNotEmpty()) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f))
+                                        )
                                     }
                                     IconButton(onClick = { showColorPicker = !showColorPicker }) {
                                         Icon(Icons.Outlined.Palette, contentDescription = "Color Picker", tint = onCardColor.copy(alpha = 0.8f))
@@ -978,39 +1030,127 @@ fun GeneralNotesEditor(
                 }
             }
 
-            // Display Audio attachment preview if attached
-            if (audioUrl != null) {
+            // Live recording banner
+            if (isRecording) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = onCardColor.copy(alpha = 0.08f)),
-                    border = BorderStroke(1.dp, onCardColor.copy(alpha = 0.15f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        IconButton(onClick = { togglePlayPause() }) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = onCardColor
-                            )
-                        }
-                        LinearProgressIndicator(
-                            progress = { playProgress },
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = onCardColor.copy(alpha = 0.2f)
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .background(MaterialTheme.colorScheme.error, CircleShape)
                         )
-                        Text("$currentPosition / $totalDuration", style = MaterialTheme.typography.labelMedium, color = onCardColor)
-                        IconButton(onClick = { removeAudio() }) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = "Remove Audio",
-                                tint = onCardColor.copy(alpha = 0.6f)
-                            )
+                        Text(
+                            "Recording audio memo…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = { stopRecording() },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                        ) {
+                            Text("Done", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+
+            // Display Audio attachments preview if any attached
+            if (audioUrls.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    audioUrls.forEachIndexed { index, path ->
+                        val isThisPlaying = isPlaying && activePlayingAudioPath == path
+                        val memoTotalDur = audioDurations[path] ?: "0:00"
+                        val durDisplay = if (isThisPlaying) "$currentPosition / $memoTotalDur" else memoTotalDur
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = onCardColor.copy(alpha = 0.08f)),
+                            border = BorderStroke(1.dp, onCardColor.copy(alpha = 0.15f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isThisPlaying) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.12f),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = { togglePlayPause(path) },
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isThisPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                            contentDescription = if (isThisPlaying) "Pause" else "Play",
+                                            tint = if (isThisPlaying) MaterialTheme.colorScheme.onPrimary else onCardColor,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (audioUrls.size == 1) "Voice Memo" else "Voice Memo ${index + 1}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = onCardColor
+                                        )
+                                        Text(
+                                            text = durDisplay,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = onCardColor.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    LinearProgressIndicator(
+                                        progress = { if (isThisPlaying) playProgress else 0f },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp)),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = onCardColor.copy(alpha = 0.15f)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { removeAudio(path) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Remove Memo",
+                                        tint = onCardColor.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

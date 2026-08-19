@@ -249,33 +249,65 @@ data class GeneralNote(
     val isChecklist: Boolean = false,
     val imageUrl: String? = null,
     val audioUrl: String? = null,
-    val reminderAt: Long? = null
+    val reminderAt: Long? = null,
+    val audioUrls: List<String> = emptyList()
 ) {
-    fun toJson(): JSONObject = JSONObject()
-        .put("id", id)
-        .put("title", title)
-        .put("content", content)
-        .put("updatedAt", updatedAt)
-        .put("color", color ?: "")
-        .put("pinned", pinned)
-        .put("isChecklist", isChecklist)
-        .put("imageUrl", imageUrl ?: "")
-        .put("audioUrl", audioUrl ?: "")
-        .put("reminderAt", reminderAt ?: 0L)
+    val allAudioUrls: List<String>
+        get() {
+            val list = mutableListOf<String>()
+            audioUrls.forEach { if (it.isNotBlank() && !list.contains(it)) list.add(it) }
+            if (!audioUrl.isNullOrBlank() && !list.contains(audioUrl)) {
+                list.add(0, audioUrl)
+            }
+            return list
+        }
+
+    fun toJson(): JSONObject {
+        val urls = allAudioUrls
+        val jsonAudioUrls = JSONArray()
+        urls.forEach { jsonAudioUrls.put(it) }
+        return JSONObject()
+            .put("id", id)
+            .put("title", title)
+            .put("content", content)
+            .put("updatedAt", updatedAt)
+            .put("color", color ?: "")
+            .put("pinned", pinned)
+            .put("isChecklist", isChecklist)
+            .put("imageUrl", imageUrl ?: "")
+            .put("audioUrl", urls.firstOrNull() ?: "")
+            .put("audioUrls", jsonAudioUrls)
+            .put("reminderAt", reminderAt ?: 0L)
+    }
 
     companion object {
-        fun fromJson(obj: JSONObject): GeneralNote = GeneralNote(
-            id = obj.optString("id", ""),
-            title = obj.optString("title", ""),
-            content = obj.optString("content", ""),
-            updatedAt = obj.optLong("updatedAt", 0L),
-            color = obj.optString("color", "").takeIf { it.isNotBlank() },
-            pinned = obj.optBoolean("pinned", false),
-            isChecklist = obj.optBoolean("isChecklist", false),
-            imageUrl = obj.optString("imageUrl", "").takeIf { it.isNotBlank() },
-            audioUrl = obj.optString("audioUrl", "").takeIf { it.isNotBlank() },
-            reminderAt = obj.optLong("reminderAt", 0L).takeIf { it > 0L }
-        )
+        fun fromJson(obj: JSONObject): GeneralNote {
+            val list = mutableListOf<String>()
+            val arr = obj.optJSONArray("audioUrls")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val u = arr.optString(i, "")
+                    if (u.isNotBlank() && !list.contains(u)) list.add(u)
+                }
+            }
+            val single = obj.optString("audioUrl", "").takeIf { it.isNotBlank() }
+            if (single != null && !list.contains(single)) {
+                list.add(0, single)
+            }
+            return GeneralNote(
+                id = obj.optString("id", ""),
+                title = obj.optString("title", ""),
+                content = obj.optString("content", ""),
+                updatedAt = obj.optLong("updatedAt", 0L),
+                color = obj.optString("color", "").takeIf { it.isNotBlank() },
+                pinned = obj.optBoolean("pinned", false),
+                isChecklist = obj.optBoolean("isChecklist", false),
+                imageUrl = obj.optString("imageUrl", "").takeIf { it.isNotBlank() },
+                audioUrl = list.firstOrNull(),
+                reminderAt = obj.optLong("reminderAt", 0L).takeIf { it > 0L },
+                audioUrls = list
+            )
+        }
     }
 }
 

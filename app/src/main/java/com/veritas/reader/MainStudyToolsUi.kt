@@ -17,18 +17,68 @@ import android.widget.Toast
 import android.app.Activity
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Quiz
+import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.Summarize
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Send
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.Title
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.FormatListNumbered
+import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.FindReplace
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material3.FilterChip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.PictureAsPdf
@@ -153,6 +203,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.veritas.reader.ui.ReaderViewModel
 import com.veritas.reader.ui.VeritasPendingImport
+import com.veritas.reader.ui.VeritasSwitch
 import com.veritas.reader.ui.screens.AskAiSettingsDialog
 import com.veritas.reader.ui.screens.DocumentNotesDialog
 import com.veritas.reader.ui.screens.FeatureDropdownMenuItem
@@ -203,77 +254,21 @@ internal fun BackupRestoreDialog(
     onImport: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { Button(onClick = onDismiss, shape = RoundedCornerShape(50)) { Text("Close") } },
-        title = { Text("Backup & restore") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Export a portable Veritas backup, or import a backup into this library. Import adds restored readings without deleting the current library.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text("Current library", fontWeight = FontWeight.Black)
-                        Text(
-                            "$documentCount readings • $annotationCount bookmarks/notes • $queueCount queued",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                Button(
-                    onClick = onExport,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = documentCount > 0,
-                    shape = RoundedCornerShape(50)
-                ) {
-                    Text("Export data backup (.json)")
-                }
-                Button(
-                    onClick = onExportFull,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = documentCount > 0,
-                    shape = RoundedCornerShape(50)
-                ) {
-                    val sizeMb = fullBackupEstimateBytes / (1024.0 * 1024.0)
-                    Text(
-                        if (sizeMb >= 1.0) "Export full backup (.zip, ~${String.format(Locale.US, "%.0f", sizeMb)} MB)"
-                        else "Export full backup (.zip)"
-                    )
-                }
-                OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(50)) {
-                    Text("Import backup file (.json or .zip)")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Weekly auto-backup", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Keeps the 4 most recent data backups in app storage.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    Switch(checked = autoBackupEnabled, onCheckedChange = { onToggleAutoBackup() })
-                }
-                BackupStatusBlock(inProgress = inProgress, message = message)
-                Text(
-                    "Data backup includes saved text, progress, queue, reading lists, bookmarks, notes and vocabulary, flashcards, reading streaks and stats, pronunciation rules, AI prompt templates, and all settings. Full backup adds the original files (PDF/PPTX/EPUB…) and covers so Original View survives a restore — it can be large.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
+    SyncAndBackupCenterDialog(
+        documentCount = documentCount,
+        annotationCount = annotationCount,
+        queueCount = queueCount,
+        pronunciationRuleCount = 0,
+        inProgress = inProgress,
+        message = message,
+        onExportSyncPack = onExport,
+        onShareSyncPack = onExport,
+        onImportSyncPack = onImport,
+        onDismiss = onDismiss,
+        fullBackupEstimateBytes = fullBackupEstimateBytes,
+        autoBackupEnabled = autoBackupEnabled,
+        onToggleAutoBackup = onToggleAutoBackup,
+        onExportFull = onExportFull
     )
 }
 
@@ -314,68 +309,336 @@ internal fun TranslationToolsDialog(
     onDismiss: () -> Unit,
     onSend: (String, TranslationLauncher.Mode) -> Unit
 ) {
+    val context = LocalContext.current
     var targetLanguage by remember { mutableStateOf("English") }
-    val currentPreview = document.chunks.getOrNull(currentIndex).orEmpty().take(180)
+    var selectedMode by remember { mutableStateOf(TranslationLauncher.Mode.CURRENT_SECTION) }
+    var translatedTextInput by remember { mutableStateOf("") }
+    val currentSentence = remember(document, currentIndex) {
+        document.chunks.getOrNull(currentIndex).orEmpty().trim()
+    }
+    val popularLanguages = listOf("English", "Spanish", "French", "German", "Chinese", "Japanese", "Arabic", "Portuguese", "Italian", "Russian")
+
+    val priorityApps = remember {
+        listOf(
+            Triple("Google", "com.google.android.apps.translate", Icons.Outlined.Translate),
+            Triple("ChatGPT", "com.openai.chatgpt", IconChatGPT),
+            Triple("Gemini", "com.google.android.apps.bard", IconGemini),
+            Triple("Claude", "com.anthropic.claude", IconClaude),
+            Triple("Copilot", "com.microsoft.copilot", IconCopilot),
+            Triple("Perplexity", "ai.perplexity.app.android", IconPerplexity),
+            Triple("Grok", "com.x.android", IconGrok)
+        )
+    }
+
+    fun executeHandoff(targetPackage: String?) {
+        TranslationLauncher.launchTarget(
+            context = context,
+            targetPackage = targetPackage,
+            title = document.title,
+            chunks = document.chunks,
+            currentIndex = currentIndex,
+            targetLanguage = targetLanguage,
+            mode = selectedMode
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-        title = { Text("⇄") },
+        confirmButton = { Button(onClick = onDismiss, shape = RoundedCornerShape(50)) { Text("Done") } },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.Translate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text("Translation handoff")
+            }
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text(
-                    "Use the translation or AI apps already installed on this phone. Veritas prepares the prompt and opens the Android share sheet.",
+                    "Send structured translation prompts to priority translator & AI apps, or listen to audio read-out of original and translated text.",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                // Priority Apps Quick Actions
+                Text(
+                    "Priority translation targets",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    priorityApps.forEach { (label, pkg, icon) ->
+                        OutlinedButton(
+                            onClick = { executeHandoff(pkg) },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(label, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                    Button(
+                        onClick = { executeHandoff(null) },
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("All Apps", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                // Audio Read-Out Section
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Text(
+                                "Spoken Audio Read-Out",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        // Play Original Sentence
+                        if (currentSentence.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "Original Sentence ${currentIndex + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        currentSentence.take(90) + if (currentSentence.length > 90) "…" else "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        VoiceManager.previewVoice(
+                                            context = context,
+                                            enginePackage = "",
+                                            voiceName = "",
+                                            text = currentSentence
+                                        )
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.PlayArrow, contentDescription = "Read Original", tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                        // Play Spoken Translation
+                        Text(
+                            "Translated Text (type or paste to listen)",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        OutlinedTextField(
+                            value = translatedTextInput,
+                            onValueChange = { translatedTextInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Paste translated result here...") },
+                            maxLines = 3,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        Button(
+                            onClick = {
+                                if (translatedTextInput.isNotBlank()) {
+                                    VoiceManager.previewVoice(
+                                        context = context,
+                                        enginePackage = "",
+                                        voiceName = "",
+                                        text = translatedTextInput
+                                    )
+                                }
+                            },
+                            enabled = translatedTextInput.isNotBlank(),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Read Out Translation")
+                        }
+                    }
+                }
+
+                Text(
+                    "Target language",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                // Quick Language Selection Chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    popularLanguages.forEach { lang ->
+                        val isSelected = targetLanguage.equals(lang, ignoreCase = true)
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { targetLanguage = lang },
+                            label = { Text(lang) },
+                            shape = RoundedCornerShape(50)
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = targetLanguage,
                     onValueChange = { targetLanguage = it },
-                    label = { Text("Target language") },
+                    label = { Text("Language name or code") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    trailingIcon = {
+                        Icon(Icons.Outlined.Translate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
                 )
-                if (currentPreview.isNotBlank()) {
-                    Text(
-                        "Current sentence: $currentPreview${
-                            if (document.chunks.getOrNull(
-                                    currentIndex
-                                ).orEmpty().length > 180
-                            ) "…" else ""
-                        }",
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                OutlinedButton(
-                    onClick = { onSend(targetLanguage, TranslationLauncher.Mode.CURRENT_SECTION) },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Translate current sentence") }
-                OutlinedButton(
-                    onClick = { onSend(targetLanguage, TranslationLauncher.Mode.DOCUMENT) },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Translate full document") }
-                OutlinedButton(
+
+                Text(
+                    "Translation scope & mode",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                // Mode 1: Current Sentence
+                TranslationModeCard(
+                    title = "Translate current sentence",
+                    description = "Accurate translation of sentence ${currentIndex + 1} into $targetLanguage.",
+                    icon = Icons.Outlined.Translate,
+                    isSelected = selectedMode == TranslationLauncher.Mode.CURRENT_SECTION,
                     onClick = {
-                        onSend(
-                            targetLanguage,
-                            TranslationLauncher.Mode.BILINGUAL_SECTION
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Bilingual current sentence") }
-                OutlinedButton(
+                        selectedMode = TranslationLauncher.Mode.CURRENT_SECTION
+                        executeHandoff(null)
+                    }
+                )
+
+                // Mode 2: Full Document
+                TranslationModeCard(
+                    title = "Translate full document",
+                    description = "Extract and send all ${document.chunks.size} sentences formatted for translation.",
+                    icon = Icons.Outlined.Article,
+                    isSelected = selectedMode == TranslationLauncher.Mode.DOCUMENT,
                     onClick = {
-                        onSend(
-                            targetLanguage,
-                            TranslationLauncher.Mode.BILINGUAL_DOCUMENT
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Bilingual full document") }
+                        selectedMode = TranslationLauncher.Mode.DOCUMENT
+                        executeHandoff(null)
+                    }
+                )
+
+                // Mode 3: Bilingual Sentence
+                TranslationModeCard(
+                    title = "Bilingual current sentence",
+                    description = "Side-by-side parallel text comparing original with $targetLanguage.",
+                    icon = Icons.Outlined.Language,
+                    isSelected = selectedMode == TranslationLauncher.Mode.BILINGUAL_SECTION,
+                    onClick = {
+                        selectedMode = TranslationLauncher.Mode.BILINGUAL_SECTION
+                        executeHandoff(null)
+                    }
+                )
+
+                // Mode 4: Bilingual Full Document
+                TranslationModeCard(
+                    title = "Bilingual full document",
+                    description = "Structured interlinear lines for the entire document.",
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
+                    isSelected = selectedMode == TranslationLauncher.Mode.BILINGUAL_DOCUMENT,
+                    onClick = {
+                        selectedMode = TranslationLauncher.Mode.BILINGUAL_DOCUMENT
+                        executeHandoff(null)
+                    }
+                )
             }
         }
     )
+}
+
+@Composable
+private fun TranslationModeCard(
+    title: String,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isSelected: Boolean = false,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceContainerLow
+        ),
+        border = BorderStroke(
+            if (isSelected) 1.5.dp else 1.dp,
+            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.NavigateNext,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 
@@ -393,7 +656,7 @@ internal fun AiFreeModeDialog(
                 modifier = Modifier
                     .height(520.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -447,7 +710,7 @@ internal fun AiCenterDialog(
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
         title = { Text("AI tools") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "Use installed AI apps or local study tools without adding paid APIs or account-gated services inside Veritas.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -477,7 +740,7 @@ internal fun ExportAudioStatusDialog(
         onDismissRequest = { if (!inProgress) onDismiss() },
         title = { Text("Export audio") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (inProgress) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -587,6 +850,8 @@ internal fun TaskExpandableCard(
     onToggleExpand: (String?) -> Unit,
     prompt: String,
     onPromptChange: (String) -> Unit,
+    icon: ImageVector? = null,
+    badge: String? = null,
     showScopeSelector: Boolean = false,
     selectedScope: AiPromptScope = AiPromptScope.WHOLE_DOCUMENT,
     onScopeSelected: (AiPromptScope) -> Unit = {},
@@ -594,6 +859,7 @@ internal fun TaskExpandableCard(
     onStartPageChange: (String) -> Unit = {},
     endPage: String = "",
     onEndPageChange: (String) -> Unit = {},
+    onCopyPrompt: (() -> Unit)? = null,
     onSend: () -> Unit
 ) {
     val isExpanded = expandedTask == taskKey
@@ -601,17 +867,20 @@ internal fun TaskExpandableCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onToggleExpand(if (isExpanded) null else taskKey) },
-        shape = MaterialTheme.shapes.medium,
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isExpanded)
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
             else
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
         ),
-        border = if (isExpanded) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+        border = BorderStroke(
+            1.dp,
+            if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        )
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
@@ -619,16 +888,43 @@ internal fun TaskExpandableCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.SemiBold,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = if (isExpanded) "▲" else "▼",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (icon != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isExpanded) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                    Column {
+                        Text(
+                            text = title,
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                        if (badge != null) {
+                            Text(
+                                text = badge,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Icon(
+                    imageVector = if (isExpanded) Icons.Filled.ArrowDropUp else Icons.Filled.ArrowDropDown,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -652,18 +948,38 @@ internal fun TaskExpandableCard(
                 OutlinedTextField(
                     value = prompt,
                     onValueChange = onPromptChange,
-                    label = { Text("Custom Prompt (instructions)", fontSize = 12.sp) },
+                    label = { Text("Prompt instructions") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
-                    maxLines = 5,
+                    maxLines = 6,
+                    shape = RoundedCornerShape(12.dp),
                     textStyle = MaterialTheme.typography.bodyMedium
                 )
 
-                Button(
-                    onClick = onSend,
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Send to AI App")
+                    if (onCopyPrompt != null) {
+                        OutlinedButton(
+                            onClick = onCopyPrompt,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Copy Prompt")
+                        }
+                    }
+                    Button(
+                        onClick = onSend,
+                        modifier = Modifier.weight(if (onCopyPrompt != null) 1.2f else 1f),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Send to AI")
+                    }
                 }
             }
         }
@@ -676,6 +992,8 @@ internal fun AiAppStudyDialog(
     currentIndex: Int,
     templates: List<AiPromptTemplate>,
     history: List<AiPromptHistoryEntry>,
+    askAiSettings: AskAiSettings? = null,
+    onUpdateAskAiSettings: ((AskAiSettings) -> Unit)? = null,
     onDismiss: () -> Unit,
     onSendToAiApp: (AiPromptType, String, AiPromptScope, IntRange?) -> Unit,
     onSaveTemplate: (String, String) -> Unit,
@@ -685,12 +1003,14 @@ internal fun AiAppStudyDialog(
     onSaveAiResultAsNote: (String) -> Unit,
     onImportFlashcards: (String, List<Flashcard>) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var customPrompt by remember { mutableStateOf("") }
     var templateTitle by remember { mutableStateOf("Custom study prompt") }
     var aiResultDraft by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Tasks") }
     var showPasteFlashcards by remember { mutableStateOf(false) }
     var showPasteQuiz by remember { mutableStateOf(false) }
+    var activeQuizQuestions by remember { mutableStateOf<List<QuizQuestion>?>(null) }
 
     if (showPasteFlashcards) {
         PasteFlashcardsDialog(
@@ -700,6 +1020,9 @@ internal fun AiAppStudyDialog(
     }
     if (showPasteQuiz) {
         PasteQuizDialog(onDismiss = { showPasteQuiz = false })
+    }
+    activeQuizQuestions?.let { questions ->
+        QuizPlayerDialog(questions = questions, onDismiss = { activeQuizQuestions = null })
     }
 
     val expandedTask = remember { mutableStateOf<String?>(null) }
@@ -712,479 +1035,1021 @@ internal fun AiAppStudyDialog(
     val simplifyPrompt = remember { mutableStateOf("Rewrite and explain the document in simpler language without removing important meaning. Define difficult words and give short examples where useful.") }
     val quizPrompt = remember { mutableStateOf("Create an exam-style multiple-choice revision quiz from this document. Format every question EXACTLY like this, with one blank line between questions:\nQ: <question>\nA) <option>\nB) <option>\nC) <option>\nD) <option>\nAnswer: <letter>\nExplanation: <one short sentence>") }
     val flashcardsPrompt = remember { mutableStateOf("Create flashcards from this document. Focus on definitions, processes, comparisons, and important facts. Reply as plain text only (no tables, no attachments) with every card formatted EXACTLY like this, one blank line between cards:\nQ: <question>\nA: <concise answer>") }
+    val translatePrompt = remember { mutableStateOf("Translate this document accurately while preserving technical terms. Include a short glossary table of key concepts at the end.") }
 
     val extractKeypointsScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
     val studyNotesScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
     val simplifyScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
     val quizScope = remember { mutableStateOf(AiPromptScope.CUSTOM_PAGE_RANGE) }
     val flashcardsScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
+    val translateScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
 
-    val longDocStartPage = remember { mutableStateOf("") }
-    val longDocEndPage = remember { mutableStateOf("") }
-    val extractKeypointsStartPage = remember { mutableStateOf("") }
-    val extractKeypointsEndPage = remember { mutableStateOf("") }
-    val studyNotesStartPage = remember { mutableStateOf("") }
-    val studyNotesEndPage = remember { mutableStateOf("") }
-    val simplifyStartPage = remember { mutableStateOf("") }
-    val simplifyEndPage = remember { mutableStateOf("") }
-    val quizStartPage = remember { mutableStateOf("") }
-    val quizEndPage = remember { mutableStateOf("") }
-    val flashcardsStartPage = remember { mutableStateOf("") }
-    val flashcardsEndPage = remember { mutableStateOf("") }
+    val longDocStartPage = remember { mutableStateOf("1") }
+    val longDocEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
+    val extractKeypointsStartPage = remember { mutableStateOf("1") }
+    val extractKeypointsEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
+    val studyNotesStartPage = remember { mutableStateOf("1") }
+    val studyNotesEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
+    val simplifyStartPage = remember { mutableStateOf("1") }
+    val simplifyEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
+    val quizStartPage = remember { mutableStateOf("1") }
+    val quizEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
+    val flashcardsStartPage = remember { mutableStateOf("1") }
+    val flashcardsEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
+    val translateStartPage = remember { mutableStateOf("1") }
+    val translateEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
+
     val safeIndex =
         if (document.chunks.isEmpty()) 0 else currentIndex.coerceIn(0, document.chunks.lastIndex)
     val estimatedTextLength = document.chunks.sumOf { it.length }
+    val currentPage = remember(document, currentIndex) {
+        val model = ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
+        val sentence = model.sentences.getOrNull(currentIndex)
+        sentence?.pageNumber?.coerceAtLeast(1) ?: 1
+    }
 
-    AlertDialog(
+    val installedAiList = remember(context) { installedAiOptions(context) }
+    val defaultAiName = remember(askAiSettings, installedAiList) {
+        if (askAiSettings == null || askAiSettings.assistantId.isBlank() || askAiSettings.assistantId == "chooser") {
+            if (installedAiList.isNotEmpty()) installedAiList.first().first.label else "Share Menu"
+        } else {
+            aiAssistantOptions.firstOrNull { it.id == askAiSettings.assistantId }?.label ?: "Share Menu"
+        }
+    }
+
+    Dialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-        title = { Text("AI handoff") },
-        text = {
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
             Column(
                 modifier = Modifier
-                    .height(560.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
             ) {
-                Text(
-                    "Use installed AI apps for free-tier summaries and study help. Veritas prepares the prompt, then you choose ChatGPT, Gemini, Claude, Copilot, Perplexity, or another app.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    shape = MaterialTheme.shapes.medium
+                // Top App Bar
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    shadowElevation = 4.dp
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            document.title,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "${document.sourceLabel} • ${document.chunks.size} sentences • current ${safeIndex + 1} • about $estimatedTextLength characters",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
-                    listOf("Tasks", "Templates", "History", "Result → note").forEach { tab ->
-                        val selected = selectedTab == tab
-                        if (selected) {
-                            Button(onClick = { selectedTab = tab }) { Text(tab) }
-                        } else {
-                            OutlinedButton(onClick = { selectedTab = tab }) { Text(tab) }
-                        }
-                    }
-                }
-
-                when (selectedTab) {
-                    "Tasks" -> {
-                        TaskExpandableCard(
-                            title = "Summarize whole document",
-                            taskKey = "summarize_whole_doc",
-                            expandedTask = expandedTask.value,
-                            onToggleExpand = { expandedTask.value = it },
-                            prompt = summarizeWholeDocPrompt.value,
-                            onPromptChange = { summarizeWholeDocPrompt.value = it },
-                            onSend = {
-                                onSendToAiApp(
-                                    AiPromptType.SUMMARY,
-                                    summarizeWholeDocPrompt.value,
-                                    AiPromptScope.WHOLE_DOCUMENT,
-                                    null
-                                )
-                            }
-                        )
-
-                        TaskExpandableCard(
-                            title = "Long document: page-to-page summary",
-                            taskKey = "long_doc",
-                            expandedTask = expandedTask.value,
-                            onToggleExpand = { expandedTask.value = it },
-                            prompt = longDocSummaryPrompt.value,
-                            onPromptChange = { longDocSummaryPrompt.value = it },
-                            startPage = longDocStartPage.value,
-                            onStartPageChange = { longDocStartPage.value = it },
-                            endPage = longDocEndPage.value,
-                            onEndPageChange = { longDocEndPage.value = it },
-                            onSend = {
-                                val start = longDocStartPage.value.toIntOrNull() ?: 1
-                                val end = longDocEndPage.value.toIntOrNull() ?: 1
-                                val min = minOf(start, end).coerceIn(1, document.pageCount)
-                                val max = maxOf(start, end).coerceIn(1, document.pageCount)
-                                onSendToAiApp(
-                                    AiPromptType.SECTION_BY_SECTION,
-                                    longDocSummaryPrompt.value,
-                                    AiPromptScope.CUSTOM_PAGE_RANGE,
-                                    min..max
-                                )
-                            }
-                        )
-
-                        TaskExpandableCard(
-                            title = "Extract key points",
-                            taskKey = "extract_keypoints",
-                            expandedTask = expandedTask.value,
-                            onToggleExpand = { expandedTask.value = it },
-                            prompt = extractKeypointsPrompt.value,
-                            onPromptChange = { extractKeypointsPrompt.value = it },
-                            showScopeSelector = true,
-                            selectedScope = extractKeypointsScope.value,
-                            onScopeSelected = { extractKeypointsScope.value = it },
-                            startPage = extractKeypointsStartPage.value,
-                            onStartPageChange = { extractKeypointsStartPage.value = it },
-                            endPage = extractKeypointsEndPage.value,
-                            onEndPageChange = { extractKeypointsEndPage.value = it },
-                            onSend = {
-                                val range = if (extractKeypointsScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                    val start = extractKeypointsStartPage.value.toIntOrNull() ?: 1
-                                    val end = extractKeypointsEndPage.value.toIntOrNull() ?: 1
-                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
-                                } else null
-                                onSendToAiApp(
-                                    AiPromptType.KEY_POINTS,
-                                    extractKeypointsPrompt.value,
-                                    extractKeypointsScope.value,
-                                    range
-                                )
-                            }
-                        )
-
-                        TaskExpandableCard(
-                            title = "Explain current sentence",
-                            taskKey = "explain_sentence",
-                            expandedTask = expandedTask.value,
-                            onToggleExpand = { expandedTask.value = it },
-                            prompt = explainSentencePrompt.value,
-                            onPromptChange = { explainSentencePrompt.value = it },
-                            onSend = {
-                                onSendToAiApp(
-                                    AiPromptType.EXPLAIN_SECTION,
-                                    explainSentencePrompt.value,
-                                    AiPromptScope.CURRENT_SENTENCE,
-                                    null
-                                )
-                            }
-                        )
-
-                        TaskExpandableCard(
-                            title = "Create study notes",
-                            taskKey = "study_notes",
-                            expandedTask = expandedTask.value,
-                            onToggleExpand = { expandedTask.value = it },
-                            prompt = studyNotesPrompt.value,
-                            onPromptChange = { studyNotesPrompt.value = it },
-                            showScopeSelector = true,
-                            selectedScope = studyNotesScope.value,
-                            onScopeSelected = { studyNotesScope.value = it },
-                            startPage = studyNotesStartPage.value,
-                            onStartPageChange = { studyNotesStartPage.value = it },
-                            endPage = studyNotesEndPage.value,
-                            onEndPageChange = { studyNotesEndPage.value = it },
-                            onSend = {
-                                val range = if (studyNotesScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                    val start = studyNotesStartPage.value.toIntOrNull() ?: 1
-                                    val end = studyNotesEndPage.value.toIntOrNull() ?: 1
-                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
-                                } else null
-                                onSendToAiApp(
-                                    AiPromptType.STUDY_NOTES,
-                                    studyNotesPrompt.value,
-                                    studyNotesScope.value,
-                                    range
-                                )
-                            }
-                        )
-
-                        TaskExpandableCard(
-                            title = "Simplify difficult text",
-                            taskKey = "simplify_text",
-                            expandedTask = expandedTask.value,
-                            onToggleExpand = { expandedTask.value = it },
-                            prompt = simplifyPrompt.value,
-                            onPromptChange = { simplifyPrompt.value = it },
-                            showScopeSelector = true,
-                            selectedScope = simplifyScope.value,
-                            onScopeSelected = { simplifyScope.value = it },
-                            startPage = simplifyStartPage.value,
-                            onStartPageChange = { simplifyStartPage.value = it },
-                            endPage = simplifyEndPage.value,
-                            onEndPageChange = { simplifyEndPage.value = it },
-                            onSend = {
-                                val range = if (simplifyScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                    val start = simplifyStartPage.value.toIntOrNull() ?: 1
-                                    val end = simplifyEndPage.value.toIntOrNull() ?: 1
-                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
-                                } else null
-                                onSendToAiApp(
-                                    AiPromptType.SIMPLIFY,
-                                    simplifyPrompt.value,
-                                    simplifyScope.value,
-                                    range
-                                )
-                            }
-                        )
-
-                        TaskExpandableCard(
-                            title = "Create page-to-page quiz",
-                            taskKey = "quiz",
-                            expandedTask = expandedTask.value,
-                            onToggleExpand = { expandedTask.value = it },
-                            prompt = quizPrompt.value,
-                            onPromptChange = { quizPrompt.value = it },
-                            showScopeSelector = true,
-                            selectedScope = quizScope.value,
-                            onScopeSelected = { quizScope.value = it },
-                            startPage = quizStartPage.value,
-                            onStartPageChange = { quizStartPage.value = it },
-                            endPage = quizEndPage.value,
-                            onEndPageChange = { quizEndPage.value = it },
-                            onSend = {
-                                val range = if (quizScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                    val start = quizStartPage.value.toIntOrNull() ?: 1
-                                    val end = quizEndPage.value.toIntOrNull() ?: 1
-                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
-                                } else null
-                                onSendToAiApp(
-                                    AiPromptType.QUIZ,
-                                    quizPrompt.value,
-                                    quizScope.value,
-                                    range
-                                )
-                            }
-                        )
-
-                        TaskExpandableCard(
-                            title = "Create flashcards",
-                            taskKey = "flashcards",
-                            expandedTask = expandedTask.value,
-                            onToggleExpand = { expandedTask.value = it },
-                            prompt = flashcardsPrompt.value,
-                            onPromptChange = { flashcardsPrompt.value = it },
-                            showScopeSelector = true,
-                            selectedScope = flashcardsScope.value,
-                            onScopeSelected = { flashcardsScope.value = it },
-                            startPage = flashcardsStartPage.value,
-                            onStartPageChange = { flashcardsStartPage.value = it },
-                            endPage = flashcardsEndPage.value,
-                            onEndPageChange = { flashcardsEndPage.value = it },
-                            onSend = {
-                                val range = if (flashcardsScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                    val start = flashcardsStartPage.value.toIntOrNull() ?: 1
-                                    val end = flashcardsEndPage.value.toIntOrNull() ?: 1
-                                    minOf(start, end).coerceIn(1, document.pageCount)..maxOf(start, end).coerceIn(1, document.pageCount)
-                                } else null
-                                onSendToAiApp(
-                                    AiPromptType.FLASHCARDS,
-                                    flashcardsPrompt.value,
-                                    flashcardsScope.value,
-                                    range
-                                )
-                            }
-                        )
-
-                        OutlinedButton(
-                            onClick = { showPasteFlashcards = true },
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(50)
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Paste AI reply → add flashcards")
-                        }
-                        OutlinedButton(
-                            onClick = { showPasteQuiz = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(50)
-                        ) {
-                            Text("Paste AI reply → take the quiz")
-                        }
-                    }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                IconButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        "AI Study Handoff",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "${document.title} • Page $currentPage of ${document.pageCount.coerceAtLeast(1)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
 
-                    "Templates" -> {
-                        OutlinedTextField(
-                            value = templateTitle,
-                            onValueChange = { templateTitle = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Template title") },
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = customPrompt,
-                            onValueChange = { customPrompt = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp),
-                            label = { Text("Custom instruction") },
-                            placeholder = { Text("Example: Explain this like I am preparing for an exam, then give likely questions.") }
-                        )
+                            // Quick target assistant pill
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                                modifier = Modifier.clickable { selectedTab = "AI Apps" }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.SmartToy,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        defaultAiName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+                        // Tab Bar Row
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
                         ) {
-                            Button(
-                                onClick = {
-                                    onSendToAiApp(
-                                        AiPromptType.CUSTOM,
-                                        customPrompt,
-                                        AiPromptScope.WHOLE_DOCUMENT,
-                                        null
-                                    )
-                                },
-                                enabled = customPrompt.isNotBlank(),
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Send") }
-                            OutlinedButton(
-                                onClick = { onSaveTemplate(templateTitle, customPrompt) },
-                                enabled = customPrompt.isNotBlank(),
-                                modifier = Modifier.weight(1f)
-                            ) { Text("Save") }
+                            val tabs = listOf("Tasks", "AI Apps", "Templates", "History", "Smart Importer")
+                            tabs.forEach { tab ->
+                                val selected = selectedTab == tab
+                                if (selected) {
+                                    Button(
+                                        onClick = { selectedTab = tab },
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Text(tab, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { selectedTab = tab },
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Text(tab, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
                         }
-                        HorizontalDivider()
-                        if (templates.isEmpty()) {
-                            Text(
-                                "Saved custom prompts will appear here.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            templates.forEach { template ->
+                    }
+                }
+
+                // Main Tab Content Area
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Document Overview Banner
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(44.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.MenuBook,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        document.title,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        "${document.sourceLabel.ifBlank { "Document" }} • ${document.chunks.size} sentences • ${document.pageCount} pages • ~$estimatedTextLength characters",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+
+                        when (selectedTab) {
+                            "Tasks" -> {
+                                Text(
+                                    "Select a study goal below. Veritas prepares the text with page coordinates, copies the prompt, and opens your chosen AI assistant for instant analysis.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Summarize whole document",
+                                    badge = "Executive overview, key points & takeaways",
+                                    icon = Icons.Outlined.Summarize,
+                                    taskKey = "summarize_whole_doc",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = summarizeWholeDocPrompt.value,
+                                    onPromptChange = { summarizeWholeDocPrompt.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Summary Prompt", summarizeWholeDocPrompt.value) },
+                                    onSend = {
+                                        onSendToAiApp(
+                                            AiPromptType.SUMMARY,
+                                            summarizeWholeDocPrompt.value,
+                                            AiPromptScope.WHOLE_DOCUMENT,
+                                            null
+                                        )
+                                    }
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Section / Page-by-page summary",
+                                    badge = "Targeted range summary with term definitions",
+                                    icon = Icons.Outlined.Article,
+                                    taskKey = "long_doc",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = longDocSummaryPrompt.value,
+                                    onPromptChange = { longDocSummaryPrompt.value = it },
+                                    startPage = longDocStartPage.value,
+                                    onStartPageChange = { longDocStartPage.value = it },
+                                    endPage = longDocEndPage.value,
+                                    onEndPageChange = { longDocEndPage.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Page Summary Prompt", longDocSummaryPrompt.value) },
+                                    onSend = {
+                                        val start = longDocStartPage.value.toIntOrNull() ?: 1
+                                        val end = longDocEndPage.value.toIntOrNull() ?: document.pageCount
+                                        val min = minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+                                        val max = maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+                                        onSendToAiApp(
+                                            AiPromptType.SECTION_BY_SECTION,
+                                            longDocSummaryPrompt.value,
+                                            AiPromptScope.CUSTOM_PAGE_RANGE,
+                                            min..max
+                                        )
+                                    }
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Extract key points & core ideas",
+                                    badge = "Bulleted facts, arguments and findings",
+                                    icon = Icons.Outlined.Bolt,
+                                    taskKey = "extract_keypoints",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = extractKeypointsPrompt.value,
+                                    onPromptChange = { extractKeypointsPrompt.value = it },
+                                    showScopeSelector = true,
+                                    selectedScope = extractKeypointsScope.value,
+                                    onScopeSelected = { extractKeypointsScope.value = it },
+                                    startPage = extractKeypointsStartPage.value,
+                                    onStartPageChange = { extractKeypointsStartPage.value = it },
+                                    endPage = extractKeypointsEndPage.value,
+                                    onEndPageChange = { extractKeypointsEndPage.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Keypoints Prompt", extractKeypointsPrompt.value) },
+                                    onSend = {
+                                        val range = if (extractKeypointsScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                            val start = extractKeypointsStartPage.value.toIntOrNull() ?: 1
+                                            val end = extractKeypointsEndPage.value.toIntOrNull() ?: document.pageCount
+                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+                                        } else null
+                                        onSendToAiApp(
+                                            AiPromptType.KEY_POINTS,
+                                            extractKeypointsPrompt.value,
+                                            extractKeypointsScope.value,
+                                            range
+                                        )
+                                    }
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Explain current sentence & section",
+                                    badge = "In-depth explanation with context & difficult words",
+                                    icon = Icons.Outlined.School,
+                                    taskKey = "explain_sentence",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = explainSentencePrompt.value,
+                                    onPromptChange = { explainSentencePrompt.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Sentence Prompt", explainSentencePrompt.value) },
+                                    onSend = {
+                                        onSendToAiApp(
+                                            AiPromptType.EXPLAIN_SECTION,
+                                            explainSentencePrompt.value,
+                                            AiPromptScope.CURRENT_SENTENCE,
+                                            null
+                                        )
+                                    }
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Create organized study notes",
+                                    badge = "Headings, formulas, definitions & review checklist",
+                                    icon = Icons.Outlined.Description,
+                                    taskKey = "study_notes",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = studyNotesPrompt.value,
+                                    onPromptChange = { studyNotesPrompt.value = it },
+                                    showScopeSelector = true,
+                                    selectedScope = studyNotesScope.value,
+                                    onScopeSelected = { studyNotesScope.value = it },
+                                    startPage = studyNotesStartPage.value,
+                                    onStartPageChange = { studyNotesStartPage.value = it },
+                                    endPage = studyNotesEndPage.value,
+                                    onEndPageChange = { studyNotesEndPage.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Study Notes Prompt", studyNotesPrompt.value) },
+                                    onSend = {
+                                        val range = if (studyNotesScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                            val start = studyNotesStartPage.value.toIntOrNull() ?: 1
+                                            val end = studyNotesEndPage.value.toIntOrNull() ?: document.pageCount
+                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+                                        } else null
+                                        onSendToAiApp(
+                                            AiPromptType.STUDY_NOTES,
+                                            studyNotesPrompt.value,
+                                            studyNotesScope.value,
+                                            range
+                                        )
+                                    }
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Simplify difficult text & jargon",
+                                    badge = "Rewritten in clear, straightforward language",
+                                    icon = Icons.Outlined.AutoAwesome,
+                                    taskKey = "simplify_text",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = simplifyPrompt.value,
+                                    onPromptChange = { simplifyPrompt.value = it },
+                                    showScopeSelector = true,
+                                    selectedScope = simplifyScope.value,
+                                    onScopeSelected = { simplifyScope.value = it },
+                                    startPage = simplifyStartPage.value,
+                                    onStartPageChange = { simplifyStartPage.value = it },
+                                    endPage = simplifyEndPage.value,
+                                    onEndPageChange = { simplifyEndPage.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Simplify Prompt", simplifyPrompt.value) },
+                                    onSend = {
+                                        val range = if (simplifyScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                            val start = simplifyStartPage.value.toIntOrNull() ?: 1
+                                            val end = simplifyEndPage.value.toIntOrNull() ?: document.pageCount
+                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+                                        } else null
+                                        onSendToAiApp(
+                                            AiPromptType.SIMPLIFY,
+                                            simplifyPrompt.value,
+                                            simplifyScope.value,
+                                            range
+                                        )
+                                    }
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Create practice exam quiz",
+                                    badge = "Multiple choice revision with answers & explanations",
+                                    icon = Icons.Outlined.Quiz,
+                                    taskKey = "quiz",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = quizPrompt.value,
+                                    onPromptChange = { quizPrompt.value = it },
+                                    showScopeSelector = true,
+                                    selectedScope = quizScope.value,
+                                    onScopeSelected = { quizScope.value = it },
+                                    startPage = quizStartPage.value,
+                                    onStartPageChange = { quizStartPage.value = it },
+                                    endPage = quizEndPage.value,
+                                    onEndPageChange = { quizEndPage.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Quiz Prompt", quizPrompt.value) },
+                                    onSend = {
+                                        val range = if (quizScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                            val start = quizStartPage.value.toIntOrNull() ?: 1
+                                            val end = quizEndPage.value.toIntOrNull() ?: document.pageCount
+                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+                                        } else null
+                                        onSendToAiApp(
+                                            AiPromptType.QUIZ,
+                                            quizPrompt.value,
+                                            quizScope.value,
+                                            range
+                                        )
+                                    }
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Generate study flashcards",
+                                    badge = "Q&A flashcards ready for Veritas study mode",
+                                    icon = Icons.Outlined.Style,
+                                    taskKey = "flashcards",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = flashcardsPrompt.value,
+                                    onPromptChange = { flashcardsPrompt.value = it },
+                                    showScopeSelector = true,
+                                    selectedScope = flashcardsScope.value,
+                                    onScopeSelected = { flashcardsScope.value = it },
+                                    startPage = flashcardsStartPage.value,
+                                    onStartPageChange = { flashcardsStartPage.value = it },
+                                    endPage = flashcardsEndPage.value,
+                                    onEndPageChange = { flashcardsEndPage.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Flashcards Prompt", flashcardsPrompt.value) },
+                                    onSend = {
+                                        val range = if (flashcardsScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                            val start = flashcardsStartPage.value.toIntOrNull() ?: 1
+                                            val end = flashcardsEndPage.value.toIntOrNull() ?: document.pageCount
+                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+                                        } else null
+                                        onSendToAiApp(
+                                            AiPromptType.FLASHCARDS,
+                                            flashcardsPrompt.value,
+                                            flashcardsScope.value,
+                                            range
+                                        )
+                                    }
+                                )
+
+                                TaskExpandableCard(
+                                    title = "Translate & build terminology glossary",
+                                    badge = "Language translation with key technical term definitions",
+                                    icon = Icons.Outlined.Translate,
+                                    taskKey = "translate_glossary",
+                                    expandedTask = expandedTask.value,
+                                    onToggleExpand = { expandedTask.value = it },
+                                    prompt = translatePrompt.value,
+                                    onPromptChange = { translatePrompt.value = it },
+                                    showScopeSelector = true,
+                                    selectedScope = translateScope.value,
+                                    onScopeSelected = { translateScope.value = it },
+                                    startPage = translateStartPage.value,
+                                    onStartPageChange = { translateStartPage.value = it },
+                                    endPage = translateEndPage.value,
+                                    onEndPageChange = { translateEndPage.value = it },
+                                    onCopyPrompt = { onCopyText("Veritas Translation Prompt", translatePrompt.value) },
+                                    onSend = {
+                                        val range = if (translateScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                            val start = translateStartPage.value.toIntOrNull() ?: 1
+                                            val end = translateEndPage.value.toIntOrNull() ?: document.pageCount
+                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+                                        } else null
+                                        onSendToAiApp(
+                                            AiPromptType.CUSTOM,
+                                            translatePrompt.value,
+                                            translateScope.value,
+                                            range
+                                        )
+                                    }
+                                )
+                            }
+
+                            "AI Apps" -> {
+                                Text(
+                                    "Choose which AI assistant Veritas will automatically target when sending study prompts, or launch installed AI apps directly.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                aiAssistantOptions.forEach { option ->
+                                    val isInstalled = remember(option, context) {
+                                        if (option.id == "chooser") true
+                                        else installedPackageForOption(context, option)?.isNotBlank() == true
+                                    }
+                                    val isCurrent = remember(option, askAiSettings) {
+                                        if (askAiSettings == null || askAiSettings.assistantId.isBlank()) {
+                                            option.id == "chooser"
+                                        } else {
+                                            option.id == askAiSettings.assistantId
+                                        }
+                                    }
+
+                                    Card(
+                                        shape = RoundedCornerShape(16.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isCurrent)
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                            else
+                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        ),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                    modifier = Modifier.size(40.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = aiAssistantIcon(option.id),
+                                                            contentDescription = null,
+                                                            tint = if (isCurrent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.size(22.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Column {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Text(
+                                                            option.label,
+                                                            fontWeight = FontWeight.Bold,
+                                                            style = MaterialTheme.typography.bodyLarge
+                                                        )
+                                                        if (isCurrent) {
+                                                            Surface(
+                                                                shape = RoundedCornerShape(50),
+                                                                color = MaterialTheme.colorScheme.primary,
+                                                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                                            ) {
+                                                                Text(
+                                                                    "Active Target",
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    Text(
+                                                        when {
+                                                            option.id == "chooser" -> "Opens Android sharing chooser every time"
+                                                            isInstalled -> "Installed on this device"
+                                                            else -> "Not installed on device"
+                                                        },
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                if (isInstalled) {
+                                                    if (!isCurrent) {
+                                                        Button(
+                                                            onClick = {
+                                                                val newSettings = (askAiSettings ?: AskAiSettings()).copy(
+                                                                    assistantId = option.id,
+                                                                    assistantLabel = option.label,
+                                                                    packageName = option.packageName
+                                                                )
+                                                                onUpdateAskAiSettings?.invoke(newSettings)
+                                                            },
+                                                            shape = RoundedCornerShape(50),
+                                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                                        ) {
+                                                            Text("Select")
+                                                        }
+                                                    }
+                                                    if (option.packageName.isNotBlank()) {
+                                                        IconButton(
+                                                            onClick = {
+                                                                val pkg = installedPackageForOption(context, option) ?: option.packageName
+                                                                val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)
+                                                                if (launchIntent != null) {
+                                                                    context.startActivity(launchIntent)
+                                                                } else {
+                                                                    openPlayStoreForPackage(context, option.packageName)
+                                                                }
+                                                            }
+                                                        ) {
+                                                            Icon(Icons.Filled.OpenInNew, contentDescription = "Open App")
+                                                        }
+                                                    }
+                                                } else if (option.packageName.isNotBlank()) {
+                                                    OutlinedButton(
+                                                        onClick = { openPlayStoreForPackage(context, option.packageName) },
+                                                        shape = RoundedCornerShape(50),
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                                    ) {
+                                                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Install", style = MaterialTheme.typography.labelSmall)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "Templates" -> {
+                                Text(
+                                    "Save customized prompts for quick re-use across all your books and study documents.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
                                 Card(
-                                    shape = MaterialTheme.shapes.medium,
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Text(template.title, fontWeight = FontWeight.Black)
-                                        Text(
-                                            template.instruction,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 3,
-                                            overflow = TextOverflow.Ellipsis
+                                        Text("Create New Template", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                        OutlinedTextField(
+                                            value = templateTitle,
+                                            onValueChange = { templateTitle = it },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            label = { Text("Template Name") },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp)
                                         )
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            TextButton(onClick = {
-                                                onSendToAiApp(
-                                                    AiPromptType.CUSTOM,
-                                                    template.instruction,
-                                                    AiPromptScope.WHOLE_DOCUMENT,
-                                                    null
-                                                )
-                                            }) { Text("Use") }
-                                            TextButton(onClick = {
-                                                onCopyText(
-                                                    "Veritas AI template",
-                                                    template.instruction
-                                                )
-                                            }) { Text("Copy") }
-                                            TextButton(onClick = { onDeleteTemplate(template.id) }) {
-                                                Text(
-                                                    "Delete"
-                                                )
+                                        OutlinedTextField(
+                                            value = customPrompt,
+                                            onValueChange = { customPrompt = it },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(110.dp),
+                                            label = { Text("Prompt Instructions") },
+                                            placeholder = { Text("e.g. Act as a tutor and quiz me step-by-step on this material...") },
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    onSaveTemplate(templateTitle, customPrompt)
+                                                    customPrompt = ""
+                                                    templateTitle = "Custom study prompt"
+                                                },
+                                                enabled = customPrompt.isNotBlank(),
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(50)
+                                            ) {
+                                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("Save")
                                             }
+                                            Button(
+                                                onClick = {
+                                                    onSendToAiApp(
+                                                        AiPromptType.CUSTOM,
+                                                        customPrompt,
+                                                        AiPromptScope.WHOLE_DOCUMENT,
+                                                        null
+                                                    )
+                                                },
+                                                enabled = customPrompt.isNotBlank(),
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(50)
+                                            ) {
+                                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("Send Now")
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Text("Saved Custom Templates", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+
+                                if (templates.isEmpty()) {
+                                    Text(
+                                        "No custom templates saved yet. Create one above or use the built-in study tasks.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                } else {
+                                    templates.forEach { template ->
+                                        Card(
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(14.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(template.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                                Text(
+                                                    template.instruction,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Row(
+                                                    horizontalArrangement = Arrangement.End,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    TextButton(onClick = { onDeleteTemplate(template.id) }) {
+                                                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Delete")
+                                                    }
+                                                    TextButton(onClick = { onCopyText("Veritas AI template", template.instruction) }) {
+                                                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Copy")
+                                                    }
+                                                    Button(
+                                                        onClick = {
+                                                            onSendToAiApp(
+                                                                AiPromptType.CUSTOM,
+                                                                template.instruction,
+                                                                AiPromptScope.WHOLE_DOCUMENT,
+                                                                null
+                                                            )
+                                                        },
+                                                        shape = RoundedCornerShape(50)
+                                                    ) {
+                                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Use")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "History" -> {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Recent AI Prompts",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                    if (history.isNotEmpty()) {
+                                        TextButton(onClick = onClearHistory) {
+                                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Clear history")
+                                        }
+                                    }
+                                }
+
+                                if (history.isEmpty()) {
+                                    Text(
+                                        "Prompts and questions you hand off to AI assistants will be tracked here for quick re-use.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                } else {
+                                    history.forEach { item ->
+                                        Card(
+                                            shape = RoundedCornerShape(16.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(14.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(50),
+                                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    ) {
+                                                        Text(
+                                                            "${item.promptType} • ${item.scope}",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                    Text(
+                                                        formatUpdated(item.createdAt),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+
+                                                Text(
+                                                    item.documentTitle,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+
+                                                Text(
+                                                    item.promptPreview,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    maxLines = 5,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+
+                                                Row(
+                                                    horizontalArrangement = Arrangement.End,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    TextButton(onClick = { onCopyText("Veritas AI prompt", item.promptPreview) }) {
+                                                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Copy")
+                                                    }
+                                                    Button(
+                                                        onClick = {
+                                                            onSendToAiApp(
+                                                                AiPromptType.CUSTOM,
+                                                                item.promptPreview,
+                                                                AiPromptScope.WHOLE_DOCUMENT,
+                                                                null
+                                                            )
+                                                        },
+                                                        shape = RoundedCornerShape(50)
+                                                    ) {
+                                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Re-send")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "Smart Importer" -> {
+                                Text(
+                                    "When the AI assistant replies, copy its text, return here, and paste it below. Veritas automatically detects whether it's flashcards, a quiz, or study notes.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                val parsedCards = remember(aiResultDraft) { AiResultParser.parseFlashcards(aiResultDraft) }
+                                val parsedQuiz = remember(aiResultDraft) { AiResultParser.parseQuiz(aiResultDraft) }
+
+                                OutlinedTextField(
+                                    value = aiResultDraft,
+                                    onValueChange = { aiResultDraft = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(180.dp),
+                                    label = { Text("Paste AI reply here") },
+                                    placeholder = { Text("Paste summary, explanation, Q&A flashcards, or exam quiz...") },
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+
+                                // Auto detection badge
+                                if (aiResultDraft.isNotBlank()) {
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Outlined.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                when {
+                                                    parsedCards.isNotEmpty() && parsedQuiz.isNotEmpty() ->
+                                                        "Detected: ${parsedCards.size} Flashcard(s) & ${parsedQuiz.size} Quiz question(s)"
+                                                    parsedCards.isNotEmpty() ->
+                                                        "Detected: ${parsedCards.size} Flashcard(s) (Q/A format)"
+                                                    parsedQuiz.isNotEmpty() ->
+                                                        "Detected: ${parsedQuiz.size} Quiz question(s) (Multiple-choice format)"
+                                                    else ->
+                                                        "Detected: Study Note / Text Explanation"
+                                                },
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Quick Action Buttons
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    if (parsedCards.isNotEmpty()) {
+                                        Button(
+                                            onClick = {
+                                                onImportFlashcards(document.title, parsedCards)
+                                                aiResultDraft = ""
+                                                Toast.makeText(context, "Imported ${parsedCards.size} flashcards!", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(50)
+                                        ) {
+                                            Icon(Icons.Outlined.Style, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("Import ${parsedCards.size} Flashcard${if (parsedCards.size == 1) "" else "s"}")
+                                        }
+                                    }
+
+                                    if (parsedQuiz.isNotEmpty()) {
+                                        Button(
+                                            onClick = {
+                                                activeQuizQuestions = parsedQuiz
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(50)
+                                        ) {
+                                            Icon(Icons.Outlined.Quiz, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("Take Interactive Quiz (${parsedQuiz.size} Questions)")
+                                        }
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            onSaveAiResultAsNote(aiResultDraft)
+                                            aiResultDraft = ""
+                                            Toast.makeText(context, "Saved note to sentence ${safeIndex + 1}!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        enabled = aiResultDraft.isNotBlank(),
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Icon(Icons.Outlined.EditNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Save Result to Current Sentence Note")
+                                    }
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { showPasteFlashcards = true },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(50)
+                                        ) {
+                                            Text("Custom Flashcard Importer")
+                                        }
+                                        OutlinedButton(
+                                            onClick = { showPasteQuiz = true },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(50)
+                                        ) {
+                                            Text("Custom Quiz Importer")
                                         }
                                     }
                                 }
                             }
                         }
                     }
-
-                    "History" -> {
-                        if (history.isEmpty()) {
-                            Text(
-                                "Prompts you send to AI apps will appear here.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            Row(
-                                horizontalArrangement = Arrangement.End,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                TextButton(onClick = onClearHistory) { Text("Clear history") }
-                            }
-                            history.take(12).forEach { item ->
-                                Card(
-                                    shape = MaterialTheme.shapes.medium,
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            "${item.promptType} • ${item.scope}",
-                                            fontWeight = FontWeight.Black
-                                        )
-                                        Text(
-                                            item.documentTitle,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            item.promptPreview,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 4,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            formatUpdated(item.createdAt),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        TextButton(onClick = {
-                                            onCopyText(
-                                                "Veritas AI prompt preview",
-                                                item.promptPreview
-                                            )
-                                        }) { Text("Copy preview") }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    "Result → note" -> {
-                        Text(
-                            "After the AI app replies, copy its answer, return here, paste it below, and save it as a note on the current sentence.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedTextField(
-                            value = aiResultDraft,
-                            onValueChange = { aiResultDraft = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(160.dp),
-                            label = { Text("Paste AI result") },
-                            placeholder = { Text("Paste summary, explanation, quiz answer, or study notes here…") }
-                        )
-                        Button(
-                            onClick = {
-                                onSaveAiResultAsNote(aiResultDraft)
-                                aiResultDraft = ""
-                            },
-                            enabled = aiResultDraft.isNotBlank(),
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Save result to current-sentence note") }
-                    }
                 }
-
-                Text(
-                    "For long documents, use the sentence-by-sentence button repeatedly as you move through the reader. Whole-document prompts may be shortened by Android share limits.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -1412,12 +2277,12 @@ data class VoicePreset(
 )
 
 fun voicePresets(): List<VoicePreset> = listOf(
-    VoicePreset("Balanced", 1.0f, 1.0f, "Everyday reading with neutral timing."),
-    VoicePreset("Study focus", 0.88f, 0.98f, "Slower pacing for dense material and note taking."),
-    VoicePreset("Quick scan", 1.35f, 1.02f, "Fast skim for review and familiar documents."),
-    VoicePreset("Story warm", 0.96f, 0.92f, "Softer narration for fiction and long listening."),
-    VoicePreset("Clear lecture", 1.06f, 1.06f, "Brighter delivery for technical or academic text."),
-    VoicePreset("Calm night", 0.82f, 0.90f, "Low, relaxed reading for quiet listening.")
+    VoicePreset("Balanced", 1.0f, 1.0f, "Natural everyday audio reading with standard timing."),
+    VoicePreset("Study focus", 0.85f, 0.94f, "Deliberate pacing with grounded tone for deep comprehension."),
+    VoicePreset("Quick scan", 1.45f, 1.04f, "Fast energetic review with crisp consonant clarity."),
+    VoicePreset("Storyteller", 0.93f, 0.90f, "Warm, chest-resonant narration for fiction and novels."),
+    VoicePreset("Lecture bright", 1.10f, 1.12f, "Confident, articulate delivery for academic and business text."),
+    VoicePreset("Bedtime calm", 0.75f, 0.82f, "Slow, soothing, mellow tone for quiet night-time listening.")
 )
 
 
@@ -1548,35 +2413,44 @@ internal fun TextEditorDialog(
     onDownloadToPhone: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val model = remember(document.id, document.rawText) {
+        ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
+    }
+    val parts = remember(model) { model.parts }
+    val totalPages = remember(parts) { parts.size.coerceAtLeast(1) }
+
+    val initialPartIndex = remember(target, currentIndex, parts) {
+        when (target) {
+            is VeritasTextEditTarget.Part -> target.partIndex.coerceIn(0, totalPages - 1)
+            is VeritasTextEditTarget.SentenceRange -> {
+                val p = model.partForSentence(target.startSentenceIndex)
+                p?.index?.coerceIn(0, totalPages - 1) ?: 0
+            }
+        }
+    }
+
+    var currentPartIndex by remember { mutableIntStateOf(initialPartIndex) }
     var showSearch by remember { mutableStateOf(false) }
+    var showReplace by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var editorValue by remember(target) {
+    var replaceQuery by remember { mutableStateOf("") }
+
+    var editorValue by remember(currentPartIndex) {
+        val initialText = if (currentPartIndex == initialPartIndex && text.isNotBlank()) {
+            text
+        } else {
+            parts.getOrNull(currentPartIndex)?.text.orEmpty()
+        }
         mutableStateOf(
             TextFieldValue(
-                text,
-                selection = TextRange(text.length)
+                text = initialText,
+                selection = TextRange(initialText.length)
             )
         )
     }
-    var undoStack by remember(target) { mutableStateOf<List<TextFieldValue>>(emptyList()) }
-    var redoStack by remember(target) { mutableStateOf<List<TextFieldValue>>(emptyList()) }
-    val scopeLabel = when (target) {
-        is VeritasTextEditTarget.SentenceRange -> target.label
-        is VeritasTextEditTarget.Part -> target.label
-    }
-    val searchMatches = remember(editorValue.text, searchQuery) {
-        countSearchOccurrences(
-            editorValue.text,
-            searchQuery
-        )
-    }
 
-    LaunchedEffect(text, target) {
-        if (text != editorValue.text) {
-            val safeSelection = TextRange(text.length)
-            editorValue = TextFieldValue(text, selection = safeSelection)
-        }
-    }
+    var undoStack by remember(currentPartIndex) { mutableStateOf<List<TextFieldValue>>(emptyList()) }
+    var redoStack by remember(currentPartIndex) { mutableStateOf<List<TextFieldValue>>(emptyList()) }
 
     fun commitValue(next: TextFieldValue) {
         if (next.text == editorValue.text && next.selection == editorValue.selection) {
@@ -1601,6 +2475,29 @@ internal fun TextEditorDialog(
         commitValue(TextFieldValue(nextText, selection = TextRange(cursorStart, cursorEnd)))
     }
 
+    fun applyPrefixToLines(linePrefix: String) {
+        val value = editorValue
+        val start = value.selection.min.coerceIn(0, value.text.length)
+        val end = value.selection.max.coerceIn(0, value.text.length)
+        val selected = value.text.substring(start, end)
+        val transformed = if (selected.contains("\n")) {
+            selected.lines().joinToString("\n") { if (it.isNotBlank()) "$linePrefix $it" else it }
+        } else {
+            "$linePrefix $selected"
+        }
+        val nextText = value.text.replaceRange(start, end, transformed)
+        commitValue(TextFieldValue(nextText, selection = TextRange(start, start + transformed.length)))
+    }
+
+    fun cleanAndNormalizeText() {
+        val clean = editorValue.text
+            .replace(Regex("(\\w+)-\\n(\\w+)"), "$1$2") // fix broken hyphenated linebreaks
+            .replace(Regex("[ \\t]+"), " ")             // fix multiple spaces
+            .replace(Regex("\\n{3,}"), "\n\n")          // fix excessive newlines
+            .trim()
+        commitValue(TextFieldValue(clean, selection = TextRange(clean.length)))
+    }
+
     fun findNextSearchMatch() {
         val needle = searchQuery.trim()
         if (needle.isBlank()) return
@@ -1610,6 +2507,37 @@ internal fun TextEditorDialog(
         if (match >= 0) {
             editorValue = editorValue.copy(selection = TextRange(match, match + needle.length))
         }
+    }
+
+    fun replaceCurrentMatch() {
+        val needle = searchQuery.trim()
+        if (needle.isBlank()) return
+        val value = editorValue
+        val start = value.selection.min.coerceIn(0, value.text.length)
+        val end = value.selection.max.coerceIn(0, value.text.length)
+        val selected = value.text.substring(start, end)
+        if (selected.equals(needle, ignoreCase = true)) {
+            val nextText = value.text.replaceRange(start, end, replaceQuery)
+            commitValue(TextFieldValue(nextText, selection = TextRange(start + replaceQuery.length)))
+            findNextSearchMatch()
+        } else {
+            findNextSearchMatch()
+        }
+    }
+
+    fun replaceAllMatches() {
+        val needle = searchQuery.trim()
+        if (needle.isBlank()) return
+        val nextText = editorValue.text.replace(needle, replaceQuery, ignoreCase = true)
+        commitValue(TextFieldValue(nextText, selection = TextRange(nextText.length)))
+    }
+
+    val wordCount = remember(editorValue.text) {
+        editorValue.text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+    }
+    val charCount = editorValue.text.length
+    val searchMatches = remember(editorValue.text, searchQuery) {
+        countSearchOccurrences(editorValue.text, searchQuery)
     }
 
     Dialog(
@@ -1628,82 +2556,241 @@ internal fun TextEditorDialog(
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding()
-                    .imePadding(),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
+                    .imePadding()
             ) {
+                // Top App Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text(
-                            "←",
-                            style = MaterialTheme.typography.titleLarge
-                        )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 4.dp)
+                    ) {
                         Text(
-                            "Edit text",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Black
+                            "Edit extracted text",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             document.title,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    TextButton(onClick = { showSearch = !showSearch }) { Text("⌕") }
-                    TextButton(
+
+                    IconButton(
+                        onClick = { showSearch = !showSearch; if (showSearch) showReplace = false },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.Search,
+                            contentDescription = "Search",
+                            tint = if (showSearch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = { showReplace = !showReplace; if (showReplace) showSearch = false },
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.FindReplace,
+                            contentDescription = "Find & Replace",
+                            tint = if (showReplace) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(
                         onClick = onDownloadToPhone,
-                        enabled = editorValue.text.isNotBlank()
-                    ) { Text("⇩") }
+                        enabled = editorValue.text.isNotBlank(),
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.Outlined.FileDownload, contentDescription = "Export Text", modifier = Modifier.size(20.dp))
+                    }
                     Button(
                         onClick = onSave,
-                        enabled = editorValue.text.isNotBlank()
-                    ) { Text("Save") }
+                        enabled = editorValue.text.isNotBlank(),
+                        shape = RoundedCornerShape(50),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Save", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
-                if (showSearch) {
+
+                // Per-Page Navigator Header
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it.take(120) },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            label = { Text("Search in edited text") }
-                        )
-                        Text("$searchMatches", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(
-                            onClick = ::findNextSearchMatch,
-                            enabled = searchMatches > 0
-                        ) { Text("Next") }
+                        IconButton(
+                            onClick = {
+                                if (currentPartIndex > 0) {
+                                    currentPartIndex--
+                                }
+                            },
+                            enabled = currentPartIndex > 0
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = "Previous Page")
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                "Page ${currentPartIndex + 1} of $totalPages",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (currentPartIndex < totalPages - 1) {
+                                    currentPartIndex++
+                                }
+                            },
+                            enabled = currentPartIndex < totalPages - 1
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = "Next Page")
+                        }
                     }
                 }
-                Text(
-                    "Editing $scopeLabel • current sentence ${currentIndex + 1}/${
-                        document.chunks.size.coerceAtLeast(
-                            1
-                        )
-                    }",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
-                )
+
+                // Search Panel
+                if (showSearch) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it.take(120) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                label = { Text("Find in page") },
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                                Text(
+                                    "$searchMatches found",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                                )
+                            }
+                            Button(
+                                onClick = ::findNextSearchMatch,
+                                enabled = searchMatches > 0,
+                                shape = RoundedCornerShape(50)
+                            ) { Text("Next") }
+                        }
+                    }
+                }
+
+                // Replace Panel
+                if (showReplace) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it.take(120) },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    label = { Text("Find") },
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                OutlinedTextField(
+                                    value = replaceQuery,
+                                    onValueChange = { replaceQuery = it.take(120) },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    label = { Text("Replace with") },
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(onClick = ::replaceCurrentMatch, enabled = searchQuery.isNotBlank()) {
+                                    Text("Replace Next")
+                                }
+                                Button(onClick = ::replaceAllMatches, enabled = searchQuery.isNotBlank(), shape = RoundedCornerShape(50)) {
+                                    Text("Replace All")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Word count banner
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "$wordCount words • $charCount characters",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Rich Text Editor Area
                 BasicTextField(
                     value = editorValue,
-                    onValueChange = { next ->
-                        commitValue(next)
-                    },
+                    onValueChange = { next -> commitValue(next) },
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onBackground,
                         lineHeight = (MaterialTheme.typography.bodyLarge.fontSize.value + 8).sp
@@ -1712,94 +2799,88 @@ internal fun TextEditorDialog(
                         .fillMaxWidth()
                         .weight(1f)
                         .background(MaterialTheme.colorScheme.background)
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.inverseSurface)
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+
+                // Material 3 Rich Editing Toolbar
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    tonalElevation = 6.dp
                 ) {
-                    TextButton(onClick = { showSearch = !showSearch }) {
-                        Text(
-                            "⌕",
-                            color = MaterialTheme.colorScheme.inverseOnSurface
-                        )
-                    }
-                    TextButton(onClick = {
-                        replaceSelection(
-                            "<p>\n",
-                            "\n</p>",
-                            "Paragraph"
-                        )
-                    }) { Text("<p>", color = MaterialTheme.colorScheme.inverseOnSurface) }
-                    TextButton(
-                        onClick = { replaceSelection("_") },
-                        enabled = editorValue.text.isNotBlank()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            "I",
-                            color = MaterialTheme.colorScheme.inverseOnSurface,
-                            fontWeight = FontWeight.Bold
+                        IconButton(
+                            onClick = {
+                                val previous = undoStack.lastOrNull() ?: return@IconButton
+                                undoStack = undoStack.dropLast(1)
+                                redoStack = (redoStack + editorValue).takeLast(80)
+                                editorValue = previous
+                                onTextChange(previous.text)
+                            },
+                            enabled = undoStack.isNotEmpty()
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val next = redoStack.lastOrNull() ?: return@IconButton
+                                redoStack = redoStack.dropLast(1)
+                                undoStack = (undoStack + editorValue).takeLast(80)
+                                editorValue = next
+                                onTextChange(next.text)
+                            },
+                            enabled = redoStack.isNotEmpty()
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo")
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(24.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         )
+
+                        IconButton(onClick = { replaceSelection("**") }) {
+                            Icon(Icons.Filled.FormatBold, contentDescription = "Bold")
+                        }
+
+                        IconButton(onClick = { replaceSelection("_") }) {
+                            Icon(Icons.Filled.FormatItalic, contentDescription = "Italic")
+                        }
+
+                        IconButton(onClick = { replaceSelection("<u>", "</u>") }) {
+                            Icon(Icons.Filled.FormatUnderlined, contentDescription = "Underline")
+                        }
+
+                        IconButton(onClick = { applyPrefixToLines("##") }) {
+                            Icon(Icons.Filled.Title, contentDescription = "Heading")
+                        }
+
+                        IconButton(onClick = { applyPrefixToLines("•") }) {
+                            Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = "Bulleted List")
+                        }
+
+                        IconButton(onClick = { applyPrefixToLines("1.") }) {
+                            Icon(Icons.Filled.FormatListNumbered, contentDescription = "Numbered List")
+                        }
+
+                        IconButton(onClick = { applyPrefixToLines(">") }) {
+                            Icon(Icons.Filled.FormatQuote, contentDescription = "Quote")
+                        }
+
+                        IconButton(onClick = ::cleanAndNormalizeText) {
+                            Icon(Icons.Filled.CleaningServices, contentDescription = "Clean whitespace & formatting")
+                        }
                     }
-                    TextButton(
-                        onClick = { replaceSelection("**") },
-                        enabled = editorValue.text.isNotBlank()
-                    ) {
-                        Text(
-                            "B",
-                            color = MaterialTheme.colorScheme.inverseOnSurface,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                    TextButton(
-                        onClick = { replaceSelection("<u>", "</u>") },
-                        enabled = editorValue.text.isNotBlank()
-                    ) {
-                        Text(
-                            "U",
-                            color = MaterialTheme.colorScheme.inverseOnSurface,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            val previous = undoStack.lastOrNull() ?: return@TextButton
-                            undoStack = undoStack.dropLast(1)
-                            redoStack = (redoStack + editorValue).takeLast(80)
-                            editorValue = previous
-                            onTextChange(previous.text)
-                        },
-                        enabled = undoStack.isNotEmpty()
-                    ) { Text("↶", color = MaterialTheme.colorScheme.inverseOnSurface) }
-                    TextButton(
-                        onClick = {
-                            val next = redoStack.lastOrNull() ?: return@TextButton
-                            redoStack = redoStack.dropLast(1)
-                            undoStack = (undoStack + editorValue).takeLast(80)
-                            editorValue = next
-                            onTextChange(next.text)
-                        },
-                        enabled = redoStack.isNotEmpty()
-                    ) { Text("↷", color = MaterialTheme.colorScheme.inverseOnSurface) }
-                    TextButton(
-                        onClick = { replaceSelection("`") },
-                        enabled = editorValue.text.isNotBlank()
-                    ) {
-                        Text(
-                            "</>",
-                            color = MaterialTheme.colorScheme.inverseOnSurface,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    TextButton(
-                        onClick = onDownloadToPhone,
-                        enabled = editorValue.text.isNotBlank()
-                    ) { Text("▣", color = MaterialTheme.colorScheme.inverseOnSurface) }
                 }
             }
         }
@@ -1942,7 +3023,7 @@ internal fun TutorialDialog(
                     modifier = Modifier
                         .weight(1f)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (stepIndex == 0) {
                         Spacer(modifier = Modifier.height(24.dp))
@@ -2074,7 +3155,7 @@ internal fun TutorialStage(frame: TutorialFrame, progress: Float, pulse: Float) 
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -2336,7 +3417,7 @@ internal fun AppHealthDialog(
                 modifier = Modifier
                     .height(560.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -2360,7 +3441,7 @@ internal fun AppHealthDialog(
                         val appVersion = remember(context) {
                             runCatching {
                                 context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                            }.getOrNull() ?: "1.1.0"
+                            }.getOrNull() ?: "2.0.0"
                         }
                         Text(
                             "Version: $appVersion",
@@ -2470,13 +3551,23 @@ object VeritasPackStyle {
 
     @Composable
     fun surfaceAlpha(): Float = when (currentPackId()) {
-        "liquid_glass" -> 0.42f
+        "liquid_glass" -> 0.85f
         "one_ui" -> 0.94f
         "material_you" -> 0.88f
         else -> 0.78f
     }
 
-    // Liquid Glass gets a real glass edge: a catch-light that's brightest along the
+    @Composable
+    fun bottomNavShape(): RoundedCornerShape = when (currentPackId()) {
+        "material_you" -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+        "one_ui" -> RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+        else -> RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+    }
+
+    @Composable
+    fun bottomNavPadding(): androidx.compose.ui.unit.Dp = 0.dp
+
+    // Liquid Glass & Liquid Material get a real glass edge: a catch-light that's brightest along the
     // top rim and fades to a faint primary tint — the cue that sells "glossy pane".
     // Other packs keep the standard hairline outline.
     @Composable
@@ -2485,9 +3576,9 @@ object VeritasPackStyle {
             1.dp,
             Brush.verticalGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.30f),
-                    Color.White.copy(alpha = 0.07f),
-                    colorScheme.primary.copy(alpha = 0.12f)
+                    Color.White.copy(alpha = 0.60f),
+                    Color.White.copy(alpha = 0.12f),
+                    colorScheme.primary.copy(alpha = 0.25f)
                 )
             )
         )
@@ -2498,10 +3589,8 @@ object VeritasPackStyle {
     fun backgroundBrush(colorScheme: ColorScheme): Brush = when (currentPackId()) {
         "liquid_glass" -> Brush.verticalGradient(
             listOf(
-                colorScheme.primaryContainer.copy(alpha = 0.34f),
                 colorScheme.background,
-                colorScheme.surfaceVariant.copy(alpha = 0.86f),
-                colorScheme.primaryContainer.copy(alpha = 0.22f),
+                colorScheme.primaryContainer.copy(alpha = 0.14f),
                 colorScheme.background
             )
         )
@@ -2553,7 +3642,7 @@ fun packPreviewSymbols(packId: String): String =
 // so what the picker shows is exactly what the app paints once the theme is applied.
 fun themePreviewColors(themeId: String): List<Color> {
     return when (VeritasThemeCatalog.normalizeThemeId(themeId)) {
-        "light" -> listOf(Color(0xFFF4F6FA), Color(0xFF7C6FFF), Color(0xFF1A1A2E))
+        "light" -> listOf(Color(0xFFFAF7F2), Color(0xFFC07318), Color(0xFF52695C))
         "neon" -> listOf(Color(0xFF000000), Color(0xFF00FFFF), Color(0xFF39FF14))
         "solarized_dark" -> listOf(Color(0xFF002B36), Color(0xFF2AA198), Color(0xFFB58900))
         "tomorrow_night_blue" -> listOf(Color(0xFF002451), Color(0xFFBBDAFF), Color(0xFFFFC58F))
@@ -2567,8 +3656,8 @@ fun themePreviewColors(themeId: String): List<Color> {
         "github_light" -> listOf(Color(0xFFFFFFFF), Color(0xFF0969DA), Color(0xFF1A7F37))
         "dracula" -> listOf(Color(0xFF282A36), Color(0xFFBD93F9), Color(0xFFFF79C6))
         "material_you" -> listOf(Color(0xFFFFFBFE), Color(0xFF6750A4), Color(0xFF7D5260))
-        "dark" -> listOf(Color(0xFF111827), Color(0xFFA79BFF), Color(0xFF9BD8E0))
-        else -> listOf(Color(0xFF050505), Color(0xFF00D4E6), Color(0xFFD8B7FF))
+        "dark" -> listOf(Color(0xFF0F172A), Color(0xFFA79BFF), Color(0xFF9BD8E0))
+        else -> listOf(Color(0xFF151515), Color(0xFFE5A93C), Color(0xFF81B29A))
     }
 }
 
@@ -2653,6 +3742,7 @@ internal fun VeritasTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val selectedTheme = VeritasThemeCatalog.normalizeThemeId(VeritasThemeState.themeId)
     val selectedPack = VeritasThemePackCatalog.normalizePackId(VeritasThemeState.themePackId)
+    val reduceMotion = VeritasThemeState.reduceMotion
     
     val resolvedTheme = if (selectedTheme == "system") {
         if (isSystemInDarkTheme()) "default_dark_2026" else "light"
@@ -2706,22 +3796,29 @@ internal fun VeritasTheme(content: @Composable () -> Unit) {
             val window = (view.context as? Activity)?.window
             if (window != null) {
                 @Suppress("DEPRECATION")
-                window.statusBarColor = colorScheme.surface.toArgb()
-                val isLight = when (resolvedTheme) {
-                    "light", "white_high_contrast", "bw_gradient_light", "github_light" -> true
-                    else -> false
-                }
-                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = isLight
+                window.statusBarColor = colorScheme.primaryContainer.toArgb()
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = colorScheme.primaryContainer.toArgb()
+                val isLightContainer = colorScheme.primaryContainer.luminance() > 0.45f
+                val insetsController = WindowCompat.getInsetsController(window, view)
+                insetsController.isAppearanceLightStatusBars = isLightContainer
+                insetsController.isAppearanceLightNavigationBars = isLightContainer
             }
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = androidx.compose.material3.Typography(),
-        shapes = veritasPackShapes(selectedPack),
-        content = content
-    )
+    val uiFont = com.veritas.reader.ui.VeritasUiFont.fromId(VeritasThemeState.uiFontId)
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.veritas.reader.ui.LocalVeritasMotion provides
+            remember(reduceMotion) { com.veritas.reader.ui.VeritasMotionScheme(reduceMotion) }
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = remember(uiFont) { com.veritas.reader.ui.veritasTypography(uiFont) },
+            shapes = veritasPackShapes(selectedPack),
+            content = content
+        )
+    }
 }
 
 internal fun veritasPackShapes(packId: String): Shapes {
@@ -2761,13 +3858,14 @@ internal fun veritasPackShapes(packId: String): Shapes {
 }
 
 internal fun veritasPackColorScheme(base: ColorScheme, packId: String): ColorScheme {
+    val isDark = base.background.luminance() < 0.3f
     return when (VeritasThemePackCatalog.normalizePackId(packId)) {
         "liquid_glass" -> base.copy(
-            surface = base.surface.copy(alpha = 0.74f),
-            surfaceVariant = base.surfaceVariant.copy(alpha = 0.58f),
-            primaryContainer = base.primaryContainer.copy(alpha = 0.84f),
-            secondaryContainer = base.secondaryContainer.copy(alpha = 0.72f),
-            tertiaryContainer = base.tertiaryContainer.copy(alpha = 0.68f)
+            surface = base.surface.copy(alpha = if (isDark) 0.28f else 0.38f),
+            surfaceVariant = base.surfaceVariant.copy(alpha = if (isDark) 0.20f else 0.28f),
+            primaryContainer = base.primaryContainer.copy(alpha = if (isDark) 0.65f else 0.80f),
+            secondaryContainer = base.secondaryContainer.copy(alpha = if (isDark) 0.55f else 0.70f),
+            tertiaryContainer = base.tertiaryContainer.copy(alpha = if (isDark) 0.50f else 0.65f)
         )
 
         "one_ui" -> base.copy(
@@ -2778,9 +3876,11 @@ internal fun veritasPackColorScheme(base: ColorScheme, packId: String): ColorSch
         )
 
         "material_you" -> base.copy(
-            surface = base.surface.copy(alpha = 0.96f),
-            surfaceVariant = base.primaryContainer.copy(alpha = 0.46f),
-            secondaryContainer = base.tertiaryContainer.copy(alpha = 0.90f)
+            surface = base.surface.copy(alpha = 0.90f),
+            surfaceVariant = base.surfaceVariant.copy(alpha = 0.35f),
+            primaryContainer = base.primaryContainer.copy(alpha = 0.50f),
+            secondaryContainer = base.secondaryContainer.copy(alpha = 0.45f),
+            tertiaryContainer = base.tertiaryContainer.copy(alpha = 0.40f)
         )
 
         else -> base
@@ -2791,43 +3891,49 @@ internal fun veritasPackColorScheme(base: ColorScheme, packId: String): ColorSch
 internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme {
     return when (VeritasThemeCatalog.normalizeThemeId(themeId)) {
         "light" -> lightColorScheme(
-            primary = Color(0xFF7C6FFF),
+            primary = Color(0xFFC07318),          // Rich Darker Amber Gold
             onPrimary = Color.White,
-            primaryContainer = Color(0xFFF0F3FF),
-            onPrimaryContainer = Color(0xFF7C6FFF),
-            secondary = Color(0xFF5B4FCF),
-            secondaryContainer = Color(0xFFDCE2FF),
-            onSecondaryContainer = Color(0xFF5B4FCF),
-            tertiary = Color(0xFF1A1A2E),
-            tertiaryContainer = Color(0xFFEAEAEE),
-            onTertiaryContainer = Color(0xFF1A1A2E),
-            background = Color(0xFFF4F6FA),
-            surface = Color(0xFFFFFFFF),
-            surfaceVariant = Color(0xFFF4F6FA),
-            onSurface = Color(0xFF1A1A2E),
-            onSurfaceVariant = Color(0xFF545464),
-            outline = Color(0xFFC8C8D0),
-            outlineVariant = Color(0xFFEAEAEE),
+            primaryContainer = Color(0xFFFDE8CC),
+            onPrimaryContainer = Color(0xFF3B1E00),
+            secondary = Color(0xFF8C5E3C),        // Warm Terracotta
+            secondaryContainer = Color(0xFFF5ECE4),
+            onSecondaryContainer = Color(0xFF321A0C),
+            tertiary = Color(0xFF52695C),         // Soft Sage
+            tertiaryContainer = Color(0xFFDCEDE4),
+            onTertiaryContainer = Color(0xFF102117),
+            background = Color(0xFFFAF7F2),       // Warm Cream Paper
+            surface = Color(0xFFFFFFFF),          // Crisp White Card
+            surfaceVariant = Color(0xFFF0EAE1),   // Warm Linen Container / Chip
+            onSurface = Color(0xFF1E1B18),        // Warm Espresso Charcoal Text
+            onSurfaceVariant = Color(0xFF6E675E), // Warm Neutral Muted Gray
+            outline = Color(0xFFD6CEC4),
+            outlineVariant = Color(0xFFE8E1D7),
             error = Color(0xFFBA1A1A),
             errorContainer = Color(0xFFFFDAD6),
             onErrorContainer = Color(0xFF93000A)
         )
 
         "neon" -> darkColorScheme(
-            primary = Color(0xFF00FFFF),          // Pure Neon Cyan
-            onPrimary = Color(0xFF000000),
-            primaryContainer = Color(0xFF002A30),
-            onPrimaryContainer = Color(0xFF00FFFF),
-            secondary = Color(0xFF39FF14),        // Neon Lime Green
-            secondaryContainer = Color(0xFF0C240A),
-            onSecondaryContainer = Color(0xFF39FF14),
-            tertiary = Color(0xFFFF007F),         // Neon Magenta
-            tertiaryContainer = Color(0xFF3A001C),
-            background = Color(0xFF000000),       // Pure Black
-            surface = Color(0xFF0B0E14),          // Very Dark Cyan-Slate
-            surfaceVariant = Color(0xFF151B24),
-            onSurface = Color(0xFFFFFFFF),        // High Contrast White
-            onSurfaceVariant = Color(0xFF8CD3EC)
+            primary = Color(0xFF00E5FF),          // Vibrant Luminous Electric Cyan
+            onPrimary = Color(0xFF001B20),
+            primaryContainer = Color(0xFF003844),
+            onPrimaryContainer = Color(0xFFB8F5FF),
+            secondary = Color(0xFF00E676),        // Cyber Emerald Mint
+            onSecondary = Color(0xFF00220E),
+            secondaryContainer = Color(0xFF003D1A),
+            onSecondaryContainer = Color(0xFF82FFBC),
+            tertiary = Color(0xFFFF2A85),         // Cyber Neon Coral / Pink
+            onTertiary = Color(0xFF3B0018),
+            tertiaryContainer = Color(0xFF5C0028),
+            onTertiaryContainer = Color(0xFFFFB2D1),
+            background = Color(0xFF08090C),       // Deep OLED Obsidian
+            onBackground = Color(0xFFF0F6FC),
+            surface = Color(0xFF10141B),          // Elevated Cyber Slate
+            onSurface = Color(0xFFF0F6FC),
+            surfaceVariant = Color(0xFF181F29),   // Smooth Cyber Container / Chip
+            onSurfaceVariant = Color(0xFF8BA2B8), // Readable Neutral Cyber Gray
+            outline = Color(0xFF263242),
+            outlineVariant = Color(0xFF181F29)
         )
 
         "solarized_dark" -> darkColorScheme(
@@ -2852,7 +3958,7 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
         "tomorrow_night_blue" -> darkColorScheme(
             primary = Color(0xFFBBDAFF),
             onPrimary = Color(0xFF002451),
-            primaryContainer = Color(0xFF00346B),
+            primaryContainer = Color(0xFF002047),
             onPrimaryContainer = Color(0xFFEEFFFF),
             secondary = Color(0xFFEBBBFF),
             secondaryContainer = Color(0xFF002451),
@@ -2954,7 +4060,7 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
         "one_dark_pro" -> darkColorScheme(
             primary = Color(0xFF61AFEF),
             onPrimary = Color(0xFF21252B),
-            primaryContainer = Color(0xFF2E3440),
+            primaryContainer = Color(0xFF1D222A),
             onPrimaryContainer = Color(0xFF61AFEF),
             secondary = Color(0xFF98C379),
             secondaryContainer = Color(0xFF21252B),
@@ -2971,7 +4077,7 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
         "github_dark" -> darkColorScheme(
             primary = Color(0xFF58A6FF),
             onPrimary = Color(0xFF0D1117),
-            primaryContainer = Color(0xFF1F6FEB),
+            primaryContainer = Color(0xFF124391),
             onPrimaryContainer = Color(0xFFF0F6FC),
             secondary = Color(0xFF3FB950),
             secondaryContainer = Color(0xFF0D1117),
@@ -3005,7 +4111,7 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
         "dracula" -> darkColorScheme(
             primary = Color(0xFFBD93F9),          // Purple
             onPrimary = Color(0xFF282A36),
-            primaryContainer = Color(0xFF44475A),
+            primaryContainer = Color(0xFF2F3142),
             onPrimaryContainer = Color(0xFFF8F8F2),
             secondary = Color(0xFF50FA7B),        // Green
             secondaryContainer = Color(0xFF282A36),
@@ -3052,35 +4158,43 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
         "dark" -> darkColorScheme(
             primary = Color(0xFFA79BFF),
             onPrimary = Color(0xFF221656),
-            primaryContainer = Color(0xFF3B2E75),
+            primaryContainer = Color(0xFF261D50),
             onPrimaryContainer = Color(0xFFE6DFFF),
             secondary = Color(0xFFC9D6DF),
             secondaryContainer = Color(0xFF29333B),
             onSecondaryContainer = Color(0xFFE6EEF3),
             tertiary = Color(0xFF9BD8E0),
             tertiaryContainer = Color(0xFF164B54),
-            background = Color(0xFF111827),
-            surface = Color(0xFF171F2B),
-            surfaceVariant = Color(0xFF273140),
-            onSurface = Color(0xFFE9EEF5),
-            onSurfaceVariant = Color(0xFFC4CED9)
+            background = Color(0xFF0F172A),
+            surface = Color(0xFF1E293B),
+            surfaceVariant = Color(0xFF334155),
+            onSurface = Color(0xFFF8FAFC),
+            onSurfaceVariant = Color(0xFF94A3B8),
+            outline = Color(0xFF475569),
+            outlineVariant = Color(0xFF1E293B)
         )
 
         else -> darkColorScheme(
-            primary = Color(0xFF00D4E6),
-            onPrimary = Color(0xFF002124),
-            primaryContainer = Color(0xFF003B42),
-            onPrimaryContainer = Color(0xFFB8F4FA),
-            secondary = Color(0xFFCAD3D7),
-            secondaryContainer = Color(0xFF20272B),
-            onSecondaryContainer = Color(0xFFE6EEF2),
-            tertiary = Color(0xFFD8B7FF),
-            tertiaryContainer = Color(0xFF332245),
-            background = Color(0xFF050505),
-            surface = Color(0xFF101010),
-            surfaceVariant = Color(0xFF1C1C1E),
-            onSurface = Color(0xFFEFF7FA),
-            onSurfaceVariant = Color(0xFFC2CCD2)
+            primary = Color(0xFFE5A93C),          // Luminous Amber Gold (Dark counterpart of #C07318)
+            onPrimary = Color(0xFF2C1E00),
+            primaryContainer = Color(0xFF3D2A10),
+            onPrimaryContainer = Color(0xFFFDE8CC),
+            secondary = Color(0xFFD4A373),        // Warm Terracotta Sand (Dark counterpart of #8C5E3C)
+            onSecondary = Color(0xFF3C2000),
+            secondaryContainer = Color(0xFF3B2A1E),
+            onSecondaryContainer = Color(0xFFF5ECE4),
+            tertiary = Color(0xFF81B29A),         // Soft Sage (Dark counterpart of #52695C)
+            onTertiary = Color(0xFF003828),
+            tertiaryContainer = Color(0xFF1B2B24),
+            onTertiaryContainer = Color(0xFFDCEDE4),
+            background = Color(0xFF151515),       // User Requested #151515 Dark Mode Background
+            onBackground = Color(0xFFF5F2EB),
+            surface = Color(0xFF1E1E1E),          // Elevated Warm Dark Card matching #151515
+            onSurface = Color(0xFFF5F2EB),        // Warm Cream Off-White
+            surfaceVariant = Color(0xFF282828),   // Dark Chip container
+            onSurfaceVariant = Color(0xFFA8A29E), // Muted Neutral
+            outline = Color(0xFF424242),
+            outlineVariant = Color(0xFF2C2C2C)
         )
     }
 }
@@ -3091,7 +4205,7 @@ fun VeritasImportPreviewDialog(
     onConfirm: (String, PdfImportOptions, TextImportOptions, PptxImportOptions) -> Unit,
     onCancel: () -> Unit
 ) {
-    var title by remember { mutableStateOf(pendingImport.name.substringBeforeLast(".")) }
+    var title by remember { mutableStateOf(cleanDocumentTitle(pendingImport.name)) }
     var pdfOptions by remember { mutableStateOf(pendingImport.pdfOptions) }
     var textOptions by remember { mutableStateOf(pendingImport.textOptions) }
     var pptxOptions by remember { mutableStateOf(pendingImport.pptxOptions) }
@@ -3135,7 +4249,7 @@ fun VeritasImportPreviewDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 560.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item {
                     Text(
@@ -3165,7 +4279,7 @@ fun VeritasImportPreviewDialog(
                                 Text("Speaker notes", fontWeight = FontWeight.SemiBold)
                                 Text("Read presenter notes after each slide.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(
+                            VeritasSwitch(
                                 checked = pptxOptions.includeSpeakerNotes,
                                 onCheckedChange = { pptxOptions = pptxOptions.copy(includeSpeakerNotes = it) }
                             )
@@ -3177,7 +4291,7 @@ fun VeritasImportPreviewDialog(
                                 Text("Auto-punctuate", fontWeight = FontWeight.SemiBold)
                                 Text("Add end punctuation to unpunctuated lines for smoother listening.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(
+                            VeritasSwitch(
                                 checked = pptxOptions.autoPunctuate,
                                 onCheckedChange = { pptxOptions = pptxOptions.copy(autoPunctuate = it) }
                             )
@@ -3189,7 +4303,7 @@ fun VeritasImportPreviewDialog(
                                 Text("Read text in slide images", fontWeight = FontWeight.SemiBold)
                                 Text("OCR screenshots and figures. Large decks import slower.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(
+                            VeritasSwitch(
                                 checked = pptxOptions.ocrSlideImages,
                                 onCheckedChange = { pptxOptions = pptxOptions.copy(ocrSlideImages = it) }
                             )

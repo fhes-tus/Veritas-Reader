@@ -23,7 +23,6 @@ import android.os.ParcelFileDescriptor
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
-import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -38,6 +37,8 @@ import kotlin.math.min
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
+
+    private val TAG_TTS = "VeritasSystemTts"
     private lateinit var repository: DocumentRepository
     private var mediaSession: MediaSession? = null
     private var mediaSessionPlayer: VeritasMediaSessionPlayer? = null
@@ -60,8 +61,36 @@ class PlaybackService : MediaSessionService() {
     private var notificationArtwork: Bitmap? = null
     private var artworkBytes: ByteArray? = null
     private var artworkBytesDocumentId: String? = null
+    private var activeTtsRate = Float.NaN
+    private var activeTtsPitch = Float.NaN
+    private var queuedChunkUtteranceId: String? = null
+    private var queuedChunkIndex = -1
+    private var queuedChunkSpeechText = ""
+    private var queuedChunkBaseOffset = 0
     private var activeChunkUtteranceId: String? = null
     private var activeChunkIndex = -1
+    /**
+     * Utterances playback has already moved past, whose completion must not advance.
+     *
+     * onRangeStart promotes the pre-queued sentence the instant the engine starts
+     * speaking it, so the previous sentence's onDone always arrives after playback has
+     * already moved on. Advancing on it calls speak() with QUEUE_FLUSH over audio that
+     * is mid-word, cutting it off and restarting it — the stammer.
+     *
+     * A single slot was not enough: promotions can outrun onDone callbacks, so more
+     * than one retired utterance can be in flight and the older one fell through.
+     */
+    private val retiredUtteranceIds = LinkedHashSet<String>()
+
+    private fun retireUtterance(id: String?) {
+        if (id == null) return
+        retiredUtteranceIds.add(id)
+        while (retiredUtteranceIds.size > 16) {
+            retiredUtteranceIds.remove(retiredUtteranceIds.first())
+        }
+    }
+    private var veritasAudioBuffer: com.veritas.reader.tts.VeritasAudioBuffer? = null
+    private var veritasAudioVoiceId: String? = null
     // Timestamp when the current sentence started speaking; used to attribute background
     // listening time to the active document (see recordBackgroundListening()).
     private var activeChunkStartedAt = 0L
@@ -107,7 +136,11 @@ class PlaybackService : MediaSessionService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        when (intent?.action) {
+        val action = intent?.action
+        if (action == PlaybackActions.ACTION_PLAY || action == PlaybackActions.ACTION_SPEAK_SELECTION) {
+            startForegroundNow()
+        }
+        when (action) {
             PlaybackActions.ACTION_PLAY -> handlePlay(intent.extras)
             PlaybackActions.ACTION_PAUSE -> pauseSpeech()
             PlaybackActions.ACTION_STOP -> stopSpeechAndService()
@@ -118,36 +151,17 @@ class PlaybackService : MediaSessionService() {
             PlaybackActions.ACTION_UPDATE_PLAYBACK_SETTINGS -> handlePlaybackSettingsUpdate(intent.extras)
             PlaybackActions.ACTION_SET_SLEEP_TIMER -> handleSetSleepTimer(intent.extras)
             PlaybackActions.ACTION_CANCEL_SLEEP_TIMER -> cancelSleepTimer("Sleep timer cancelled.")
-            PlaybackActions.ACTION_MEDIA_BUTTON -> handleMediaButton(intent.extras)
+            // ACTION_MEDIA_BUTTON is intentionally NOT handled here. MediaSessionService's
+            // super.onStartCommand() already routes hardware/Bluetooth media keys through the
+            // MediaSession to this service's Player (VeritasMediaSessionPlayer), which maps
+            // play/pause/next/previous/stop to the controller. Handling it a second time here
+            // double-toggled play/pause so wireless controls appeared to do nothing.
+            // MediaSessionService already forwards headset and Bluetooth media buttons to
+            // VeritasMediaSessionPlayer. Handling the same intent here would execute every
+            // command twice (notably making play/pause immediately toggle back).
             else -> refreshForegroundNotification()
         }
         return START_STICKY
-    }
-
-    private fun handleMediaButton(extras: Bundle?) {
-        val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            extras?.getParcelable(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            extras?.getParcelable(Intent.EXTRA_KEY_EVENT)
-        }
-
-        if (keyEvent == null || keyEvent.action != KeyEvent.ACTION_DOWN || keyEvent.repeatCount > 0) return
-
-        when (keyEvent.keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                if (!PlaybackStateStore.isPlaying) handlePlay(null)
-            }
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> pauseSpeech()
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-            KeyEvent.KEYCODE_HEADSETHOOK -> {
-                if (PlaybackStateStore.isPlaying) pauseSpeech() else handlePlay(null)
-            }
-            KeyEvent.KEYCODE_MEDIA_NEXT -> moveBy(1)
-            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> moveBy(-1)
-            KeyEvent.KEYCODE_MEDIA_STOP -> stopSpeechAndService()
-            else -> Unit
-        }
     }
 
     private fun handlePlay(extras: Bundle?) {
@@ -165,6 +179,11 @@ class PlaybackService : MediaSessionService() {
             ?.coerceIn(0.7f, 1.4f) ?: PlaybackStateStore.pitch
 
         pausedDueToTransientFocusLoss = false
+        if (VoiceManager.isVeritasEngine(activeEnginePackage)) {
+            // A fresh PLAY command is also how live voice/pronunciation edits restart the
+            // current section. Drop audio synthesized using the previous configuration.
+            veritasAudioBuffer?.flush()
+        }
         if (!loadDocument(documentId, startIndex)) return
 
         pendingJumpCharOffset = charOffset
@@ -208,6 +227,9 @@ class PlaybackService : MediaSessionService() {
             .orEmpty()
         if (selection.isBlank()) return
         if (PlaybackStateStore.isPlaying) rememberPausePoint()
+        // The neural engine writes directly to AudioTrack, so stopping only platform TTS
+        // leaves the previous reading audible beneath the selection preview.
+        veritasAudioBuffer?.flush()
         PlaybackStateStore.isPlaying = false
         ensureTtsReadyAndSpeakSelection(selection)
     }
@@ -264,6 +286,9 @@ class PlaybackService : MediaSessionService() {
         }
 
         if (!existingLoaded) {
+            // PCM cache keys are sentence indexes, not document IDs. Do not allow a cached
+            // sentence from a previous reading to be reused after switching documents.
+            veritasAudioBuffer?.flush()
             val rawText = repository.readText(doc)
             chunks = TextChunker.chunk(rawText)
             // Restore this document's remembered narration pace (if any).
@@ -305,11 +330,28 @@ class PlaybackService : MediaSessionService() {
     private fun ensureTtsReadyAndSpeak() {
         val voiceSettings = repository.loadVoiceSettings()
         val requestedEngine = voiceSettings.enginePackage.ifBlank { null }
+        if (VoiceManager.isVeritasEngine(requestedEngine)) {
+            if (activeEnginePackage != requestedEngine) {
+                runCatching { tts?.stop() }
+                runCatching { tts?.shutdown() }
+                tts = null
+                ttsReady = false
+            }
+            activeEnginePackage = requestedEngine
+            ttsReady = true
+            speakCurrent()
+            return
+        }
+        veritasAudioBuffer?.shutdown()
+        veritasAudioBuffer = null
+
         if (tts != null && activeEnginePackage != requestedEngine) {
             runCatching { tts?.stop() }
             runCatching { tts?.shutdown() }
             tts = null
             ttsReady = false
+            activeTtsRate = Float.NaN
+            activeTtsPitch = Float.NaN
         }
 
         if (ttsReady && tts != null) {
@@ -321,6 +363,8 @@ class PlaybackService : MediaSessionService() {
         pendingSpeak = true
         if (tts == null) {
             activeEnginePackage = requestedEngine
+            activeTtsRate = Float.NaN
+            activeTtsPitch = Float.NaN
             tts = if (requestedEngine == null) {
                 TextToSpeech(applicationContext) { status -> handleTtsInit(status) }
             } else {
@@ -332,11 +376,28 @@ class PlaybackService : MediaSessionService() {
     private fun ensureTtsReadyAndSpeakSelection(text: String) {
         val voiceSettings = repository.loadVoiceSettings()
         val requestedEngine = voiceSettings.enginePackage.ifBlank { null }
+        if (VoiceManager.isVeritasEngine(requestedEngine)) {
+            if (activeEnginePackage != requestedEngine) {
+                runCatching { tts?.stop() }
+                runCatching { tts?.shutdown() }
+                tts = null
+                ttsReady = false
+            }
+            activeEnginePackage = requestedEngine
+            ttsReady = true
+            speakSelectionText(text)
+            return
+        }
+        veritasAudioBuffer?.shutdown()
+        veritasAudioBuffer = null
+
         if (tts != null && activeEnginePackage != requestedEngine) {
             runCatching { tts?.stop() }
             runCatching { tts?.shutdown() }
             tts = null
             ttsReady = false
+            activeTtsRate = Float.NaN
+            activeTtsPitch = Float.NaN
         }
 
         pendingSelectionText = text
@@ -350,6 +411,8 @@ class PlaybackService : MediaSessionService() {
 
         if (tts == null) {
             activeEnginePackage = requestedEngine
+            activeTtsRate = Float.NaN
+            activeTtsPitch = Float.NaN
             tts = if (requestedEngine == null) {
                 TextToSpeech(applicationContext) { status -> handleTtsInit(status) }
             } else {
@@ -395,13 +458,120 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun clearQueuedChunk() {
+        queuedChunkUtteranceId = null
+        queuedChunkIndex = -1
+        queuedChunkSpeechText = ""
+        queuedChunkBaseOffset = 0
+    }
+
+    private fun veritasBufferFor(voiceSettings: VoiceSettings): com.veritas.reader.tts.VeritasAudioBuffer {
+        // A change from Piper to Kokoro (or to a different local model) must rebuild the
+        // native engine. The service otherwise keeps using the model selected before restart.
+        if (veritasAudioBuffer != null && veritasAudioVoiceId != voiceSettings.voiceName) {
+            veritasAudioBuffer?.shutdown()
+            veritasAudioBuffer = null
+        }
+        return veritasAudioBuffer ?: run {
+            val engine = if (voiceSettings.voiceName.startsWith("piper_", ignoreCase = true)) {
+                com.veritas.reader.tts.PiperEngine(applicationContext, voiceSettings.voiceName)
+            } else {
+                com.veritas.reader.tts.KokoroTtsEngine(applicationContext, voiceSettings.voiceName)
+            }
+            com.veritas.reader.tts.VeritasAudioBuffer(applicationContext, engine).also {
+                veritasAudioBuffer = it
+                veritasAudioVoiceId = voiceSettings.voiceName
+            }
+        }
+    }
+
+    /**
+     * Audio session shared by every system-TTS utterance so effects can be attached to
+     * the engine's output. Generated, never session 0 — session 0 is the global output
+     * mix and would shape every app on the phone.
+     *
+     * Google's offline voices top out at QUALITY_HIGH; the 500-quality ones are network
+     * voices, so the model cannot be improved locally. The delivery can: these voices
+     * are flat and a little boxy, and gentle shaping reads as noticeably warmer.
+     * Best-effort — engines that ignore the session id simply play unshaped.
+     */
+    private var ttsSessionId: Int = android.media.AudioManager.ERROR
+    private var ttsEqualizer: android.media.audiofx.Equalizer? = null
+
+    private fun ttsParams(utteranceId: String?): android.os.Bundle {
+        val params = android.os.Bundle()
+        utteranceId?.let { params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, it) }
+        if (ttsSessionId != android.media.AudioManager.ERROR) {
+            params.putInt(TextToSpeech.Engine.KEY_PARAM_SESSION_ID, ttsSessionId)
+        }
+        return params
+    }
+
+    private fun attachVoiceShaping() {
+        if (ttsEqualizer != null) return
+        runCatching {
+            val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+            if (ttsSessionId == android.media.AudioManager.ERROR) {
+                ttsSessionId = audioManager.generateAudioSessionId()
+            }
+            val eq = android.media.audiofx.Equalizer(0, ttsSessionId)
+            val minLevel = eq.bandLevelRange[0].toInt()
+            val maxLevel = eq.bandLevelRange[1].toInt()
+            for (band in 0 until eq.numberOfBands.toInt()) {
+                val centreHz = eq.getCenterFreq(band.toShort()) / 1000
+                val millibels = when {
+                    centreHz < 120 -> -100     // rumble the voice never uses
+                    centreHz < 500 -> 250      // chest warmth
+                    centreHz < 1500 -> 0       // leave the vowels alone
+                    centreHz < 5000 -> 300     // presence: consonant clarity
+                    else -> -150               // take the edge off sibilance
+                }
+                eq.setBandLevel(band.toShort(), millibels.coerceIn(minLevel, maxLevel).toShort())
+            }
+            eq.enabled = true
+            ttsEqualizer = eq
+            Log.i(TAG_TTS, "Voice shaping attached to session $ttsSessionId")
+        }.onFailure { Log.w(TAG_TTS, "Voice shaping unavailable", it) }
+    }
+
+    private fun maybePrequeueNext(currentIndex: Int) {
+        if (!PlaybackStateStore.isPlaying || chunks.isEmpty()) return
+        val nextIndex = currentIndex + 1
+        if (nextIndex > chunks.lastIndex) return
+        if (leadingSilenceMsFor(nextIndex) > 0L) return
+
+        val rawNextText = chunks.getOrNull(nextIndex)?.trim().orEmpty()
+        if (rawNextText.isBlank()) return
+        val nextText = repository.applyPronunciationRules(rawNextText)
+        val speakNextText = SpeechSanitizer.forSpeech(nextText)
+        if (speakNextText.isBlank()) return
+
+        val narrationSettings = repository.loadNarrationSettings()
+        val nextRate = NarrationAnalyzer.effectiveRate(PlaybackStateStore.rate, narrationSettings, nextText)
+        val nextPitch = NarrationAnalyzer.effectivePitch(PlaybackStateStore.pitch, narrationSettings, nextText)
+
+        if (nextRate != activeTtsRate || nextPitch != activeTtsPitch) {
+            return
+        }
+
+        val nextUtteranceId = "$CHUNK_UTTERANCE_PREFIX${UUID.randomUUID()}"
+        val result = tts?.speak(speakNextText, TextToSpeech.QUEUE_ADD, ttsParams(nextUtteranceId), nextUtteranceId)
+        if (result == TextToSpeech.SUCCESS) {
+            queuedChunkUtteranceId = nextUtteranceId
+            queuedChunkIndex = nextIndex
+            queuedChunkSpeechText = rawNextText
+            queuedChunkBaseOffset = 0
+        }
+    }
+
     private fun attachListener() {
+        attachVoiceShaping()
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) = Unit
 
             override fun onDone(utteranceId: String?) {
                 mainHandler.post {
-                    if (utteranceId != activeChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
+                    if (utteranceId != activeChunkUtteranceId && utteranceId != queuedChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
                         return@post
                     }
                     if (utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) == true) {
@@ -417,14 +587,77 @@ class PlaybackService : MediaSessionService() {
                             executePendingTimerFire()
                             return@post
                         }
+                        // clearResumePoint() nulls activeChunkUtteranceId AND calls
+                        // clearQueuedChunk(), so every value this decision depends on has to
+                        // be captured before it runs. It did not used to be, which made the
+                        // promote branch below unreachable: both operands were already null,
+                        // so every sentence fell through to advanceAfterSection() and was
+                        // spoken a second time with QUEUE_FLUSH over the pre-queued copy the
+                        // engine had already started. That was the stammer.
+                        val finishedWasActive = utteranceId == activeChunkUtteranceId
+                        val promotedIndex = queuedChunkIndex
+                        val promotedUtteranceId = queuedChunkUtteranceId
+                        val promotedSpeechText = queuedChunkSpeechText
+                        val promotedBaseOffset = queuedChunkBaseOffset
+
                         clearResumePoint()
-                        advanceAfterSection()
+
+                        if (promotedUtteranceId != null && finishedWasActive) {
+                            // The next sentence was pre-queued and is ALREADY playing.
+                            retireUtterance(utteranceId)
+                            activeChunkUtteranceId = promotedUtteranceId
+                            activeChunkIndex = promotedIndex
+                            activeChunkStartedAt = System.currentTimeMillis()
+                            activeChunkSpeechText = promotedSpeechText
+                            activeChunkBaseOffset = promotedBaseOffset
+                            spokenCharOffset = promotedBaseOffset
+                            spokenWordCount = wordCountBefore(promotedSpeechText, promotedBaseOffset)
+                            updateCurrentSentenceBounds(promotedBaseOffset)
+
+                            PlaybackStateStore.currentIndex = promotedIndex
+                            activeDocument?.let { repository.updateProgress(it.id, promotedIndex, chunks.size) }
+                            updateMediaSessionMetadata()
+                            updateMediaSessionState()
+                            refreshForegroundNotification()
+
+                            maybePrequeueNext(promotedIndex)
+                        } else if (retiredUtteranceIds.contains(utteranceId)) {
+                            // Playback already moved past this sentence; its completion is
+                            // just late news. See retiredUtteranceIds.
+                            return@post
+                        } else {
+                            advanceAfterSection()
+                        }
                     }
                 }
             }
 
             override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
                 mainHandler.post {
+                    if (utteranceId == queuedChunkUtteranceId && queuedChunkUtteranceId != null) {
+                        // Engine started speaking the pre-queued sentence.
+                        val promotedIndex = queuedChunkIndex
+                        val promotedUtteranceId = queuedChunkUtteranceId
+                        val promotedSpeechText = queuedChunkSpeechText
+                        val promotedBaseOffset = queuedChunkBaseOffset
+                        clearQueuedChunk()
+
+                        retireUtterance(activeChunkUtteranceId)
+                        activeChunkUtteranceId = promotedUtteranceId
+                        activeChunkIndex = promotedIndex
+                        activeChunkStartedAt = System.currentTimeMillis()
+                        activeChunkSpeechText = promotedSpeechText
+                        activeChunkBaseOffset = promotedBaseOffset
+
+                        PlaybackStateStore.currentIndex = promotedIndex
+                        activeDocument?.let { repository.updateProgress(it.id, promotedIndex, chunks.size) }
+                        updateMediaSessionMetadata()
+                        updateMediaSessionState()
+                        refreshForegroundNotification()
+
+                        maybePrequeueNext(promotedIndex)
+                    }
+
                     if (utteranceId == activeChunkUtteranceId && activeChunkSpeechText.isNotBlank()) {
                         val absoluteStart = (activeChunkBaseOffset + start).coerceIn(0, activeChunkSpeechText.length)
                         spokenCharOffset = absoluteStart
@@ -437,16 +670,17 @@ class PlaybackService : MediaSessionService() {
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 mainHandler.post {
-                    if (utteranceId != activeChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
+                    if (utteranceId != activeChunkUtteranceId && utteranceId != queuedChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
                         return@post
                     }
+                    clearQueuedChunk()
                     handleTtsFailure("Voice engine failed. Try another sentence.", utteranceId)
                 }
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
                 mainHandler.post {
-                    if (utteranceId != activeChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
+                    if (utteranceId != activeChunkUtteranceId && utteranceId != queuedChunkUtteranceId && utteranceId?.startsWith(SELECTION_UTTERANCE_PREFIX) != true) {
                         return@post
                     }
                     val errorMsg = when (errorCode) {
@@ -456,6 +690,7 @@ class PlaybackService : MediaSessionService() {
                         TextToSpeech.ERROR_NOT_INSTALLED_YET -> "Voice not ready yet. Try again."
                         else -> "Voice engine error (code $errorCode). Try another voice."
                     }
+                    clearQueuedChunk()
                     handleTtsFailure(errorMsg, utteranceId)
                 }
             }
@@ -495,6 +730,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun speakCurrent() {
         if (chunks.isEmpty()) return
+        clearQueuedChunk()
         val index = PlaybackStateStore.currentIndex.coerceIn(0, chunks.lastIndex)
         val rawChunkText = chunks.getOrNull(index)?.trim().orEmpty()
 
@@ -503,7 +739,13 @@ class PlaybackService : MediaSessionService() {
 
         val resumeOffset = jumpOffset ?: resumeOffsetForCurrentChunk(rawChunkText, index)
         val text = repository.applyPronunciationRules(rawChunkText.substring(resumeOffset).trimStart())
-        if (text.isBlank()) return
+        if (text.isBlank()) {
+            activeChunkIndex = index
+            PlaybackStateStore.currentIndex = index
+            clearResumePoint()
+            advanceAfterSection()
+            return
+        }
 
         // Persist the pace being used with this document, but only when it changes.
         if (PlaybackStateStore.rate != lastSavedRate || PlaybackStateStore.pitch != lastSavedPitch) {
@@ -512,11 +754,29 @@ class PlaybackService : MediaSessionService() {
             lastSavedPitch = PlaybackStateStore.pitch
         }
         val narrationSettings = repository.loadNarrationSettings()
+        val activeChar = NarrationAnalyzer.getActiveCharacter(text, narrationSettings)
         val effectiveRate = NarrationAnalyzer.effectiveRate(PlaybackStateStore.rate, narrationSettings, text)
         val effectivePitch = NarrationAnalyzer.effectivePitch(PlaybackStateStore.pitch, narrationSettings, text)
-        tts?.let { VoiceConfigurator.apply(it, repository.loadVoiceSettings()) }
-        tts?.setSpeechRate(effectiveRate)
-        tts?.setPitch(effectivePitch)
+        tts?.let { engine ->
+            VoiceConfigurator.apply(engine, repository.loadVoiceSettings())
+            // Always choose a voice for this utterance. Otherwise a custom voice used by
+            // the previous character can leak into narrator/default-character speech.
+            val baseVoice = engine.voice
+            val characterVoice = if (narrationSettings.enabled && narrationSettings.fullCastEnabled) {
+                activeChar.voiceName?.let { name -> engine.voices?.find { it.name == name } }
+            } else {
+                null
+            }
+            (characterVoice ?: baseVoice)?.let { engine.voice = it }
+        }
+        if (effectiveRate != activeTtsRate) {
+            tts?.setSpeechRate(effectiveRate)
+            activeTtsRate = effectiveRate
+        }
+        if (effectivePitch != activeTtsPitch) {
+            tts?.setPitch(effectivePitch)
+            activeTtsPitch = effectivePitch
+        }
         PlaybackStateStore.currentIndex = index
         PlaybackStateStore.isPlaying = true
         PlaybackStateStore.statusMessage = if (narrationSettings.enabled) {
@@ -548,6 +808,17 @@ class PlaybackService : MediaSessionService() {
         updateMediaSessionMetadata()
         updateMediaSessionState()
         refreshForegroundNotification()
+        if (VoiceManager.isVeritasEngine(activeEnginePackage)) {
+            val veritasBuffer = veritasBufferFor(repository.loadVoiceSettings())
+            veritasBuffer.prebufferAhead(chunks.size, index, 4) { chunkIndex ->
+                SpeechSanitizer.forSpeech(repository.applyPronunciationRules(chunks[chunkIndex]))
+            }
+            veritasBuffer.playSentencePcm(index, speakText) {
+                advanceAfterSection()
+            }
+            return
+        }
+
         // Slide decks get a breathing beat at slide changes and after titles, so the
         // narration has a presenter's cadence instead of an unbroken stream. The
         // silence utterance's onDone is ignored by the activeChunkUtteranceId guard.
@@ -556,10 +827,12 @@ class PlaybackService : MediaSessionService() {
             silenceMs, TextToSpeech.QUEUE_FLUSH, "silence-${UUID.randomUUID()}"
         ) == TextToSpeech.SUCCESS
         val queueMode = if (silenceQueued) TextToSpeech.QUEUE_ADD else TextToSpeech.QUEUE_FLUSH
-        val result = tts?.speak(speakText, queueMode, null, activeChunkUtteranceId)
+        val result = tts?.speak(speakText, queueMode, ttsParams(activeChunkUtteranceId), activeChunkUtteranceId)
             ?: TextToSpeech.ERROR
         if (result == TextToSpeech.ERROR) {
             handleTtsFailure("The voice engine rejected this sentence.", activeChunkUtteranceId)
+        } else if (silenceMs == 0L) {
+            maybePrequeueNext(index)
         }
     }
 
@@ -577,6 +850,19 @@ class PlaybackService : MediaSessionService() {
     private fun speakSelectionText(rawText: String) {
         val text = repository.applyPronunciationRules(rawText.trim())
         if (text.isBlank()) return
+        if (VoiceManager.isVeritasEngine(activeEnginePackage)) {
+            val speakText = SpeechSanitizer.forSpeech(text)
+            if (speakText.isBlank()) return
+            PlaybackStateStore.statusMessage = "Reading selected text."
+            updateMediaSessionState()
+            refreshForegroundNotification()
+            veritasBufferFor(repository.loadVoiceSettings()).playSentencePcm(-1, speakText) {
+                PlaybackStateStore.statusMessage = "Finished selected text."
+                updateMediaSessionState()
+                refreshForegroundNotification()
+            }
+            return
+        }
         val narrationSettings = repository.loadNarrationSettings()
         val effectiveRate = NarrationAnalyzer.effectiveRate(PlaybackStateStore.rate, narrationSettings, text)
         val effectivePitch = NarrationAnalyzer.effectivePitch(PlaybackStateStore.pitch, narrationSettings, text)
@@ -587,7 +873,7 @@ class PlaybackService : MediaSessionService() {
         updateMediaSessionState()
         refreshForegroundNotification()
         val utteranceId = "$SELECTION_UTTERANCE_PREFIX${UUID.randomUUID()}"
-        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId) ?: TextToSpeech.ERROR
+        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, ttsParams(utteranceId), utteranceId) ?: TextToSpeech.ERROR
         if (result == TextToSpeech.ERROR) {
             handleTtsFailure("The voice engine rejected the selected text.", utteranceId)
         }
@@ -701,6 +987,7 @@ class PlaybackService : MediaSessionService() {
         pausedDueToTransientFocusLoss = false
         rememberPausePoint()
         tts?.stop()
+        veritasAudioBuffer?.flush()
         PlaybackStateStore.isPlaying = false
         if (PlaybackStateStore.isForegroundActive) {
             PlaybackStateStore.isForegroundActive = false
@@ -716,6 +1003,7 @@ class PlaybackService : MediaSessionService() {
     private fun pauseSpeechTransiently(message: String) {
         rememberPausePoint()
         tts?.stop()
+        veritasAudioBuffer?.flush()
         PlaybackStateStore.isPlaying = false
         if (PlaybackStateStore.isForegroundActive) {
             PlaybackStateStore.isForegroundActive = false
@@ -744,10 +1032,21 @@ class PlaybackService : MediaSessionService() {
         resumeChunkIndex = index
         resumeCharOffset = normalizeResumeOffset(text, spokenCharOffset)
         resumeWordCount = spokenWordCount
+        repository.savePersistedResumePoint(docId, index, resumeCharOffset, spokenWordCount)
     }
 
     private fun resumeOffsetForCurrentChunk(text: String, index: Int): Int {
         val docId = activeDocument?.id ?: return 0
+        if (resumeDocumentId == null) {
+            repository.loadPersistedResumePoint()?.let { persisted ->
+                if (persisted.documentId == docId && persisted.chunkIndex == index && persisted.wordCount >= RESUME_WORD_THRESHOLD) {
+                    resumeDocumentId = persisted.documentId
+                    resumeChunkIndex = persisted.chunkIndex
+                    resumeCharOffset = persisted.charOffset
+                    resumeWordCount = persisted.wordCount
+                }
+            }
+        }
         if (docId != resumeDocumentId || index != resumeChunkIndex || resumeWordCount < RESUME_WORD_THRESHOLD) return 0
         return normalizeResumeOffset(text, resumeCharOffset).takeIf { it in 1 until text.length } ?: 0
     }
@@ -809,6 +1108,8 @@ class PlaybackService : MediaSessionService() {
         resumeWordCount = 0
         PlaybackStateStore.currentSentenceStart = 0
         PlaybackStateStore.currentSentenceEnd = 0
+        repository.clearPersistedResumePoint()
+        clearQueuedChunk()
     }
 
     private fun stopSpeechAndService(message: String = "Stopped.") {
@@ -820,6 +1121,7 @@ class PlaybackService : MediaSessionService() {
         repository.clearSleepTimerState()
         clearResumePoint()
         tts?.stop()
+        veritasAudioBuffer?.flush()
         activeDocument?.let { repository.updateProgress(it.id, PlaybackStateStore.currentIndex, chunks.size) }
         PlaybackStateStore.isPlaying = false
         PlaybackStateStore.isForegroundActive = false
@@ -1258,6 +1560,8 @@ class PlaybackService : MediaSessionService() {
         cancelSleepTimerCallback()
         tts?.stop()
         tts?.shutdown()
+        veritasAudioBuffer?.shutdown()
+        veritasAudioBuffer = null
         tts = null
         ttsReady = false
         mediaSession?.release()

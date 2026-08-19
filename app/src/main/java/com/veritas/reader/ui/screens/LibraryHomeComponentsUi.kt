@@ -143,6 +143,7 @@ import androidx.core.content.edit
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.veritas.reader.ui.OnboardingController
 import com.veritas.reader.ui.OnboardingStep
+import com.veritas.reader.ui.pressScale
 import com.veritas.reader.*
 import com.veritas.reader.ui.ReaderUiState
 import java.text.SimpleDateFormat
@@ -179,7 +180,7 @@ internal fun HomeQuickActions(
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val disabled = continueDocument == null
         val context = LocalContext.current
         val coverFile = remember(continueDocument?.id) { continueDocument?.id?.let { CoverExtractor.coverFile(context, it) } }
@@ -484,6 +485,8 @@ internal fun RecentImportItem(
     onOpen: () -> Unit,
     onToggleFavorite: () -> Unit,
     onToggleQueue: () -> Unit,
+    onMoveQueueUp: () -> Unit = {},
+    onMoveQueueDown: () -> Unit = {},
     onSetCollection: () -> Unit,
     onManageLists: () -> Unit,
     onRename: () -> Unit,
@@ -529,11 +532,12 @@ internal fun RecentImportItem(
                     contentScale = ContentScale.Crop
                 )
             } else {
-                Icon(
-                    imageVector = Icons.Default.Description,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
+                VeritasCoverPlaceholder(
+                    documentId = document.id,
+                    title = document.title,
+                    sourceLabel = document.sourceLabel,
+                    modifier = Modifier.fillMaxSize(),
+                    compact = true
                 )
             }
         }
@@ -604,6 +608,18 @@ internal fun RecentImportItem(
                     DropdownMenuItem(text = { Text("Open reading") }, onClick = { showActions = false; onOpen() })
                     DropdownMenuItem(text = { Text(if (document.favorite) "Remove from favorites" else "Add to favorites") }, onClick = { showActions = false; onToggleFavorite() })
                     DropdownMenuItem(text = { Text(if (isQueued) "Remove from Queue" else "Add to Queue") }, onClick = { showActions = false; onToggleQueue() })
+                    if (isQueued) {
+                        // Reordering by menu rather than by drag: the queue lives in a
+                        // scrolling grid, where a small drag handle is easy to miss.
+                        DropdownMenuItem(
+                            text = { Text("Move up in queue") },
+                            onClick = { showActions = false; onMoveQueueUp() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Move down in queue") },
+                            onClick = { showActions = false; onMoveQueueDown() }
+                        )
+                    }
                     DropdownMenuItem(text = { Text("Move to collection") }, onClick = { showActions = false; onSetCollection() })
                     DropdownMenuItem(text = { Text("Save to lists") }, onClick = { showActions = false; onManageLists() })
                     DropdownMenuItem(text = { Text("Rename") }, onClick = { showActions = false; onRename() })
@@ -611,6 +627,92 @@ internal fun RecentImportItem(
                     DropdownMenuItem(text = { Text("Delete") }, onClick = { showActions = false; onDelete() })
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun HomeRecentBookGridItem(
+    document: SavedDocument,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
+    val coverBitmap = remember(coverFile) {
+        coverFile?.let { file ->
+            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+        }
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onOpen() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+        ),
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(138.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (coverBitmap != null) {
+                    Image(
+                        bitmap = coverBitmap.asImageBitmap(),
+                        contentDescription = "Cover",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    VeritasCoverPlaceholder(
+                        documentId = document.id,
+                        title = document.title,
+                        sourceLabel = document.sourceLabel,
+                        modifier = Modifier.fillMaxSize(),
+                        compact = false
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = document.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            val subtitleText = buildString {
+                append(document.sourceLabel.uppercase())
+                val progress = progressPercent(document)
+                if (progress > 0) {
+                    append(" • $progress% read")
+                }
+            }
+            Text(
+                text = subtitleText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -759,7 +861,7 @@ fun HomePanel(
     collectionCount: Int,
     sourceCount: Int
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
@@ -817,10 +919,7 @@ internal fun AnnotationDocumentCard(
         shape = VeritasPackStyle.cardShape(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        )
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -960,7 +1059,7 @@ fun QueueSection(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Queue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
@@ -1054,7 +1153,7 @@ fun EmptyLibraryCard(onImportFile: () -> Unit) {
         shape = VeritasPackStyle.cardShape(),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             BrandMark(compact = true)
             Text("No saved readings yet", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
             Text(
@@ -1078,6 +1177,8 @@ fun DocumentCard(
     onToggleSelected: () -> Unit,
     onDelete: () -> Unit,
     onToggleQueue: () -> Unit,
+    onMoveQueueUp: () -> Unit = {},
+    onMoveQueueDown: () -> Unit = {},
     onToggleFavorite: () -> Unit,
     onRename: () -> Unit,
     onSetCollection: () -> Unit,
@@ -1110,12 +1211,22 @@ fun DocumentCard(
         }
     }
 
+    // Dips the card while held. DocumentCard drives taps through
+    // detectTapGestures, so the press flag is tracked here rather than
+    // observed from an InteractionSource.
+    var pressed by remember { mutableStateOf(false) }
     Card(
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer(scaleX = selectionScale, scaleY = selectionScale)
+            .pressScale(pressed)
             .pointerInput(selectionMode, selected, document.id) {
                 detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        tryAwaitRelease()
+                        pressed = false
+                    },
                     onLongPress = { onLongPress() },
                     onTap = {
                         if (selectionMode) onToggleSelected() else onOpen()
@@ -1172,16 +1283,20 @@ fun DocumentCard(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
-                } else {
+                } else if (selected || document.favorite) {
                     Text(
-                        when {
-                            selected -> "✓"
-                            document.favorite -> "★"
-                            else -> document.sourceLabel.take(3).uppercase()
-                        },
+                        if (selected) "✓" else "★",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
                         color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    VeritasCoverPlaceholder(
+                        documentId = document.id,
+                        title = document.title,
+                        sourceLabel = document.sourceLabel,
+                        modifier = Modifier.fillMaxSize(),
+                        compact = true
                     )
                 }
             }
@@ -1222,7 +1337,7 @@ fun DocumentCard(
                         if (document.collection.isNotBlank()) SoftChip(document.collection, emphasis = true)
                         if (isQueued) SoftChip("Queued")
                         if (document.favorite) SoftChip("Favorite")
-                        SoftChip("Updated ${formatUpdated(document.updatedAt)}")
+                        SoftChip(formatUpdated(document.updatedAt))
                     }
                 }
             }
@@ -1307,6 +1422,8 @@ fun DocumentTileCard(
     onToggleSelected: () -> Unit,
     onDelete: () -> Unit,
     onToggleQueue: () -> Unit,
+    onMoveQueueUp: () -> Unit = {},
+    onMoveQueueDown: () -> Unit = {},
     onToggleFavorite: () -> Unit,
     onRename: () -> Unit,
     onSetCollection: () -> Unit,
@@ -1331,11 +1448,13 @@ fun DocumentTileCard(
     }
     val isUnread = document.currentIndex == 0
 
+    var pressed by remember { mutableStateOf(false) }
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer(scaleX = selectionScale, scaleY = selectionScale),
-        shape = RoundedCornerShape(6.dp),
+            .graphicsLayer(scaleX = selectionScale, scaleY = selectionScale)
+            .pressScale(pressed),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
@@ -1343,15 +1462,12 @@ fun DocumentTileCard(
                 MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
-            }
-        )
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = if (selected) {
+            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+        }
     ) {
         Column(
             modifier = Modifier
@@ -1359,16 +1475,23 @@ fun DocumentTileCard(
                 .clickable { if (selectionMode) onToggleSelected() else onOpen() }
                 .pointerInput(selectionMode, selected, document.id) {
                     detectTapGestures(
+                        onPress = {
+                            pressed = true
+                            tryAwaitRelease()
+                            pressed = false
+                        },
                         onLongPress = { onLongPress() },
                         onTap = { if (selectionMode) onToggleSelected() else onOpen() }
                     )
                 }
+                .padding(10.dp)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(0.75f)
-                    .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                    .height(138.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     .then(
                         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                             with(sharedTransitionScope) {
@@ -1388,26 +1511,13 @@ fun DocumentTileCard(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = document.sourceLabel.take(3).uppercase(),
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 20.sp
-                        )
-                    }
+                    VeritasCoverPlaceholder(
+                        documentId = document.id,
+                        title = document.title,
+                        sourceLabel = document.sourceLabel,
+                        modifier = Modifier.fillMaxSize(),
+                        compact = false
+                    )
                 }
 
                 if (selectionMode) {
@@ -1440,7 +1550,7 @@ fun DocumentTileCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
+                        .padding(6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1462,15 +1572,15 @@ fun DocumentTileCard(
                         if (document.favorite) {
                             Box(
                                 modifier = Modifier
-                                    .background(Color.Yellow.copy(alpha = 0.9f), CircleShape)
-                                    .size(16.dp),
+                                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                                    .size(20.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Star,
                                     contentDescription = "Favorite",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(11.dp)
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
@@ -1479,16 +1589,17 @@ fun DocumentTileCard(
                     Box {
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
-                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
                                 .clickable { showActions = true },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.MoreVert,
                                 contentDescription = "Document actions",
-                                tint = Color.White,
-                                modifier = Modifier.size(15.dp)
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                         DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }) {
@@ -1505,46 +1616,44 @@ fun DocumentTileCard(
                 }
             }
 
-            Column(
-                modifier = Modifier.padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = document.title,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${progressPercent(document)}% read",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "${document.chunkCount} sent",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = document.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            val subtitleText = buildString {
+                append(document.sourceLabel.uppercase())
+                val progress = progressPercent(document)
+                if (progress > 0) {
+                    append(" • $progress% read")
                 }
+            }
+            Text(
+                text = subtitleText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
 
-                Spacer(modifier = Modifier.height(2.dp))
-
+            if (progressFraction(document) > 0f) {
+                Spacer(modifier = Modifier.height(6.dp))
                 LinearProgressIndicator(
                     progress = { progressFraction(document) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(1.5.dp)),
                     color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
                 )
             }
         }
@@ -1563,7 +1672,7 @@ internal fun EmbeddedOnboardingBlock(
     ) {
         Column(
             modifier = Modifier.padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
@@ -1639,7 +1748,8 @@ internal fun RowScope.BottomNavItem(
     selected: Boolean,
     onClick: () -> Unit,
     icon: @Composable (Color) -> Unit,
-    label: String
+    label: String,
+    modifier: Modifier = Modifier
 ) {
     val contentColor by animateColorAsState(
         targetValue = if (selected) {
@@ -1672,10 +1782,9 @@ internal fun RowScope.BottomNavItem(
     )
     val pillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
     Column(
-        modifier = Modifier
+        modifier = modifier
             .weight(1f)
-            // Merge into one focusable tab that announces its label and selected
-            // state to TalkBack (e.g. "Library, tab, selected").
+            .fillMaxHeight()
             .semantics(mergeDescendants = true) {
                 this.selected = selected
                 this.role = Role.Tab
@@ -1694,7 +1803,7 @@ internal fun RowScope.BottomNavItem(
         verticalArrangement = Arrangement.Center
     ) {
         Box(
-            modifier = Modifier.size(width = 46.dp, height = 27.dp),
+            modifier = Modifier.size(width = 64.dp, height = 32.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -1704,17 +1813,13 @@ internal fun RowScope.BottomNavItem(
                         scaleX = 0.55f + 0.45f * pillProgress
                         alpha = pillProgress.coerceIn(0f, 1f)
                     }
-                    .background(pillColor, RoundedCornerShape(50))
+                    .background(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(50)
+                    )
             )
-            icon(contentColor)
+            icon(if (selected) MaterialTheme.colorScheme.onPrimary else contentColor)
         }
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-            color = contentColor,
-            maxLines = 1
-        )
     }
 }
 
@@ -1728,7 +1833,7 @@ internal fun ImportSheetMenu(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1741,7 +1846,7 @@ internal fun ImportSheetMenu(
             }
         }
         
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ImportSheetOptionCard(
                 icon = Icons.Filled.FolderOpen,
                 title = "File browser",
@@ -1827,7 +1932,7 @@ internal fun ImportSheetWeb(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1872,7 +1977,7 @@ internal fun ImportSheetPaste(
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1922,7 +2027,7 @@ internal fun StudyEmptyState(
     ) {
         Column(
             modifier = Modifier.padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.Start
         ) {
             Icon(
@@ -2457,10 +2562,7 @@ internal fun BookmarkDocumentCard(
         shape = VeritasPackStyle.cardShape(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        )
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -2557,10 +2659,7 @@ internal fun BookmarkGroupCard(
             .animateContentSize(),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-        )
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Column(
             modifier = Modifier
@@ -2744,10 +2843,7 @@ internal fun NoteGroupCard(
             .animateContentSize(),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-        )
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Column(
             modifier = Modifier
@@ -2922,19 +3018,285 @@ internal fun NoteGroupCard(
                                         copyTextToClipboard(context, "Note & Context Text", fullText)
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                    onClick = {
-                                        showMenu = false
-                                        onDeleteGroup()
-                                    }
-                                )
-                            }
-                        }
+                                 DropdownMenuItem(
+                                     text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                     onClick = {
+                                         showMenu = false
+                                         onDeleteGroup()
+                                     }
+                                 )
+                             }
+                         }
+                     }
+                 }
+             }
+         }
+     }
+ }
+
+@Composable
+internal fun StudyDailyReviewHeroCard(
+    completionPercent: Int,
+    cardsToReview: Int,
+    onStartReview: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(80.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val primaryColor = MaterialTheme.colorScheme.primary
+                val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                val animatedProgress by animateFloatAsState(
+                    targetValue = (completionPercent.coerceIn(0, 100)) / 100f,
+                    animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+                    label = "review_gauge"
+                )
+
+                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                    val strokeWidth = 7.dp.toPx()
+                    drawCircle(
+                        color = trackColor,
+                        style = Stroke(width = strokeWidth)
+                    )
+                    drawArc(
+                        color = primaryColor,
+                        startAngle = -90f,
+                        sweepAngle = animatedProgress * 360f,
+                        useCenter = false,
+                        style = Stroke(width = strokeWidth, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    )
+                }
+
+                Text(
+                    text = "$completionPercent%",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "Daily Review",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "$cardsToReview Cards to review today",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Button(
+                    onClick = onStartReview,
+                    shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Start Review",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun StudyAiToolCard(
+    title: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+internal fun StudyActiveDeckItem(
+    indexNumber: Int,
+    title: String,
+    cardCount: Int,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+        ),
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "$indexNumber)",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "$cardCount cards",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+internal fun AudioVoiceMemoWaveform(
+    durationLabel: String,
+    isPlaying: Boolean,
+    onTogglePlay: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                RoundedCornerShape(12.dp)
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                .clickable { onTogglePlay() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                contentDescription = if (isPlaying) "Pause" else "Play",
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val heights = listOf(8, 14, 22, 10, 18, 26, 16, 28, 20, 12, 24, 18, 10, 16, 22, 14, 8)
+            heights.forEachIndexed { i, h ->
+                val barColor = if (i < 8) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(h.dp)
+                        .background(barColor, RoundedCornerShape(1.5.dp))
+                )
+            }
+        }
+
+        Text(
+            text = durationLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

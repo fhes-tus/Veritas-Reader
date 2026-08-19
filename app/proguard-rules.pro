@@ -69,3 +69,21 @@
 -keep class com.veritas.reader.**Callback { *; }
 -keep class com.veritas.reader.**Receiver { *; }
 -keep class com.veritas.reader.**Provider { *; }
+
+# 12. Sherpa-ONNX, Kokoro, Piper & Native Methods Keep Rules
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-dontwarn com.k2fsa.sherpa.onnx.**
+-keep class com.veritas.reader.tts.** { *; }
+-keep class com.veritas.reader.PiperEngine** { *; }
+-keep class com.veritas.reader.KokoroEngine** { *; }
+-keep class com.veritas.reader.SherpaEngine** { *; }
+
+# 13. Data Models & JSON Serialization Keep Rules
+-keep class com.veritas.reader.Flashcard** { *; }
+-keep class com.veritas.reader.ReadingGoal** { *; }
+-keep class com.veritas.reader.StudyDeck** { *; }
+-keep class com.veritas.reader.ReadingInsightsData** { *; }
+

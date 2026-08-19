@@ -33,6 +33,7 @@ import androidx.glance.appwidget.cornerRadius
 
 import androidx.glance.ColorFilter
 
+@Suppress("RestrictedApi") // Glance's resource-backed ColorProvider is its widget color API.
 object VeritasWidgetColors {
     val frostedBackground = ColorProvider(R.color.widget_frosted_background)
     val border = ColorProvider(R.color.widget_border)

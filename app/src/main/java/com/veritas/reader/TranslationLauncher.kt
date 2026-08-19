@@ -25,6 +25,18 @@ object TranslationLauncher {
         targetLanguage: String,
         mode: Mode
     ) {
+        launchTarget(context, null, title, chunks, currentIndex, targetLanguage, mode)
+    }
+
+    fun launchTarget(
+        context: Context,
+        targetPackage: String?,
+        title: String,
+        chunks: List<String>,
+        currentIndex: Int,
+        targetLanguage: String,
+        mode: Mode
+    ) {
         val safeTarget = targetLanguage.trim().ifBlank { "English" }
         val selectedText = when (mode) {
             Mode.CURRENT_SECTION, Mode.BILINGUAL_SECTION -> chunks.getOrNull(currentIndex).orEmpty()
@@ -43,6 +55,9 @@ object TranslationLauncher {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, "Veritas translation: $title")
+            if (!targetPackage.isNullOrBlank()) {
+                setPackage(targetPackage)
+            }
 
             if (isOversized) {
                 try {
@@ -51,7 +66,6 @@ object TranslationLauncher {
                     file.writeText(prompt, Charsets.UTF_8)
                     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    // Required for Android 11+ so recipient apps can read the attached file
                     clipData = ClipData.newRawUri("Veritas Translation", uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     putExtra(Intent.EXTRA_TEXT, prompt.take(MAX_SHARE_CHARS) + "\n\n[Veritas note: Text truncated in body. Full text attached as file.]")
@@ -64,12 +78,26 @@ object TranslationLauncher {
             }
         }
         try {
-            context.startActivity(Intent.createChooser(intent, "Send to Translate or AI app"))
+            if (targetPackage != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            } else {
+                context.startActivity(Intent.createChooser(intent, "Send to Translate or AI app"))
+            }
         } catch (e: ActivityNotFoundException) {
-            android.util.Log.w("TranslationLauncher", "No translation app found, using clipboard: ${e.message}")
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("Veritas translation prompt", prompt))
-            Toast.makeText(context, "No compatible app found. Translation prompt copied to clipboard.", Toast.LENGTH_LONG).show()
+            android.util.Log.w("TranslationLauncher", "Direct target failed, falling back to chooser: ${e.message}")
+            try {
+                val chooserIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Veritas translation: $title")
+                    putExtra(Intent.EXTRA_TEXT, prompt.take(MAX_SHARE_CHARS))
+                }
+                context.startActivity(Intent.createChooser(chooserIntent, "Send to Translate or AI app"))
+            } catch (fallbackEx: Exception) {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Veritas translation prompt", prompt))
+                Toast.makeText(context, "Translation prompt copied to clipboard.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 

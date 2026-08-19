@@ -25,12 +25,25 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.CollectionsBookmark
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.TheaterComedy
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.CollectionsBookmark
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -131,17 +144,17 @@ fun ReaderToolsSheet(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    ToolItem(icon = "🎙", label = "Voice", onClick = { choose(onOpenVoiceStudio) })
-                    ToolItem(icon = "🗣", label = "Narration", onClick = { choose(onOpenNarrationStudio) })
-                    ToolItem(icon = "⏱️", label = "⏱️ Timer", onClick = { choose(onOpenSleepTimer) })
+                    ToolItem(icon = Icons.Outlined.RecordVoiceOver, label = "Voice", onClick = { choose(onOpenVoiceStudio) })
+                    ToolItem(icon = Icons.Outlined.TheaterComedy, label = "Narration", onClick = { choose(onOpenNarrationStudio) })
+                    ToolItem(icon = Icons.Outlined.Timer, label = "Timer", onClick = { choose(onOpenSleepTimer) })
                 }
                 Spacer(modifier = Modifier.size(24.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    ToolItem(icon = "🆘", label = "Ask AI", onClick = { choose(onOpenAskAi) })
-                    ToolItem(icon = "⚙️", label = "All Settings", onClick = { showAllSettings = true })
+                    ToolItem(icon = Icons.Outlined.AutoAwesome, label = "Ask AI", onClick = { choose(onOpenAskAi) })
+                    ToolItem(icon = Icons.Outlined.Settings, label = "All Settings", onClick = { showAllSettings = true })
                 }
             }
         } else {
@@ -184,13 +197,13 @@ fun ReaderToolsSheet(
 
                 SettingsItem(
                     title = if (showSearch) "Hide search" else "Search document",
-                    leadingIcon = Icons.Filled.Search,
+                    leadingIcon = Icons.Outlined.Search,
                     onClick = { choose(onToggleSearch) }
                 )
 
                 SettingsItem(
                     title = "Original View",
-                    leadingIcon = Icons.Filled.Description,
+                    leadingIcon = Icons.Outlined.Description,
                     enabled = hasCanvas,
                     onClick = { choose(onOpenCanvas) }
                 )
@@ -198,7 +211,7 @@ fun ReaderToolsSheet(
                 val readingListsFeature = readerFeature(VeritasFeatureId.READING_LISTS)
                 SettingsItem(
                     title = "Reading lists ($activeDocumentReadingListCount/$readingListCount)",
-                    leadingIcon = Icons.Filled.CollectionsBookmark,
+                    leadingIcon = Icons.Outlined.CollectionsBookmark,
                     enabled = readingListsFeature.enabled,
                     subtitle = if (!readingListsFeature.enabled) readingListsFeature.disabledReason else null,
                     onClick = { choose(onOpenReadingLists) }
@@ -220,7 +233,7 @@ fun ReaderToolsSheet(
                 val readingHistoryFeature = readerFeature(VeritasFeatureId.READING_HISTORY)
                 SettingsItem(
                     title = "Reading history",
-                    leadingIcon = Icons.Filled.History,
+                    leadingIcon = Icons.Outlined.History,
                     enabled = readingHistoryFeature.enabled,
                     subtitle = if (!readingHistoryFeature.enabled) readingHistoryFeature.disabledReason else null,
                     onClick = { choose(onOpenReadingHistory) }
@@ -239,14 +252,14 @@ fun ReaderToolsSheet(
 
                 SettingsItem(
                     title = if (showBookmarks) "Hide bookmarks" else "Bookmarks",
-                    leadingIcon = Icons.Filled.Bookmark,
+                    leadingIcon = Icons.Outlined.Bookmark,
                     onClick = { choose(onToggleBookmarks) }
                 )
 
                 val documentNotesFeature = readerFeature(VeritasFeatureId.BOOKMARKS_AND_NOTES)
                 SettingsItem(
-                    title = "Document notes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",
-                    leadingIcon = Icons.Filled.EditNote,
+                    title = "Booknotes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",
+                    leadingIcon = Icons.Outlined.EditNote,
                     enabled = documentNotesFeature.enabled,
                     subtitle = if (!documentNotesFeature.enabled) documentNotesFeature.disabledReason else null,
                     onClick = { choose(onOpenDocumentNotes) }
@@ -265,6 +278,7 @@ fun ReaderToolsSheet(
 
                 SettingsItem(
                     title = "AI Assistant: ${askAiSettings.assistantLabel}",
+                    leadingIcon = aiAssistantIcon(askAiSettings.assistantId),
                     onClick = { showAiChooser = !showAiChooser }
                 )
 
@@ -274,6 +288,7 @@ fun ReaderToolsSheet(
                         val isSelected = askAiSettings.assistantId == option.id
                         SettingsSubItem(
                             title = "${if (isSelected) "✓ " else ""}${option.label}${if (installedPackage == null) " • install" else ""}",
+                            leadingIcon = aiAssistantIcon(option.id),
                             onClick = {
                                 if (installedPackage != null) {
                                     choose { onSelectAskAiAssistant(option, installedPackage) }
@@ -287,7 +302,8 @@ fun ReaderToolsSheet(
 
                 val studyToolsFeature = readerFeature(VeritasFeatureId.OFFLINE_STUDY_TOOLS)
                 SettingsItem(
-                    title = "🤖 AI Study tools",
+                    title = "AI Study tools",
+                    leadingIcon = Icons.Outlined.School,
                     enabled = studyToolsFeature.enabled,
                     subtitle = if (!studyToolsFeature.enabled) studyToolsFeature.disabledReason else null,
                     onClick = { choose(onOpenStudyTools) }
@@ -295,7 +311,8 @@ fun ReaderToolsSheet(
 
                 val translationFeature = readerFeature(VeritasFeatureId.TRANSLATION_HANDOFF)
                 SettingsItem(
-                    title = "📨 Translation handoff",
+                    title = "Translation handoff",
+                    leadingIcon = Icons.Outlined.Translate,
                     enabled = translationFeature.enabled,
                     subtitle = if (!translationFeature.enabled) translationFeature.disabledReason else null,
                     onClick = { choose(onOpenTranslationTools) }
@@ -303,7 +320,8 @@ fun ReaderToolsSheet(
 
                 val textEditorFeature = readerFeature(VeritasFeatureId.EXTRACTED_TEXT_EDITOR)
                 SettingsItem(
-                    title = "🗒️ Edit extracted text",
+                    title = "Edit extracted text",
+                    leadingIcon = Icons.Outlined.EditNote,
                     enabled = textEditorFeature.enabled,
                     subtitle = if (!textEditorFeature.enabled) textEditorFeature.disabledReason else null,
                     onClick = { choose(onOpenTextEditor) }
@@ -322,20 +340,23 @@ fun ReaderToolsSheet(
 
                 val pronunciationFeature = readerFeature(VeritasFeatureId.PRONUNCIATION_RULES)
                 SettingsItem(
-                    title = "🗣️ Pronunciation rules",
+                    title = "Pronunciation rules",
+                    leadingIcon = Icons.Outlined.RecordVoiceOver,
                     enabled = pronunciationFeature.enabled,
                     subtitle = if (!pronunciationFeature.enabled) pronunciationFeature.disabledReason else null,
                     onClick = { choose(onOpenPronunciationRules) }
                 )
 
                 SettingsItem(
-                    title = "🎨 Reader appearance",
+                    title = "Reader appearance",
+                    leadingIcon = Icons.Outlined.Palette,
                     onClick = { choose(onOpenReaderSettings) }
                 )
 
                 val recordSoundFeature = readerFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT)
                 SettingsItem(
-                    title = "● Record sound file",
+                    title = "Record sound file",
+                    leadingIcon = Icons.Outlined.GraphicEq,
                     enabled = recordSoundFeature.enabled,
                     subtitle = if (!recordSoundFeature.enabled) recordSoundFeature.disabledReason else null,
                     onClick = { choose(onStartRecord) }
@@ -343,7 +364,8 @@ fun ReaderToolsSheet(
 
                 val exportAudioFeature = readerFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT)
                 SettingsItem(
-                    title = "📤 Export audio",
+                    title = "Export audio",
+                    leadingIcon = Icons.Outlined.FileDownload,
                     enabled = exportAudioFeature.enabled,
                     subtitle = if (!exportAudioFeature.enabled) exportAudioFeature.disabledReason else null,
                     onClick = { choose(onExportAudio) }
@@ -354,7 +376,7 @@ fun ReaderToolsSheet(
 }
 
 @Composable
-private fun ToolItem(icon: String, label: String, onClick: () -> Unit) {
+private fun ToolItem(icon: ImageVector, label: String, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -368,7 +390,12 @@ private fun ToolItem(icon: String, label: String, onClick: () -> Unit) {
             modifier = Modifier.size(56.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Text(icon, style = MaterialTheme.typography.headlineMedium)
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(28.dp)
+                )
             }
         }
         Spacer(modifier = Modifier.size(8.dp))
@@ -431,6 +458,7 @@ private fun SettingsItem(
 @Composable
 private fun SettingsSubItem(
     title: String,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
@@ -443,8 +471,18 @@ private fun SettingsSubItem(
     ) {
         Row(
             modifier = Modifier
-                .padding(start = 40.dp, end = 24.dp, top = 8.dp, bottom = 8.dp)
+                .padding(start = 40.dp, end = 24.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (leadingIcon != null) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,

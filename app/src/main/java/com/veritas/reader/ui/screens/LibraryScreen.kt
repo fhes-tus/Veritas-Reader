@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.SortByAlpha
@@ -31,9 +32,13 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
@@ -93,6 +98,8 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -112,8 +119,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import com.veritas.reader.ui.rememberVeritasHaptics
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -165,6 +171,7 @@ import androidx.compose.ui.graphics.toArgb
 internal enum class VeritasHomeTab {
     HOME,
     LIBRARY,
+    NOTES,
     STUDY
 }
 
@@ -220,6 +227,8 @@ fun LibraryScreen(
     onPlayQueue: () -> Unit,
     onMoveQueueUp: (SavedDocument) -> Unit,
     onMoveQueueDown: (SavedDocument) -> Unit,
+    /** Moves a queued reading by a relative number of places (drag-to-reorder). */
+    onMoveQueueBy: (SavedDocument, Int) -> Unit,
     onRemoveFromQueue: (SavedDocument) -> Unit,
     onClearQueue: () -> Unit,
     onOpenSyncCenter: () -> Unit,
@@ -269,8 +278,13 @@ fun LibraryScreen(
     var viewerCards by remember { mutableStateOf<List<FlashcardProgress>?>(null) }
     var viewerSetName by remember { mutableStateOf("") }
     var showPasteFlashcards by remember { mutableStateOf(false) }
+    var showPasteQuiz by remember { mutableStateOf(false) }
     var renameSetTarget by remember { mutableStateOf<FlashcardSet?>(null) }
     var showContentSearchResults by remember { mutableStateOf(false) }
+
+    if (showPasteQuiz) {
+        PasteQuizDialog(onDismiss = { showPasteQuiz = false })
+    }
     if (showContentSearchResults) {
         AlertDialog(
             onDismissRequest = { showContentSearchResults = false },
@@ -362,6 +376,7 @@ fun LibraryScreen(
         }
     }
     val libraryPrefs = remember { context.getSharedPreferences("veritas_library_settings", Context.MODE_PRIVATE) }
+    var isHomeGridView by remember { mutableStateOf(libraryPrefs.getBoolean("is_home_grid_view", true)) }
     var libraryViewMode by remember {
         mutableStateOf(
             runCatching {
@@ -375,11 +390,11 @@ fun LibraryScreen(
     var selectedHomeTab by remember(widgetAction) {
         mutableStateOf(
             when (widgetAction) {
-                "show_study_dashboard",
+                "show_study_dashboard" -> VeritasHomeTab.STUDY
                 "show_notes",
                 "new_note",
                 "new_checklist_note",
-                "new_reminder_note" -> VeritasHomeTab.STUDY
+                "new_reminder_note" -> VeritasHomeTab.NOTES
                 "open_library" -> VeritasHomeTab.LIBRARY
                 else -> VeritasHomeTab.HOME
             }
@@ -389,10 +404,12 @@ fun LibraryScreen(
     // the hamburger lives on the HOME tab, the FAB and document cards on LIBRARY.
     val isTourActive = OnboardingController.activeStep != null
     LaunchedEffect(OnboardingController.activeStep) {
-        when {
-            OnboardingController.activeStep == OnboardingStep.INSIGHTS_SPOTLIGHT ->
-                selectedHomeTab = VeritasHomeTab.HOME
-            isTourActive -> selectedHomeTab = VeritasHomeTab.LIBRARY
+        when (OnboardingController.activeStep) {
+            OnboardingStep.INSIGHTS_SPOTLIGHT -> selectedHomeTab = VeritasHomeTab.HOME
+            OnboardingStep.NOTES_TAB_SPOTLIGHT -> selectedHomeTab = VeritasHomeTab.NOTES
+            OnboardingStep.STUDY_TAB_SPOTLIGHT -> selectedHomeTab = VeritasHomeTab.STUDY
+            null -> {}
+            else -> selectedHomeTab = VeritasHomeTab.LIBRARY
         }
     }
     var showHomeSidebar by remember { mutableStateOf(false) }
@@ -413,13 +430,11 @@ fun LibraryScreen(
     }
     var selectedAnnotationKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmAnnotationDelete by remember { mutableStateOf(false) }
-    var annotationFilter by remember(widgetAction) {
-        mutableStateOf(
-            if (widgetAction == "show_notes" || widgetAction == "new_note" || widgetAction == "new_checklist_note" || widgetAction == "new_reminder_note") "General" else "General"
-        )
-    }
+    var annotationFilter by remember { mutableStateOf("Bookmarks") }
     var expandedVocabDocIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedGeneralNoteTag by remember { mutableStateOf("All") }
     val libraryListState = rememberLazyListState()
+    val notesListState = rememberLazyListState()
     var lastMainPageRefreshAt by remember { mutableLongStateOf(0L) }
     val libraryFeatures = remember(documents.size, queuedDocuments.size) {
         VeritasFeatureRegistry.resolve(
@@ -653,7 +668,7 @@ fun LibraryScreen(
             markedDoc.copy(
                 annotations = when (annotationFilter) {
                     "Bookmarks" -> bookmarks
-                    "Notes" -> notes
+                    "Booknotes" -> notes
                     else -> markedDoc.annotations
                 },
                 documentNote = if (annotationFilter == "Bookmarks") "" else markedDoc.documentNote
@@ -706,7 +721,7 @@ fun LibraryScreen(
         uiState.generalNotes.filterNot { it.title.startsWith("__vocab__") }
     }
     var noteSearchQuery by remember { mutableStateOf("") }
-    var isGridView by remember { mutableStateOf(true) }
+    var isGridView by remember { mutableStateOf(libraryPrefs.getBoolean("is_notes_grid_view", true)) }
     var noteSortOrder by remember { mutableStateOf("date") }
     val processedGeneralNotes = remember(trueGeneralNotes, noteSearchQuery, noteSortOrder) {
         var list = trueGeneralNotes.filter { note ->
@@ -756,6 +771,11 @@ fun LibraryScreen(
                 }
                 .toList()
                 .let { list ->
+                    if (statusFilter == "Queued") {
+                        // Play order, not the library's sort: sequence is the point of a queue.
+                        val position = queuedDocuments.withIndex().associate { (i, doc) -> doc.id to i }
+                        return@let list.sortedBy { position[it.id] ?: Int.MAX_VALUE }
+                    }
                     when (sortMode) {
                         "Title" -> list.sortedBy { it.title.lowercase(Locale.getDefault()) }
                         "Progress" -> list.sortedByDescending { progressFraction(it) }
@@ -774,7 +794,7 @@ fun LibraryScreen(
                 importSheetMode = ImportSheetMode.MENU
             },
             sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = MaterialTheme.colorScheme.onSurface
         ) {
             when (importSheetMode) {
@@ -854,23 +874,13 @@ fun LibraryScreen(
     }
 
     if (showQueue) {
-        AlertDialog(
-            onDismissRequest = { showQueue = false },
-            confirmButton = { TextButton(onClick = { showQueue = false }) { Text("Close") } },
-            title = { Text("Queue") },
-            text = {
-                Column(modifier = Modifier.height(520.dp).verticalScroll(rememberScrollState())) {
-                    QueueSection(
-                        queuedDocuments = queuedDocuments,
-                        onPlayQueue = onPlayQueue,
-                        onOpenDocument = onOpenDocument,
-                        onMoveUp = onMoveQueueUp,
-                        onMoveDown = onMoveQueueDown,
-                        onRemove = onRemoveFromQueue,
-                        onClearQueue = onClearQueue
-                    )
-                }
-            }
+        VeritasQueueSheet(
+            queue = queuedDocuments,
+            onMove = onMoveQueueBy,
+            onRemove = onRemoveFromQueue,
+            onClear = { onClearQueue(); showQueue = false },
+            onPlay = { onPlayQueue() },
+            onDismiss = { showQueue = false }
         )
     }
 
@@ -1037,40 +1047,70 @@ fun LibraryScreen(
                 // FAB pops in/out with the Library tab and its + rotates 45° with a
                 // spring while the import sheet is open (micro-morph, no layout risk).
                 AnimatedVisibility(
-                    visible = selectedHomeTab == VeritasHomeTab.LIBRARY,
+                    visible = selectedHomeTab == VeritasHomeTab.LIBRARY || selectedHomeTab == VeritasHomeTab.NOTES,
                     enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(150)),
-                    exit = scaleOut(tween(120)) + fadeOut(tween(120))
+                    exit = scaleOut(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(150))
                 ) {
-                    val fabPlusRotation by animateFloatAsState(
-                        targetValue = if (showImportSheet) 45f else 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        ),
-                        label = "fabPlusRotation"
-                    )
-                    ExtendedFloatingActionButton(
-                        onClick = { showImportSheet = true },
-                        shape = VeritasPackStyle.chipShape(),
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        icon = {
-                            Text(
-                                "+",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.graphicsLayer { rotationZ = fabPlusRotation }
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = selectedHomeTab,
+                        label = "fabTabContentTransition"
+                    ) { currentTab ->
+                        if (currentTab == VeritasHomeTab.NOTES) {
+                            ExtendedFloatingActionButton(
+                                text = { Text("Note") },
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Outlined.EditNote,
+                                        contentDescription = "Write note",
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                },
+                                onClick = { onWriteGeneralNote() },
+                                shape = VeritasPackStyle.chipShape(),
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                modifier = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)?.let { Modifier.border(it, VeritasPackStyle.chipShape()) } ?: Modifier
                             )
-                        },
-                        text = { Text("Add") },
-                        modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("add_fab", it) }
-                    )
+                        } else {
+                            val fabPlusRotation by animateFloatAsState(
+                                targetValue = if (showImportSheet) 45f else 0f,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium
+                                ),
+                                label = "fabPlusRotation"
+                            )
+                            ExtendedFloatingActionButton(
+                                text = { Text("Add") },
+                                icon = {
+                                    Text(
+                                        "+",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.graphicsLayer { rotationZ = fabPlusRotation }
+                                    )
+                                },
+                                onClick = { showImportSheet = true },
+                                shape = VeritasPackStyle.chipShape(),
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier
+                                    .onGloballyPositioned { OnboardingController.updateBounds("add_fab", it) }
+                                    .then(VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)?.let { Modifier.border(it, VeritasPackStyle.chipShape()) } ?: Modifier)
+                            )
+                        }
+                    }
                 }
             },
             topBar = {
+                val scheme = MaterialTheme.colorScheme
+                val isDark = scheme.surface.luminance() < 0.5f
+                val topBarColor = if (isDark) scheme.surface else scheme.primaryContainer
+                val topBarContentColor = if (isDark) scheme.onSurface else scheme.onPrimaryContainer
                 Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    color = topBarColor,
+                    contentColor = topBarContentColor,
+                    tonalElevation = if (isDark) 0.dp else 3.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Box(
@@ -1094,7 +1134,7 @@ fun LibraryScreen(
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
                                             TextButton(
                                                 onClick = { showHomeSidebar = true },
@@ -1109,10 +1149,12 @@ fun LibraryScreen(
                                                     tint = MaterialTheme.colorScheme.onSurface
                                                 )
                                             }
-                                            Spacer(modifier = Modifier.width(4.dp))
                                             VeritasWordmark()
                                         }
-                                        IconButton(onClick = onOpenSettingsHub) {
+                                        IconButton(
+                                            onClick = onOpenSettingsHub,
+                                            modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("settings_trigger", it) }
+                                        ) {
                                             Icon(
                                                 imageVector = Icons.Filled.Settings,
                                                 contentDescription = "Settings",
@@ -1133,6 +1175,169 @@ fun LibraryScreen(
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
+                                        IconButton(
+                                            onClick = onOpenSettingsHub,
+                                            modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("settings_trigger", it) }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Settings,
+                                                contentDescription = "Settings",
+                                                tint = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Dynamic filters based on actual available document states and collections
+                                        val hasFavorites = remember(documents) { documents.any { it.favorite } }
+                                        val hasUnread = remember(documents) { documents.any { it.currentIndex <= 0 } }
+                                        val hasInProgress = remember(documents) { documents.any { it.chunkCount > 1 && it.currentIndex in 1 until it.chunkCount - 1 } }
+                                        val hasCompleted = remember(documents) { documents.any { it.chunkCount > 0 && it.currentIndex >= it.chunkCount - 1 } }
+
+                                        val inProgressCount = remember(documents) { documents.count { it.chunkCount > 1 && it.currentIndex in 1 until it.chunkCount - 1 } }
+                                        val unreadCount = remember(documents) { documents.count { it.currentIndex <= 0 } }
+                                        val completedCount = remember(documents) { documents.count { it.chunkCount > 0 && it.currentIndex >= it.chunkCount - 1 } }
+                                        val favoritesCount = remember(documents) { documents.count { it.favorite } }
+
+                                        val collections = remember(documents) {
+                                            documents.map { it.collection.trim() }
+                                                .filter { it.isNotEmpty() }
+                                                .distinct()
+                                                .sorted()
+                                        }
+                                        val readingLists = remember(uiState.readingListCatalog, documents) {
+                                            uiState.readingListCatalog.lists
+                                                .filterNot { it.archived }
+                                                .filter { list -> documents.any { doc -> list.contains(doc.id) } || readingListFilter == list.id }
+                                                .sortedBy { it.title.lowercase(Locale.getDefault()) }
+                                        }
+                                        val formats = remember(documents) {
+                                            documents.map { it.sourceLabel.trim() }.filter { it.isNotBlank() }.distinct().sorted()
+                                        }
+
+                                        data class LibraryChip(
+                                            val label: String,
+                                            val active: Boolean,
+                                            val apply: () -> Unit
+                                        )
+
+                                        fun reset() {
+                                            statusFilter = "All"; sourceFilter = "All"
+                                            collectionFilter = "All"; readingListFilter = "All"
+                                        }
+
+                                        val chips = buildList {
+                                            add(LibraryChip(
+                                                "All (${documents.size})",
+                                                statusFilter == "All" && sourceFilter == "All" &&
+                                                    collectionFilter == "All" && readingListFilter == "All"
+                                            ) { reset() })
+
+                                            if (hasInProgress || statusFilter == "In progress") {
+                                                add(LibraryChip("In progress ($inProgressCount)", statusFilter == "In progress") {
+                                                    if (statusFilter == "In progress") reset() else { reset(); statusFilter = "In progress" }
+                                                })
+                                            }
+
+                                            if (hasUnread || statusFilter == "Unread") {
+                                                add(LibraryChip("Unread ($unreadCount)", statusFilter == "Unread") {
+                                                    if (statusFilter == "Unread") reset() else { reset(); statusFilter = "Unread" }
+                                                })
+                                            }
+
+                                            if (hasCompleted || statusFilter == "Completed") {
+                                                add(LibraryChip("Completed ($completedCount)", statusFilter == "Completed") {
+                                                    if (statusFilter == "Completed") reset() else { reset(); statusFilter = "Completed" }
+                                                })
+                                            }
+
+                                            if (hasFavorites || statusFilter == "Favorites") {
+                                                add(LibraryChip("Favorites ($favoritesCount)", statusFilter == "Favorites") {
+                                                    if (statusFilter == "Favorites") reset() else { reset(); statusFilter = "Favorites" }
+                                                })
+                                            }
+
+                                            if (queuedDocuments.isNotEmpty()) {
+                                                add(LibraryChip("Queue ${queuedDocuments.size}", statusFilter == "Queued") {
+                                                    reset(); statusFilter = "Queued"
+                                                })
+                                            }
+
+                                            collections.forEach { name ->
+                                                val count = documents.count { it.collection.trim() == name }
+                                                add(LibraryChip("$name ($count)", collectionFilter == name) {
+                                                    if (collectionFilter == name) reset() else { reset(); collectionFilter = name }
+                                                })
+                                            }
+
+                                            readingLists.forEach { readingList ->
+                                                val count = documents.count { readingList.contains(it.id) }
+                                                add(LibraryChip("≡ ${readingList.title} ($count)", readingListFilter == readingList.id) {
+                                                    if (readingListFilter == readingList.id) reset() else { reset(); readingListFilter = readingList.id }
+                                                })
+                                            }
+
+                                            formats.forEach { fmt ->
+                                                val count = documents.count { it.sourceLabel.trim().equals(fmt, ignoreCase = true) }
+                                                add(LibraryChip("$fmt ($count)", sourceFilter == fmt) {
+                                                    if (sourceFilter == fmt) reset() else { reset(); sourceFilter = fmt }
+                                                })
+                                            }
+                                        }
+
+                                        chips.forEach { chip ->
+                                            if (chip.active) {
+                                                Button(
+                                                    onClick = chip.apply,
+                                                    shape = VeritasPackStyle.chipShape(),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.primary,
+                                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(chip.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                                }
+                                            } else {
+                                                OutlinedButton(
+                                                    onClick = chip.apply,
+                                                    shape = VeritasPackStyle.chipShape(),
+                                                    border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
+                                                    colors = ButtonDefaults.outlinedButtonColors(
+                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(chip.label, style = MaterialTheme.typography.labelMedium)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                VeritasHomeTab.NOTES -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                "Notes & Annotations",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            val totalNotesCount = remember(uiState.generalNotes) { uiState.generalNotes.size }
+                                            Text(
+                                                "$totalNotesCount note${if (totalNotesCount == 1) "" else "s"}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                            )
+                                        }
                                         IconButton(onClick = onOpenSettingsHub) {
                                             Icon(
                                                 imageVector = Icons.Filled.Settings,
@@ -1141,57 +1346,77 @@ fun LibraryScreen(
                                             )
                                         }
                                     }
-                                    BasicTextField(
-                                        value = libraryQuery,
-                                        onValueChange = { libraryQuery = it },
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(36.dp)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
-                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                                        singleLine = true,
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
-                                        decorationBox = { innerTextField ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(horizontal = 14.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Search,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                                Box(
-                                                    modifier = Modifier.weight(1f),
-                                                    contentAlignment = Alignment.CenterStart
-                                                ) {
-                                                    if (libraryQuery.isEmpty()) {
-                                                        Text(
-                                                            text = "Search library...",
-                                                            style = MaterialTheme.typography.bodyMedium,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                        )
-                                                    }
-                                                    innerTextField()
-                                                }
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val noteFilterOptions = remember(uiState.generalNotes, uiState.allAnnotations) {
+                                            buildList {
+                                                add("All Notes")
+                                                if (uiState.generalNotes.any { it.pinned }) add("Pinned")
+                                                if (uiState.generalNotes.any { it.allAudioUrls.isNotEmpty() }) add("Voice Memos")
+                                                if (uiState.generalNotes.any { it.isChecklist }) add("Checklists")
+                                                if (uiState.generalNotes.any { it.reminderAt != null }) add("Reminders")
+                                                if (uiState.allAnnotations.isNotEmpty()) add("Highlights")
                                             }
                                         }
-                                    )
-                                    // Content search: title/preview filtering happens live above;
-                                    // this searches INSIDE every document's text on demand.
-                                    if (libraryQuery.trim().length >= 3) {
-                                        TextButton(
-                                            onClick = {
-                                                onSearchLibraryContent(libraryQuery)
-                                                showContentSearchResults = true
-                                            },
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text("Search inside documents for “${libraryQuery.trim()}”")
+                                        noteFilterOptions.forEach { option ->
+                                            val active = when (option) {
+                                                "All Notes" -> selectedGeneralNoteTag == "All"
+                                                "Pinned" -> selectedGeneralNoteTag == "Pinned"
+                                                "Voice Memos" -> selectedGeneralNoteTag == "Audio"
+                                                "Checklists" -> selectedGeneralNoteTag == "Checklists"
+                                                "Reminders" -> selectedGeneralNoteTag == "Reminders"
+                                                "Highlights" -> selectedGeneralNoteTag == "Highlights"
+                                                else -> selectedGeneralNoteTag == option
+                                            }
+                                            if (active) {
+                                                Button(
+                                                    onClick = {
+                                                        selectedGeneralNoteTag = when (option) {
+                                                            "All Notes" -> "All"
+                                                            "Pinned" -> "Pinned"
+                                                            "Voice Memos" -> "Audio"
+                                                            "Checklists" -> "Checklists"
+                                                            "Reminders" -> "Reminders"
+                                                            "Highlights" -> "Highlights"
+                                                            else -> option
+                                                        }
+                                                    },
+                                                    shape = VeritasPackStyle.chipShape(),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.primary,
+                                                        contentColor = MaterialTheme.colorScheme.onPrimary
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(option, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                                }
+                                            } else {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        selectedGeneralNoteTag = when (option) {
+                                                            "All Notes" -> "All"
+                                                            "Pinned" -> "Pinned"
+                                                            "Voice Memos" -> "Audio"
+                                                            "Checklists" -> "Checklists"
+                                                            "Reminders" -> "Reminders"
+                                                            "Highlights" -> "Highlights"
+                                                            else -> option
+                                                        }
+                                                    },
+                                                    shape = VeritasPackStyle.chipShape(),
+                                                    border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
+                                                    colors = ButtonDefaults.outlinedButtonColors(
+                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    ),
+                                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(option, style = MaterialTheme.typography.labelMedium)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1201,96 +1426,30 @@ fun LibraryScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                "Study",
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            val bookmarkCount = remember(uiState.allAnnotations) { uiState.allAnnotations.count { it.type == AnnotationType.BOOKMARK } }
-                                            val noteCount = remember(uiState.allAnnotations, uiState.documentNotes) { uiState.allAnnotations.count { it.type == AnnotationType.NOTE } + uiState.documentNotes.size }
-                                            Text(
-                                                "$bookmarkCount bookmark${if (bookmarkCount == 1) "" else "s"} • $noteCount note${if (noteCount == 1) "" else "s"}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                            )
-                                        }
-                                        Button(
-                                            onClick = onOpenSyncCenter,
-                                            shape = VeritasPackStyle.chipShape(),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                            ),
-                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                                        Text(
+                                            "Study Hub",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(50),
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                                         ) {
                                             Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Sync,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(18.dp)
+                                                Text("🔥", fontSize = 14.sp)
+                                                val streak = uiState.readerTrackerSnapshot.currentStreak
+                                                Text(
+                                                    text = if (streak > 0) "$streak-Day Streak" else "0-Day Streak",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold
                                                 )
-                                                Text("Sync", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        val filterOptions = listOf("General", "Bookmarks", "Notes", "Vocab", "Flashcards", "History")
-                                        filterOptions.forEach { option ->
-                                            val active = annotationFilter == option
-                                            val optionIcon = when (option) {
-                                                "General" -> Icons.AutoMirrored.Outlined.Note
-                                                "Bookmarks" -> Icons.Outlined.Bookmark
-                                                "Notes" -> Icons.Outlined.EditNote
-                                                "Vocab" -> Icons.Outlined.Book
-                                                "Flashcards" -> Icons.Outlined.Book
-                                                "History" -> Icons.Outlined.History
-                                                else -> Icons.AutoMirrored.Outlined.Note
-                                            }
-                                            if (active) {
-                                                Button(
-                                                    onClick = { annotationFilter = option },
-                                                    shape = VeritasPackStyle.chipShape(),
-                                                    colors = ButtonDefaults.buttonColors(
-                                                        containerColor = MaterialTheme.colorScheme.primary,
-                                                        contentColor = MaterialTheme.colorScheme.onPrimary
-                                                    ),
-                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = optionIcon,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(option)
-                                                }
-                                            } else {
-                                                OutlinedButton(
-                                                    onClick = { annotationFilter = option },
-                                                    shape = VeritasPackStyle.chipShape(),
-                                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                                                    colors = ButtonDefaults.outlinedButtonColors(
-                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    ),
-                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = optionIcon,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(16.dp),
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(option)
-                                                }
+                                                Text("🔥", fontSize = 14.sp)
                                             }
                                         }
                                     }
@@ -1301,10 +1460,23 @@ fun LibraryScreen(
                 }
             },
             bottomBar = {
+                val scheme = MaterialTheme.colorScheme
+                val isDark = scheme.surface.luminance() < 0.5f
+                val bottomNavColor = if (isDark) {
+                    blendColors(scheme.surface, scheme.primary, 0.07f).copy(alpha = VeritasPackStyle.surfaceAlpha())
+                } else {
+                    scheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                }
+                val bottomNavContentColor = if (isDark) scheme.onSurface else scheme.onPrimaryContainer
                 Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 4.dp,
-                    modifier = Modifier.fillMaxWidth()
+                    color = bottomNavColor,
+                    shape = VeritasPackStyle.bottomNavShape(),
+                    border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
+                    contentColor = bottomNavContentColor,
+                    tonalElevation = if (isDark) 1.dp else 3.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = VeritasPackStyle.bottomNavPadding())
                 ) {
                     Column(
                         modifier = Modifier
@@ -1312,7 +1484,6 @@ fun LibraryScreen(
                             .navigationBarsPadding(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         Row(
                             modifier = Modifier
                                 .widthIn(max = 760.dp)
@@ -1326,10 +1497,10 @@ fun LibraryScreen(
                                 onClick = { selectedHomeTab = VeritasHomeTab.HOME },
                                 icon = { color ->
                                     Icon(
-                                        imageVector = Icons.Filled.Home,
+                                        imageVector = if (selectedHomeTab == VeritasHomeTab.HOME) Icons.Filled.Home else Icons.Outlined.Home,
                                         contentDescription = "Home",
                                         tint = color,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(if (selectedHomeTab == VeritasHomeTab.HOME) 27.dp else 24.dp)
                                     )
                                 },
                                 label = "Home"
@@ -1340,13 +1511,28 @@ fun LibraryScreen(
                                 onClick = { selectedHomeTab = VeritasHomeTab.LIBRARY },
                                 icon = { color ->
                                     Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
+                                        imageVector = if (selectedHomeTab == VeritasHomeTab.LIBRARY) Icons.AutoMirrored.Filled.MenuBook else Icons.AutoMirrored.Outlined.MenuBook,
                                         contentDescription = "Library",
                                         tint = color,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(if (selectedHomeTab == VeritasHomeTab.LIBRARY) 27.dp else 24.dp)
                                     )
                                 },
                                 label = "Library"
+                            )
+
+                            BottomNavItem(
+                                selected = selectedHomeTab == VeritasHomeTab.NOTES,
+                                onClick = { selectedHomeTab = VeritasHomeTab.NOTES },
+                                icon = { color ->
+                                    Icon(
+                                        imageVector = Icons.Outlined.EditNote,
+                                        contentDescription = "Notes",
+                                        tint = color,
+                                        modifier = Modifier.size(if (selectedHomeTab == VeritasHomeTab.NOTES) 27.dp else 24.dp)
+                                    )
+                                },
+                                label = "Notes",
+                                modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("notes_tab", it) }
                             )
 
                             BottomNavItem(
@@ -1354,13 +1540,14 @@ fun LibraryScreen(
                                 onClick = { selectedHomeTab = VeritasHomeTab.STUDY },
                                 icon = { color ->
                                     Icon(
-                                        imageVector = Icons.Filled.Layers,
+                                        imageVector = if (selectedHomeTab == VeritasHomeTab.STUDY) Icons.Filled.Layers else Icons.Outlined.Layers,
                                         contentDescription = "Study",
                                         tint = color,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(if (selectedHomeTab == VeritasHomeTab.STUDY) 27.dp else 24.dp)
                                     )
                                 },
-                                label = "Study"
+                                label = "Study",
+                                modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("study_tab", it) }
                             )
                         }
                     }
@@ -1452,29 +1639,7 @@ fun LibraryScreen(
                                     contentPadding = PaddingValues(top = 10.dp, bottom = 22.dp),
                                     verticalArrangement = Arrangement.spacedBy(16.dp)
                                 ) {
-                                    // 1. Overview Pills (scrollable row, no header) - compact sized
-                                    item {
-                                        val collectionCount = remember(documents) { documents.map { it.collection.trim() }.filter { it.isNotBlank() }.distinct().size }
-                                        val sourceCount = remember(documents) { documents.map { it.sourceLabel.trim().ifBlank { "Text" } }.distinct().size }
-                                        val unreadCountVal = remember(documents) { documents.count { it.currentIndex <= 0 } }
-                                        Row(
-                                            modifier = Modifier
-                                                .staggeredEntrance(0)
-                                                .fillMaxWidth()
-                                                .horizontalScroll(rememberScrollState()),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            OverviewPill(value = "${documents.size}", label = "Saved", modifier = Modifier.width(68.dp))
-                                            OverviewPill(value = "$unreadCountVal", label = "Unread", modifier = Modifier.width(70.dp))
-                                            OverviewPill(value = "$readingCount", label = "Reading", modifier = Modifier.width(72.dp))
-                                            OverviewPill(value = "$completedCount", label = "Done", modifier = Modifier.width(60.dp))
-                                            OverviewPill(value = "$favoriteCount", label = "Starred", modifier = Modifier.width(64.dp))
-                                            OverviewPill(value = "$collectionCount", label = "Collections", modifier = Modifier.width(84.dp))
-                                            OverviewPill(value = "$sourceCount", label = "Formats", modifier = Modifier.width(72.dp))
-                                        }
-                                    }
-
-                                    // 2. Hero Card: continue-reading-first, playback-aware,
+                                    // 1. Hero Card: continue-reading-first, playback-aware,
                                     // with data-earned rotating insight copy.
                                     item {
                                         val todayMinutes = remember(tracker.weeklyUsageByDay) {
@@ -1498,36 +1663,94 @@ fun LibraryScreen(
                                         }
                                     }
 
-                                    // 3. Active library (directly on background, no cards, no lines, compact spaced)
+                                    // 3. Recent in Library (Supports Grid and Flat List view modes)
                                     if (recentImports.isNotEmpty()) {
                                         item {
-                                            Text(
-                                                text = "Active library",
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                modifier = Modifier.staggeredEntrance(2).padding(top = 8.dp)
-                                            )
-                                        }
-                                        item {
-                                            Column(
-                                                verticalArrangement = Arrangement.spacedBy(5.dp),
-                                                modifier = Modifier.staggeredEntrance(3).fillMaxWidth()
+                                            Row(
+                                                modifier = Modifier.staggeredEntrance(2).fillMaxWidth().padding(top = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                recentImports.forEach { doc ->
-                                                    val isQueued = isQueued(doc)
-                                                    RecentImportItem(
-                                                        document = doc,
-                                                        isQueued = isQueued,
-                                                        onOpen = { onOpenDocument(doc) },
-                                                        onToggleFavorite = { onToggleFavorite(doc) },
-                                                        onToggleQueue = { onToggleQueue(doc) },
-                                                        onSetCollection = { onSetCollection(doc) },
-                                                        onManageLists = { manageListsDocument = doc },
-                                                        onRename = { onRenameDocument(doc) },
-                                                        onShowDetails = { onShowDetails(doc) },
-                                                        onDelete = { onDeleteDocument(doc) }
+                                                Text(
+                                                    text = "Recent in Library",
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            isHomeGridView = !isHomeGridView
+                                                            libraryPrefs.edit().putBoolean("is_home_grid_view", isHomeGridView).apply()
+                                                        },
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = if (isHomeGridView) Icons.Filled.GridView else Icons.AutoMirrored.Filled.List,
+                                                            contentDescription = if (isHomeGridView) "Switch to list view" else "Switch to grid view",
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = "See all →",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.clickable { selectedHomeTab = VeritasHomeTab.LIBRARY }
                                                     )
+                                                }
+                                            }
+                                        }
+                                        if (isHomeGridView) {
+                                            item {
+                                                Column(
+                                                    modifier = Modifier.staggeredEntrance(3).fillMaxWidth(),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    recentImports.chunked(2).forEach { row ->
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            row.forEach { doc ->
+                                                                HomeRecentBookGridItem(
+                                                                    document = doc,
+                                                                    onOpen = { onOpenDocument(doc) },
+                                                                    modifier = Modifier.weight(1f)
+                                                                )
+                                                            }
+                                                            if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            item {
+                                                Column(
+                                                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                                                    modifier = Modifier.staggeredEntrance(3).fillMaxWidth()
+                                                ) {
+                                                    recentImports.forEach { doc ->
+                                                        val isQueued = isQueued(doc)
+                                                        RecentImportItem(
+                                                            document = doc,
+                                                            isQueued = isQueued,
+                                                            onOpen = { onOpenDocument(doc) },
+                                                            onToggleFavorite = { onToggleFavorite(doc) },
+                                                            onToggleQueue = { onToggleQueue(doc) },
+                                                            onMoveQueueUp = { onMoveQueueUp(doc) },
+                                                            onMoveQueueDown = { onMoveQueueDown(doc) },
+                                                            onSetCollection = { onSetCollection(doc) },
+                                                            onManageLists = { manageListsDocument = doc },
+                                                            onRename = { onRenameDocument(doc) },
+                                                            onShowDetails = { onShowDetails(doc) },
+                                                            onDelete = { onDeleteDocument(doc) }
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -1548,8 +1771,8 @@ fun LibraryScreen(
                                                     icon = Icons.Filled.Add,
                                                     title = "Add content",
                                                     body = "Import file - Upload PDF, EPUB, DOCX, PPTX, TXT, or HTML",
-                                                    iconBackground = Color(0xFFF0F3FF),
-                                                    iconForeground = Color(0xFF7C6FFF),
+                                                    iconBackground = MaterialTheme.colorScheme.primaryContainer,
+                                                    iconForeground = MaterialTheme.colorScheme.primary,
                                                     onClick = { showImportSheet = true }
                                                 )
                                             }
@@ -1594,54 +1817,138 @@ fun LibraryScreen(
 
                             VeritasHomeTab.LIBRARY -> {
                                 Column(modifier = Modifier.fillMaxSize()) {
-                                    Row(
-                            modifier = Modifier
-                                .staggeredEntrance(0)
-                                .fillMaxWidth()
-                                .padding(start = 18.dp, end = 18.dp, top = 2.dp, bottom = 2.dp)
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val options = listOf("All Docs", "Recent", "Favorites", "Unread")
-                            options.forEach { option ->
-                                val active = when (option) {
-                                    "All Docs" -> statusFilter == "All"
-                                    "Recent" -> false
-                                    else -> statusFilter == option
-                                }
-                                if (active) {
-                                    Button(
-                                        onClick = { statusFilter = if (option == "All Docs") "All" else option },
-                                        shape = RoundedCornerShape(50),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .zIndex(2f),
+                                        color = Color.Transparent,
+                                        shadowElevation = 0.dp
                                     ) {
-                                        Text(option, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = {
-                                            statusFilter = if (option == "All Docs") "All" else option
-                                            if (option == "Recent") {
-                                                statusFilter = "All"
-                                                sortMode = "Updated"
+                                        Row(
+                                            modifier = Modifier
+                                                .staggeredEntrance(0)
+                                                .fillMaxWidth()
+                                                .padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                        BasicTextField(
+                                            value = libraryQuery,
+                                            onValueChange = { libraryQuery = it },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(38.dp)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                                            singleLine = true,
+                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+                                            decorationBox = { innerTextField ->
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(horizontal = 14.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Search,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                    Box(
+                                                        modifier = Modifier.weight(1f),
+                                                        contentAlignment = Alignment.CenterStart
+                                                    ) {
+                                                        if (libraryQuery.isEmpty()) {
+                                                            Text(
+                                                                text = "Search library...",
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                            )
+                                                        }
+                                                        innerTextField()
+                                                    }
+                                                    if (libraryQuery.isNotEmpty()) {
+                                                        IconButton(
+                                                            onClick = { libraryQuery = "" },
+                                                            modifier = Modifier.size(24.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Filled.Close,
+                                                                contentDescription = "Clear search",
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
-                                        },
-                                        shape = RoundedCornerShape(50),
-                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                    ) {
-                                        Text(option, style = MaterialTheme.typography.bodySmall)
+                                        )
+
+                                        Box {
+                                            IconButton(
+                                                onClick = { showLibraryViewMenu = true },
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                            ) {
+                                                Icon(
+                                                    imageVector = when (libraryViewMode) {
+                                                        LibraryViewMode.TILES -> Icons.Filled.GridView
+                                                        else -> Icons.AutoMirrored.Filled.List
+                                                    },
+                                                    contentDescription = "View mode",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            DropdownMenu(expanded = showLibraryViewMenu, onDismissRequest = { showLibraryViewMenu = false }) {
+                                                LibraryViewMode.entries.forEach { mode ->
+                                                    DropdownMenuItem(
+                                                        text = { Text("${mode.icon} ${mode.label}") },
+                                                        onClick = {
+                                                            libraryViewMode = mode
+                                                            libraryPrefs.edit {
+                                                                putString("library_view_mode", mode.name)
+                                                            }
+                                                            showLibraryViewMenu = false
+                                                        }
+                                                    )
+                                                }
+                                                HorizontalDivider()
+                                                FeatureDropdownMenuItem(
+                                                    feature = libraryFeature(VeritasFeatureId.READING_LISTS),
+                                                    label = "Reading lists",
+                                                    onClick = {
+                                                        showLibraryViewMenu = false
+                                                        onOpenReadingLists()
+                                                    }
+                                                )
+                                                FeatureDropdownMenuItem(
+                                                    feature = libraryFeature(VeritasFeatureId.READING_HISTORY),
+                                                    label = "Reading history",
+                                                    onClick = {
+                                                        showLibraryViewMenu = false
+                                                        onOpenReadingHistory()
+                                                    }
+                                                )
+                                            }
+                                        }
                                     }
-                                }
-                            }
-                        }
+                                    }
+
+                                    if (libraryQuery.trim().length >= 3) {
+                                        TextButton(
+                                            onClick = {
+                                                onSearchLibraryContent(libraryQuery)
+                                                showContentSearchResults = true
+                                            },
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
+                                        ) {
+                                            Text("Search inside documents for “${libraryQuery.trim()}”")
+                                        }
+                                    }
 
                                     LazyColumn(
                                         modifier = Modifier
@@ -1669,7 +1976,7 @@ fun LibraryScreen(
                                             .padding(horizontal = 18.dp),
                                         state = libraryListState,
                                         contentPadding = PaddingValues(top = 0.dp, bottom = 22.dp),
-                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         if (selectedHomeTab == VeritasHomeTab.LIBRARY) item {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1738,42 +2045,8 @@ fun LibraryScreen(
                         }
                     }
                 } else {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         SoftChip(sortMode)
-                        Box {
-                            TextButton(onClick = { showLibraryViewMenu = true }) { Text("${libraryViewMode.icon} ⋮") }
-                            DropdownMenu(expanded = showLibraryViewMenu, onDismissRequest = { showLibraryViewMenu = false }) {
-                                LibraryViewMode.entries.forEach { mode ->
-                                    DropdownMenuItem(
-                                        text = { Text("${mode.icon} ${mode.label}") },
-                                        onClick = {
-                                            libraryViewMode = mode
-                                            libraryPrefs.edit {
-                                                putString("library_view_mode", mode.name)
-                                            }
-                                            showLibraryViewMenu = false
-                                        }
-                                    )
-                                }
-                                HorizontalDivider()
-                FeatureDropdownMenuItem(
-                    feature = libraryFeature(VeritasFeatureId.READING_LISTS),
-                    label = "Reading lists",
-                    onClick = {
-                        showLibraryViewMenu = false
-                        onOpenReadingLists()
-                    }
-                )
-                FeatureDropdownMenuItem(
-                    feature = libraryFeature(VeritasFeatureId.READING_HISTORY),
-                    label = "Reading history",
-                                    onClick = {
-                                        showLibraryViewMenu = false
-                                        onOpenReadingHistory()
-                                    }
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -1811,9 +2084,8 @@ fun LibraryScreen(
                     Row(
                         modifier = Modifier
                             .animateItem()
-                            .fillMaxWidth()
-                            .padding(bottom = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         rowDocs.forEach { doc ->
                             DocumentTileCard(
@@ -1828,6 +2100,8 @@ fun LibraryScreen(
                                 },
                                 onDelete = { onDeleteDocument(doc) },
                                 onToggleQueue = { onToggleQueue(doc) },
+                                                            onMoveQueueUp = { onMoveQueueUp(doc) },
+                                                            onMoveQueueDown = { onMoveQueueDown(doc) },
                                 onToggleFavorite = { onToggleFavorite(doc) },
                                 onRename = { onRenameDocument(doc) },
                                 onSetCollection = { onSetCollection(doc) },
@@ -1871,6 +2145,8 @@ fun LibraryScreen(
                         },
                         onDelete = { onDeleteDocument(doc) },
                         onToggleQueue = { onToggleQueue(doc) },
+                                                            onMoveQueueUp = { onMoveQueueUp(doc) },
+                                                            onMoveQueueDown = { onMoveQueueDown(doc) },
                         onToggleFavorite = { onToggleFavorite(doc) },
                         onRename = { onRenameDocument(doc) },
                         onSetCollection = { onSetCollection(doc) },
@@ -1889,6 +2165,602 @@ fun LibraryScreen(
         }
 
         item { Spacer(modifier = Modifier.height(22.dp)) }
+                                    }
+                                }
+                            }
+
+                            VeritasHomeTab.NOTES -> {
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .zIndex(2f),
+                                        color = Color.Transparent,
+                                        shadowElevation = 0.dp
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            BasicTextField(
+                                                value = noteSearchQuery,
+                                                onValueChange = { noteSearchQuery = it },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(38.dp)
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
+                                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                                                singleLine = true,
+                                                cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+                                                decorationBox = { innerTextField ->
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .padding(horizontal = 14.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.Search,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                        Box(
+                                                            modifier = Modifier.weight(1f),
+                                                            contentAlignment = Alignment.CenterStart
+                                                        ) {
+                                                            if (noteSearchQuery.isEmpty()) {
+                                                                Text(
+                                                                    text = "Search notes...",
+                                                                    style = MaterialTheme.typography.bodyMedium,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                                )
+                                                            }
+                                                            innerTextField()
+                                                        }
+                                                        if (noteSearchQuery.isNotEmpty()) {
+                                                            IconButton(
+                                                                onClick = { noteSearchQuery = "" },
+                                                                modifier = Modifier.size(20.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Close,
+                                                                    contentDescription = "Clear",
+                                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                    modifier = Modifier.size(16.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            )
+
+                                            IconButton(
+                                                onClick = {
+                                                    isGridView = !isGridView
+                                                    libraryPrefs.edit().putBoolean("is_notes_grid_view", isGridView).apply()
+                                                },
+                                                modifier = Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isGridView) Icons.Filled.GridView else Icons.AutoMirrored.Filled.List,
+                                                    contentDescription = "Toggle layout",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = { noteSortOrder = if (noteSortOrder == "date") "title" else "date" },
+                                                modifier = Modifier.size(38.dp).background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (noteSortOrder == "date") Icons.Filled.SortByAlpha else Icons.Filled.Schedule,
+                                                    contentDescription = "Sort notes",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    var playingAudioNoteId by remember { mutableStateOf<String?>(null) }
+                                    var activeNotePlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+
+                                    DisposableEffect(Unit) {
+                                        onDispose {
+                                            activeNotePlayer?.release()
+                                            activeNotePlayer = null
+                                        }
+                                    }
+
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 18.dp),
+                                        state = notesListState,
+                                        contentPadding = PaddingValues(top = 8.dp, bottom = 22.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val tagFilteredNotes = when (selectedGeneralNoteTag) {
+                                            "General" -> uiState.generalNotes.filter { !it.isChecklist && it.reminderAt == null && it.allAudioUrls.isEmpty() }
+                                            "Reminder", "Reminders" -> uiState.generalNotes.filter { it.reminderAt != null }
+                                            "Pinned" -> uiState.generalNotes.filter { it.pinned }
+                                            "Audio", "Voice Memos" -> uiState.generalNotes.filter { it.allAudioUrls.isNotEmpty() }
+                                            "Checklists" -> uiState.generalNotes.filter { it.isChecklist }
+                                            else -> uiState.generalNotes
+                                        }
+                                        val filteredNotes = if (noteSearchQuery.isBlank()) tagFilteredNotes else tagFilteredNotes.filter {
+                                            it.title.contains(noteSearchQuery, ignoreCase = true) || it.content.contains(noteSearchQuery, ignoreCase = true)
+                                        }
+                                        val finalNotes = if (noteSortOrder == "title") filteredNotes.sortedBy { it.title } else filteredNotes.sortedByDescending { it.updatedAt }
+
+                                        if (finalNotes.isEmpty()) {
+                                            item {
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 32.dp, horizontal = 8.dp),
+                                                    shape = VeritasPackStyle.cardShape(),
+                                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(24.dp),
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.EditNote,
+                                                            contentDescription = null,
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(48.dp)
+                                                        )
+                                                        Text(
+                                                            text = if (noteSearchQuery.isNotBlank()) "No matching notes" else "No notes found",
+                                                            style = MaterialTheme.typography.titleMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSurface
+                                                        )
+                                                        Text(
+                                                            text = if (noteSearchQuery.isNotBlank()) "Try searching for a different keyword." else "Tap + Note below to capture ideas, write personal notes, or set reminders.",
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Button(
+                                                            onClick = { onWriteGeneralNote() },
+                                                            shape = VeritasPackStyle.chipShape(),
+                                                            colors = ButtonDefaults.buttonColors(
+                                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                                            )
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Outlined.EditNote,
+                                                                contentDescription = null,
+                                                                modifier = Modifier.size(18.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Text("Write Note")
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            val pinnedNotes = finalNotes.filter { it.pinned }
+                                            val otherNotes = finalNotes.filter { !it.pinned }
+
+                                            @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+                                            @Composable
+                                            fun NoteCardItem(generalNote: GeneralNote) {
+                                                val cardBgColor = generalNote.color?.let { Color(android.graphics.Color.parseColor(it)) }
+                                                    ?: MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                                                val onCardColor = if (generalNote.color != null) Color(0xFF1E293B) else MaterialTheme.colorScheme.onSurface
+                                                var showNoteMenu by remember { mutableStateOf(false) }
+                                                var confirmNoteDelete by remember { mutableStateOf(false) }
+                                                val noteShareContext = LocalContext.current
+
+                                                if (confirmNoteDelete) {
+                                                    AlertDialog(
+                                                        onDismissRequest = { confirmNoteDelete = false },
+                                                        title = { Text(stringResource(R.string.delete_note_title)) },
+                                                        text = { Text(stringResource(R.string.delete_note_message)) },
+                                                        confirmButton = {
+                                                            TextButton(onClick = {
+                                                                confirmNoteDelete = false
+                                                                onDeleteGeneralNote(generalNote.id)
+                                                            }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) }
+                                                        },
+                                                        dismissButton = {
+                                                            TextButton(onClick = { confirmNoteDelete = false }) {
+                                                                Text(stringResource(R.string.action_cancel))
+                                                            }
+                                                        }
+                                                    )
+                                                }
+
+                                                Box {
+                                                    val noteHaptic = rememberVeritasHaptics()
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .combinedClickable(
+                                                                onClick = { onEditGeneralNote(generalNote) },
+                                                                onLongClick = {
+                                                                    noteHaptic.longPress()
+                                                                    showNoteMenu = true
+                                                                }
+                                                            )
+                                                            .padding(vertical = 4.dp),
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                                        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                                                    ) {
+                                                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                modifier = Modifier.fillMaxWidth()
+                                                            ) {
+                                                                Row(
+                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                                    modifier = Modifier.weight(1f, fill = false)
+                                                                ) {
+                                                                    if (generalNote.pinned) {
+                                                                        Surface(
+                                                                            shape = RoundedCornerShape(50),
+                                                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                                        ) {
+                                                                            Row(
+                                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                                            ) {
+                                                                                Icon(
+                                                                                    imageVector = Icons.Filled.PushPin,
+                                                                                    contentDescription = null,
+                                                                                    tint = MaterialTheme.colorScheme.primary,
+                                                                                    modifier = Modifier.size(11.dp)
+                                                                                )
+                                                                                Text(
+                                                                                    text = "Pinned",
+                                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                                    fontWeight = FontWeight.Bold,
+                                                                                    color = MaterialTheme.colorScheme.primary
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    if (generalNote.title.isNotBlank()) {
+                                                                        Text(
+                                                                            generalNote.title,
+                                                                            fontWeight = FontWeight.Bold,
+                                                                            style = MaterialTheme.typography.titleSmall,
+                                                                            color = onCardColor,
+                                                                            maxLines = 1,
+                                                                            overflow = TextOverflow.Ellipsis
+                                                                        )
+                                                                    }
+                                                                }
+
+                                                                IconButton(
+                                                                    onClick = { onToggleGeneralNotePin(generalNote.id) },
+                                                                    modifier = Modifier.size(28.dp)
+                                                                ) {
+                                                                    Icon(
+                                                                        imageVector = if (generalNote.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                                                        contentDescription = if (generalNote.pinned) "Unpin note" else "Pin note",
+                                                                        tint = if (generalNote.pinned) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.5f),
+                                                                        modifier = Modifier.size(16.dp)
+                                                                    )
+                                                                }
+                                                            }
+
+                                                            val noteAudios = generalNote.allAudioUrls
+                                                            if (noteAudios.isNotEmpty()) {
+                                                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                                    noteAudios.forEachIndexed { audioIdx, audioPath ->
+                                                                        val memoDuration = remember(audioPath) {
+                                                                            if (audioPath.isBlank()) "0:00"
+                                                                            else {
+                                                                                try {
+                                                                                    val file = java.io.File(audioPath)
+                                                                                    if (file.exists()) {
+                                                                                        val retriever = android.media.MediaMetadataRetriever()
+                                                                                        retriever.setDataSource(audioPath)
+                                                                                        val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                                                                        val durMs = durStr?.toLongOrNull() ?: 0L
+                                                                                        val totalSec = durMs / 1000
+                                                                                        retriever.release()
+                                                                                        String.format(java.util.Locale.US, "%02d:%02d", totalSec / 60, totalSec % 60)
+                                                                                    } else "0:00"
+                                                                                } catch (e: Exception) {
+                                                                                    "0:00"
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        val audioKey = "${generalNote.id}_$audioIdx"
+                                                                        val isPlayingThisAudio = playingAudioNoteId == audioKey
+                                                                        AudioVoiceMemoWaveform(
+                                                                            durationLabel = if (noteAudios.size > 1) "Memo ${audioIdx + 1} • $memoDuration" else memoDuration,
+                                                                            isPlaying = isPlayingThisAudio,
+                                                                            onTogglePlay = {
+                                                                                try {
+                                                                                    if (playingAudioNoteId == audioKey) {
+                                                                                        activeNotePlayer?.stop()
+                                                                                        activeNotePlayer?.release()
+                                                                                        activeNotePlayer = null
+                                                                                        playingAudioNoteId = null
+                                                                                    } else {
+                                                                                        activeNotePlayer?.stop()
+                                                                                        activeNotePlayer?.release()
+                                                                                        val player = android.media.MediaPlayer().apply {
+                                                                                            setDataSource(audioPath)
+                                                                                            prepare()
+                                                                                            setOnCompletionListener {
+                                                                                                playingAudioNoteId = null
+                                                                                                activeNotePlayer?.release()
+                                                                                                activeNotePlayer = null
+                                                                                            }
+                                                                                            start()
+                                                                                        }
+                                                                                        activeNotePlayer = player
+                                                                                        playingAudioNoteId = audioKey
+                                                                                    }
+                                                                                } catch (e: Exception) {
+                                                                                    e.printStackTrace()
+                                                                                    playingAudioNoteId = null
+                                                                                }
+                                                                            }
+                                                                        )
+                                                                    }
+                                                                }
+                                                            } else if (generalNote.isChecklist) {
+                                                                val items = generalNote.content.split("\n").filter { it.isNotBlank() }.take(4).map { line ->
+                                                                    val checked = line.startsWith("[x]")
+                                                                    val text = line.removePrefix("[ ] ").removePrefix("[x] ")
+                                                                    checked to text
+                                                                }
+                                                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                    items.forEach { (checked, text) ->
+                                                                        Row(
+                                                                            verticalAlignment = Alignment.CenterVertically,
+                                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                                        ) {
+                                                                            Icon(
+                                                                                imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
+                                                                                contentDescription = null,
+                                                                                tint = onCardColor.copy(alpha = 0.6f),
+                                                                                modifier = Modifier.size(14.dp)
+                                                                            )
+                                                                            Text(
+                                                                                text = text,
+                                                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                                                    color = if (checked) onCardColor.copy(alpha = 0.5f) else onCardColor,
+                                                                                    textDecoration = if (checked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                                                                                ),
+                                                                                maxLines = 1,
+                                                                                overflow = TextOverflow.Ellipsis
+                                                                            )
+                                                                        }
+                                                                    }
+                                                                    if (generalNote.content.split("\n").filter { it.isNotBlank() }.size > 4) {
+                                                                        Text(
+                                                                            text = "+ more items",
+                                                                            style = MaterialTheme.typography.labelSmall,
+                                                                            color = onCardColor.copy(alpha = 0.5f),
+                                                                            modifier = Modifier.padding(start = 20.dp)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                Text(
+                                                                    text = renderMarkdown(MathText.beautify(generalNote.content)),
+                                                                    maxLines = 5,
+                                                                    overflow = TextOverflow.Ellipsis,
+                                                                    style = MaterialTheme.typography.bodySmall,
+                                                                    color = onCardColor
+                                                                )
+                                                            }
+
+                                                            val locale = LocalConfiguration.current.locales[0]
+                                                            val updatedTime = remember(generalNote.updatedAt, locale) {
+                                                                val diffMillis = System.currentTimeMillis() - generalNote.updatedAt
+                                                                val diffHours = diffMillis / (1000 * 60 * 60)
+                                                                val diffDays = diffHours / 24
+                                                                when {
+                                                                    diffHours < 1 -> "Just now"
+                                                                    diffHours < 24 -> "$diffHours hours ago"
+                                                                    diffDays < 7 -> "$diffDays days ago"
+                                                                    else -> SimpleDateFormat("dd/MM/yyyy", locale).format(Date(generalNote.updatedAt))
+                                                                }
+                                                            }
+
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Text(
+                                                                    text = updatedTime,
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    color = onCardColor.copy(alpha = 0.5f)
+                                                                )
+
+                                                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                                    if (!generalNote.imageUrl.isNullOrBlank()) {
+                                                                        Icon(
+                                                                            imageVector = Icons.Default.Image,
+                                                                            contentDescription = "Image attachment",
+                                                                            tint = onCardColor.copy(alpha = 0.5f),
+                                                                            modifier = Modifier.size(13.dp)
+                                                                        )
+                                                                    }
+                                                                    if (generalNote.allAudioUrls.isNotEmpty()) {
+                                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                                            Icon(
+                                                                                imageVector = Icons.Default.Mic,
+                                                                                contentDescription = "Audio attachment",
+                                                                                tint = onCardColor.copy(alpha = 0.5f),
+                                                                                modifier = Modifier.size(13.dp)
+                                                                            )
+                                                                            if (generalNote.allAudioUrls.size > 1) {
+                                                                                Text(
+                                                                                    text = "${generalNote.allAudioUrls.size}",
+                                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                                    color = onCardColor.copy(alpha = 0.5f)
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    DropdownMenu(expanded = showNoteMenu, onDismissRequest = { showNoteMenu = false }) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            val notePresets = listOf(null, "#FFF59D", "#A5D6A7", "#90CAF9", "#F48FB1", "#FFCC80")
+                                                            notePresets.forEach { hex ->
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .size(26.dp)
+                                                                        .clip(CircleShape)
+                                                                        .background(
+                                                                            hex?.let { Color(android.graphics.Color.parseColor(it)) }
+                                                                                ?: MaterialTheme.colorScheme.surfaceVariant
+                                                                        )
+                                                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                                                        .clickable {
+                                                                            onChangeGeneralNoteColor(generalNote.id, hex)
+                                                                            showNoteMenu = false
+                                                                        }
+                                                                )
+                                                            }
+                                                        }
+                                                        DropdownMenuItem(
+                                                            text = { Text(if (generalNote.pinned) "Unpin" else "Pin") },
+                                                            leadingIcon = { Icon(if (generalNote.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, contentDescription = null) },
+                                                            onClick = { showNoteMenu = false; onToggleGeneralNotePin(generalNote.id) }
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = { Text("Share") },
+                                                            leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                                                            onClick = { showNoteMenu = false; shareGeneralNote(noteShareContext, generalNote) }
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = { Text("Delete") },
+                                                            leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                                                            onClick = { showNoteMenu = false; confirmNoteDelete = true }
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            if (pinnedNotes.isNotEmpty()) {
+                                                item {
+                                                    Text(
+                                                        text = "PINNED",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
+                                                    )
+                                                }
+                                                if (isGridView) {
+                                                    item(key = "general-notes-grid-pinned") {
+                                                        Row(
+                                                            modifier = Modifier.animateItem().fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            val leftNotes = pinnedNotes.filterIndexed { index, _ -> index % 2 == 0 }
+                                                            val rightNotes = pinnedNotes.filterIndexed { index, _ -> index % 2 == 1 }
+
+                                                            Column(
+                                                                modifier = Modifier.weight(1f),
+                                                                verticalArrangement = Arrangement.spacedBy(0.dp)
+                                                            ) {
+                                                                leftNotes.forEach { note ->
+                                                                    NoteCardItem(note)
+                                                                }
+                                                            }
+
+                                                            Column(
+                                                                modifier = Modifier.weight(1f),
+                                                                verticalArrangement = Arrangement.spacedBy(0.dp)
+                                                            ) {
+                                                                rightNotes.forEach { note ->
+                                                                    NoteCardItem(note)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    itemsIndexed(pinnedNotes, key = { _, note -> "pinned-${note.id}" }) { _, note ->
+                                                        NoteCardItem(note)
+                                                    }
+                                                }
+                                            }
+
+                                            if (otherNotes.isNotEmpty()) {
+                                                if (pinnedNotes.isNotEmpty()) {
+                                                    item {
+                                                        Text(
+                                                            text = "OTHERS",
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
+                                                        )
+                                                    }
+                                                }
+                                                if (isGridView) {
+                                                    item(key = "general-notes-grid-others") {
+                                                        Row(
+                                                            modifier = Modifier.animateItem().fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            val leftNotes = otherNotes.filterIndexed { index, _ -> index % 2 == 0 }
+                                                            val rightNotes = otherNotes.filterIndexed { index, _ -> index % 2 == 1 }
+
+                                                            Column(
+                                                                modifier = Modifier.weight(1f),
+                                                                verticalArrangement = Arrangement.spacedBy(0.dp)
+                                                            ) {
+                                                                leftNotes.forEach { note ->
+                                                                    NoteCardItem(note)
+                                                                }
+                                                            }
+
+                                                            Column(
+                                                                modifier = Modifier.weight(1f),
+                                                                verticalArrangement = Arrangement.spacedBy(0.dp)
+                                                            ) {
+                                                                rightNotes.forEach { note ->
+                                                                    NoteCardItem(note)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    itemsIndexed(otherNotes, key = { _, note -> "other-${note.id}" }) { _, note ->
+                                                        NoteCardItem(note)
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1919,8 +2791,157 @@ fun LibraryScreen(
                                         .padding(horizontal = 18.dp),
                                     state = studyListState,
                                     contentPadding = PaddingValues(top = 10.dp, bottom = 22.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
+                                    item(key = "study-hero-daily-review") {
+                                        val dueFlashcards = remember(uiState.flashcards) {
+                                            uiState.flashcards.filter { it.recall.isBlank() || it.recall == "again" || it.recall == "hard" }
+                                        }
+                                        val totalFlashcards = remember(uiState.flashcards) { uiState.flashcards.size }
+                                        val vocabCount = remember(vocabDocs) { vocabDocs.sumOf { it.third.size } }
+                                        val bookmarksCount = remember(uiState.allAnnotations) { uiState.allAnnotations.count { it.type == AnnotationType.BOOKMARK } }
+                                        val totalReviewCards = dueFlashcards.size + vocabCount + bookmarksCount
+                                        val reviewedCardsCount = remember(uiState.flashcards) {
+                                            uiState.flashcards.count { it.recall == "good" || it.recall == "easy" }
+                                        }
+                                        val reviewCompletionPercent = remember(totalFlashcards, reviewedCardsCount, totalReviewCards) {
+                                            if (totalFlashcards > 0) {
+                                                ((reviewedCardsCount.toFloat() / totalFlashcards) * 100).toInt().coerceIn(0, 100)
+                                            } else if (totalReviewCards == 0) {
+                                                100
+                                            } else {
+                                                0
+                                            }
+                                        }
+                                        StudyDailyReviewHeroCard(
+                                            completionPercent = reviewCompletionPercent,
+                                            cardsToReview = totalReviewCards,
+                                            onStartReview = {
+                                                annotationFilter = if (uiState.flashcards.isNotEmpty()) "Flashcards" else if (vocabDocs.isNotEmpty()) "Vocab" else "Bookmarks"
+                                            }
+                                        )
+                                    }
+
+                                    item(key = "study-active-decks-header") {
+                                        Text(
+                                            text = "Active Decks",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+
+                                    if (flashcardSets.isNotEmpty()) {
+                                        item(key = "study-active-decks-list") {
+                                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                flashcardSets.take(4).forEachIndexed { index, set ->
+                                                    StudyActiveDeckItem(
+                                                        indexNumber = index + 1,
+                                                        title = set.name,
+                                                        cardCount = set.cards.size,
+                                                        icon = if (index % 2 == 0) Icons.AutoMirrored.Filled.LibraryBooks else Icons.Filled.Menu,
+                                                        onClick = {
+                                                            viewerCards = set.cards
+                                                            viewerSetName = set.name
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else if (documents.isNotEmpty()) {
+                                        item(key = "study-active-decks-list") {
+                                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                documents.take(3).forEachIndexed { index, doc ->
+                                                    val marks = uiState.allAnnotations.count { it.documentId == doc.id }
+                                                    val v = vocabDocs.firstOrNull { it.first.id == doc.id }?.third?.size ?: 0
+                                                    val cardCount = marks + v
+                                                    StudyActiveDeckItem(
+                                                        indexNumber = index + 1,
+                                                        title = doc.title,
+                                                        cardCount = cardCount,
+                                                        icon = if (index % 2 == 0) Icons.AutoMirrored.Filled.LibraryBooks else Icons.Filled.Menu,
+                                                        onClick = { onOpenDocument(doc) }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    item(key = "study-ai-tools-header") {
+                                        Text(
+                                            text = "AI Study Tools",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+
+                                    item(key = "study-ai-tools-grid") {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            StudyAiToolCard(
+                                                title = "Generate Summary",
+                                                icon = Icons.Filled.Description,
+                                                onClick = {
+                                                    val targetDoc = documents.firstOrNull()
+                                                    if (targetDoc != null) {
+                                                        onOpenDocument(targetDoc)
+                                                    } else {
+                                                        selectedHomeTab = VeritasHomeTab.LIBRARY
+                                                    }
+                                                },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            StudyAiToolCard(
+                                                title = "Quick Quiz",
+                                                icon = Icons.Outlined.EditNote,
+                                                onClick = {
+                                                    showPasteQuiz = true
+                                                },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+
+                                    item(key = "study-category-filter-chips") {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            val filterOptions = listOf("Bookmarks", "Booknotes", "Vocab", "Flashcards", "History")
+                                            filterOptions.forEach { option ->
+                                                val active = annotationFilter == option
+                                                if (active) {
+                                                    Button(
+                                                        onClick = { annotationFilter = option },
+                                                        shape = VeritasPackStyle.chipShape(),
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = MaterialTheme.colorScheme.primary,
+                                                            contentColor = MaterialTheme.colorScheme.onPrimary
+                                                        ),
+                                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                                    ) {
+                                                        Text(option, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                                    }
+                                                } else {
+                                                    OutlinedButton(
+                                                        onClick = { annotationFilter = option },
+                                                        shape = VeritasPackStyle.chipShape(),
+                                                        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
+                                                        colors = ButtonDefaults.outlinedButtonColors(
+                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        ),
+                                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                                    ) {
+                                                        Text(option, style = MaterialTheme.typography.labelMedium)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     when (annotationFilter) {
                 "Bookmarks" -> {
                     if (bookmarksOnly.isEmpty()) {
@@ -1954,12 +2975,12 @@ fun LibraryScreen(
                         }
                     }
                 }
-                "Notes" -> {
+                "Booknotes" -> {
                     if (notesOnly.isEmpty()) {
                         item {
                             StudyEmptyState(
                                 icon = Icons.Outlined.EditNote,
-                                title = "No notes yet",
+                                title = "No booknotes yet",
                                 description = "Add notes to sentences or write general document notes while reading.",
                                 onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
                                 onImportFile = onImportFile
@@ -2118,461 +3139,6 @@ fun LibraryScreen(
                             }
                         }
                     }
-                "General" -> {
-                    // Search, layout, and sort row
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            BasicTextField(
-                                value = noteSearchQuery,
-                                onValueChange = { noteSearchQuery = it },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(38.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                                singleLine = true,
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
-                                decorationBox = { innerTextField ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(horizontal = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Search,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Box(
-                                            modifier = Modifier.weight(1f),
-                                            contentAlignment = Alignment.CenterStart
-                                        ) {
-                                            if (noteSearchQuery.isEmpty()) {
-                                                Text(
-                                                    text = "Search notes...",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                                )
-                                            }
-                                            innerTextField()
-                                        }
-                                        if (noteSearchQuery.isNotEmpty()) {
-                                            IconButton(
-                                                onClick = { noteSearchQuery = "" },
-                                                modifier = Modifier.size(20.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Close,
-                                                    contentDescription = "Clear",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            )
-
-                            IconButton(
-                                onClick = { isGridView = !isGridView },
-                                modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), VeritasPackStyle.chipShape())
-                            ) {
-                                Icon(
-                                    imageVector = if (isGridView) Icons.AutoMirrored.Filled.List else Icons.Filled.GridView,
-                                    contentDescription = "Toggle layout",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { noteSortOrder = if (noteSortOrder == "date") "title" else "date" },
-                                modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), VeritasPackStyle.chipShape())
-                            ) {
-                                Icon(
-                                    imageVector = if (noteSortOrder == "date") Icons.Filled.SortByAlpha else Icons.Filled.Schedule,
-                                    contentDescription = "Sort notes",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onWriteGeneralNote() },
-                            shape = VeritasPackStyle.cardShape(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
-                            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Layers,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        "Write a note",
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        "Personal notes, goals, or general thoughts",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-
-
-                    if (processedGeneralNotes.isEmpty()) {
-                        item {
-                            StudyEmptyState(
-                                icon = Icons.AutoMirrored.Outlined.Note,
-                                title = if (noteSearchQuery.isNotBlank()) "No matching notes" else "No general notes yet",
-                                description = if (noteSearchQuery.isNotBlank()) "Try searching for a different keyword." else "Write personal notes, goals, or general thoughts here.",
-                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
-                                onImportFile = onImportFile
-                            )
-                        }
-                    } else {
-                        val pinnedNotes = processedGeneralNotes.filter { it.pinned }
-                        val otherNotes = processedGeneralNotes.filter { !it.pinned }
-
-                        @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-                        @Composable
-                        fun NoteCardItem(generalNote: GeneralNote) {
-                            val cardBgColor = generalNote.color?.let { Color(android.graphics.Color.parseColor(it)) }
-                                ?: MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
-                            val onCardColor = if (generalNote.color != null) Color(0xFF1E293B) else MaterialTheme.colorScheme.onSurface
-                            // Keep-style quick actions: long-press for color, pin, share, and
-                            // delete without opening the editor.
-                            var showNoteMenu by remember { mutableStateOf(false) }
-                            var confirmNoteDelete by remember { mutableStateOf(false) }
-                            val noteShareContext = LocalContext.current
-
-                            if (confirmNoteDelete) {
-                                AlertDialog(
-                                    onDismissRequest = { confirmNoteDelete = false },
-                                    title = { Text(stringResource(R.string.delete_note_title)) },
-                                    text = { Text(stringResource(R.string.delete_note_message)) },
-                                    confirmButton = {
-                                        TextButton(onClick = {
-                                            confirmNoteDelete = false
-                                            onDeleteGeneralNote(generalNote.id)
-                                        }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) }
-                                    },
-                                    dismissButton = {
-                                        TextButton(onClick = { confirmNoteDelete = false }) {
-                                            Text(stringResource(R.string.action_cancel))
-                                        }
-                                    }
-                                )
-                            }
-
-                            Box {
-                            val noteHaptic = LocalHapticFeedback.current
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .combinedClickable(
-                                        onClick = { onEditGeneralNote(generalNote) },
-                                        onLongClick = {
-                                            noteHaptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            showNoteMenu = true
-                                        }
-                                    )
-                                    .padding(vertical = 4.dp),
-                                shape = VeritasPackStyle.compactShape(),
-                                colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                                border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        if (generalNote.title.isNotBlank()) {
-                                            Text(
-                                                generalNote.title, 
-                                                fontWeight = FontWeight.Bold, 
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = onCardColor,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                        } else {
-                                            Spacer(modifier = Modifier.weight(1f))
-                                        }
-                                        
-                                        IconButton(
-                                            onClick = { onToggleGeneralNotePin(generalNote.id) },
-                                            // 40dp touch target (was 24dp — too small to hit
-                                            // reliably); the icon itself stays 16dp.
-                                            modifier = Modifier.size(40.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (generalNote.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                                contentDescription = if (generalNote.pinned) "Unpin note" else "Pin note",
-                                                tint = if (generalNote.pinned) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.5f),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-
-                                    if (generalNote.isChecklist) {
-                                        val items = generalNote.content.split("\n").filter { it.isNotBlank() }.take(4).map { line ->
-                                            val checked = line.startsWith("[x]")
-                                            val text = line.removePrefix("[ ] ").removePrefix("[x] ")
-                                            checked to text
-                                        }
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            items.forEach { (checked, text) ->
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
-                                                        contentDescription = null,
-                                                        tint = onCardColor.copy(alpha = 0.6f),
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                    Text(
-                                                        text = text,
-                                                        style = MaterialTheme.typography.bodySmall.copy(
-                                                            color = if (checked) onCardColor.copy(alpha = 0.5f) else onCardColor,
-                                                            textDecoration = if (checked) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
-                                                        ),
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                            if (generalNote.content.split("\n").filter { it.isNotBlank() }.size > 4) {
-                                                Text(
-                                                    text = "+ more items",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = onCardColor.copy(alpha = 0.5f),
-                                                    modifier = Modifier.padding(start = 20.dp)
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        Text(
-                                            // Prettify equations in the read-only note preview
-                                            // (the editor keeps raw text); underline markdown is
-                                            // preserved by MathText's underscore guard.
-                                            text = renderMarkdown(MathText.beautify(generalNote.content)),
-                                            maxLines = 5,
-                                            overflow = TextOverflow.Ellipsis,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = onCardColor
-                                        )
-                                    }
-
-                                    val locale = LocalConfiguration.current.locales[0]
-                                    val updatedTime = remember(generalNote.updatedAt, locale) {
-                                        SimpleDateFormat("dd MMM, HH:mm", locale).format(Date(generalNote.updatedAt))
-                                    }
-                                    
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "Updated $updatedTime",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = onCardColor.copy(alpha = 0.5f)
-                                        )
-                                        
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            if (!generalNote.imageUrl.isNullOrBlank()) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Image,
-                                                    contentDescription = "Image attachment",
-                                                    tint = onCardColor.copy(alpha = 0.5f),
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                            }
-                                            if (!generalNote.audioUrl.isNullOrBlank()) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Mic,
-                                                    contentDescription = "Audio attachment",
-                                                    tint = onCardColor.copy(alpha = 0.5f),
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            DropdownMenu(expanded = showNoteMenu, onDismissRequest = { showNoteMenu = false }) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    val notePresets = listOf(null, "#FFF59D", "#A5D6A7", "#90CAF9", "#F48FB1", "#FFCC80")
-                                    notePresets.forEach { hex ->
-                                        Box(
-                                            modifier = Modifier
-                                                .size(26.dp)
-                                                .clip(CircleShape)
-                                                .background(
-                                                    hex?.let { Color(android.graphics.Color.parseColor(it)) }
-                                                        ?: MaterialTheme.colorScheme.surfaceVariant
-                                                )
-                                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                                                .clickable {
-                                                    onChangeGeneralNoteColor(generalNote.id, hex)
-                                                    showNoteMenu = false
-                                                }
-                                        )
-                                    }
-                                }
-                                DropdownMenuItem(
-                                    text = { Text(if (generalNote.pinned) "Unpin" else "Pin") },
-                                    leadingIcon = { Icon(if (generalNote.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, contentDescription = null) },
-                                    onClick = { showNoteMenu = false; onToggleGeneralNotePin(generalNote.id) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
-                                    onClick = { showNoteMenu = false; shareGeneralNote(noteShareContext, generalNote) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Delete") },
-                                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                                    onClick = { showNoteMenu = false; confirmNoteDelete = true }
-                                )
-                            }
-                            }
-                        }
-
-                        // Render Pinned Notes
-                        if (pinnedNotes.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = "PINNED",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
-                                )
-                            }
-                            if (isGridView) {
-                                item(key = "general-notes-grid-pinned") {
-                                    Row(
-                                        modifier = Modifier.animateItem().fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        val leftNotes = pinnedNotes.filterIndexed { index, _ -> index % 2 == 0 }
-                                        val rightNotes = pinnedNotes.filterIndexed { index, _ -> index % 2 == 1 }
-
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                                        ) {
-                                            leftNotes.forEach { note ->
-                                                NoteCardItem(note)
-                                            }
-                                        }
-
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                                        ) {
-                                            rightNotes.forEach { note ->
-                                                NoteCardItem(note)
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                pinnedNotes.forEach { note ->
-                                    item(key = "general-note-list-pinned-${note.id}") {
-                                        Box(modifier = Modifier.animateItem()) { NoteCardItem(note) }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Render Other Notes
-                        if (otherNotes.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = if (pinnedNotes.isNotEmpty()) "OTHERS" else "NOTES",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
-                                )
-                            }
-                            if (isGridView) {
-                                item(key = "general-notes-grid-other") {
-                                    Row(
-                                        modifier = Modifier.animateItem().fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        val leftNotes = otherNotes.filterIndexed { index, _ -> index % 2 == 0 }
-                                        val rightNotes = otherNotes.filterIndexed { index, _ -> index % 2 == 1 }
-
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                                        ) {
-                                            leftNotes.forEach { note ->
-                                                NoteCardItem(note)
-                                            }
-                                        }
-
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(0.dp)
-                                        ) {
-                                            rightNotes.forEach { note ->
-                                                NoteCardItem(note)
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                otherNotes.forEach { note ->
-                                    item(key = "general-note-list-other-${note.id}") {
-                                        Box(modifier = Modifier.animateItem()) { NoteCardItem(note) }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
                 "History" -> {
                     val readingHistory = uiState.readingHistory
                     if (readingHistory.isEmpty()) {
@@ -2633,6 +3199,13 @@ fun LibraryScreen(
                                         } else false
                                     }
                                 )
+
+                                // Buzz the moment the swipe passes the point of no return, so the
+                                // commit is felt before the finger lifts — this delete has no undo.
+                                val swipeHaptics = rememberVeritasHaptics()
+                                LaunchedEffect(dismissState.targetValue) {
+                                    if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) swipeHaptics.threshold()
+                                }
 
                                 SwipeToDismissBox(
                                     state = dismissState,
@@ -2824,14 +3397,12 @@ fun LibraryScreen(
                     }
                 }
             }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }
-
-
+}
+}
+}
+}
+}
+}

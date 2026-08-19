@@ -198,42 +198,51 @@ fun VeritasHomeHeroCard(
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         shape = VeritasPackStyle.cardShape(),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(gradient)
                 .clickable { if (doc != null) onOpen(doc) else onAddContent() }
-                .padding(14.dp)
+                .padding(16.dp)
         ) {
-            // IntrinsicSize.Min lets the cover stretch to the exact height of the right
-            // column, so the cover always spans the full card interior.
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Min),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.Top
             ) {
-                // Cover: full card height, whole image visible (Fit — never cropped).
+                // Cover: prominent natural book trim, perfectly top-aligned with right column
                 Box(
                     modifier = Modifier
                         .width(112.dp)
-                        .fillMaxHeight()
+                        .height(164.dp)
                         .graphicsLayer {
                             scaleX = coverScale
                             scaleY = coverScale
                         }
                         .clip(RoundedCornerShape(10.dp))
-                        .background(onCardColor.copy(alpha = 0.12f)),
+                        .background(onCardColor.copy(alpha = 0.08f))
+                        .border(1.dp, onCardColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                        contentDescription = null,
-                        tint = onCardColor.copy(alpha = 0.55f),
-                        modifier = Modifier.size(34.dp)
-                    )
+                    if (doc != null) {
+                        VeritasCoverPlaceholder(
+                            documentId = doc.id,
+                            title = doc.title,
+                            sourceLabel = doc.sourceLabel,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = null,
+                            tint = onCardColor.copy(alpha = 0.55f),
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
                     cover?.let {
                         Image(
                             bitmap = it.asImageBitmap(),
@@ -241,126 +250,111 @@ fun VeritasHomeHeroCard(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .alpha(coverAlpha),
-                            contentScale = ContentScale.Fit
+                            contentScale = ContentScale.Crop
                         )
                     }
                 }
 
+                // Right Column: exactly 164dp tall to match the cover, top text in line with cover top
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .defaultMinSize(minHeight = 172.dp)
+                        .height(164.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Center the title block vertically beside the cover.
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = doc?.title ?: "No book in progress",
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = onCardColor,
-                                style = MaterialTheme.typography.titleMedium
+                                text = "Continue Reading",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                            // Insight line crossfades in place inside a fixed-height slot.
-                            Box(modifier = Modifier.height(18.dp), contentAlignment = Alignment.CenterStart) {
-                                AnimatedContent(
-                                    targetState = insightLine,
-                                    transitionSpec = {
-                                        (fadeIn(tween(350)) + slideInVertically(tween(350)) { it / 2 })
-                                            .togetherWith(fadeOut(tween(250)) + slideOutVertically(tween(250)) { -it / 2 })
-                                    },
-                                    label = "insightLine"
-                                ) { line ->
-                                    Text(
-                                        text = line,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = onCardColor.copy(alpha = 0.8f)
-                                    )
-                                }
-                            }
-                        }
-                        // Clear (x): mid-right, away from the play corner. Fixed slot.
-                        Box(modifier = Modifier.size(30.dp), contentAlignment = Alignment.Center) {
                             if (doc != null) {
-                                IconButton(onClick = { onClear(doc) }, modifier = Modifier.size(30.dp)) {
+                                IconButton(onClick = { onClear(doc) }, modifier = Modifier.size(20.dp)) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = "Clear continue reading",
                                         tint = onCardColor.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(15.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
                                 }
                             }
                         }
+
+                        Text(
+                            text = doc?.title ?: "No book in progress",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = FontWeight.Bold,
+                            color = onCardColor,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+
+                        // Subtitle line (Live insight or progress)
+                        Text(
+                            text = insightLine,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = onCardColor.copy(alpha = 0.75f)
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                        color = onCardColor,
-                        trackColor = onCardColor.copy(alpha = 0.25f)
-                    )
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Stat pills: streak only appears once it's earned (2+ days).
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (tracker.currentStreak >= 2) {
-                            HeroPill(text = "🔥 ${heroCountUp(tracker.currentStreak)} streak", color = onCardColor)
+                    // Progress indicator with percentage above the bar
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        if (doc != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Text(
+                                    text = "$percent%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = onCardColor.copy(alpha = 0.85f)
+                                )
+                            }
                         }
-                        HeroPill(text = "${heroCountUp(weeklyMinutes.toInt())}m this week", color = onCardColor)
-                    }
-
-                    // Daily reading goal: thin progress line under the pills.
-                    if (dailyGoalMinutes > 0) {
-                        Spacer(modifier = Modifier.height(6.dp))
                         LinearProgressIndicator(
-                            progress = { (todayMinutes.toFloat() / dailyGoalMinutes).coerceIn(0f, 1f) },
+                            progress = { progress },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(3.dp),
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
                             color = onCardColor,
-                            trackColor = onCardColor.copy(alpha = 0.25f)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = if (todayMinutes >= dailyGoalMinutes) "Goal met — ${todayMinutes}m today"
-                            else "Today ${todayMinutes} / ${dailyGoalMinutes} min",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = onCardColor.copy(alpha = 0.85f)
+                            trackColor = onCardColor.copy(alpha = 0.22f)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // Stat pills on the left, Play button on the right
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (tracker.currentStreak >= 2) {
+                                HeroPill(text = "🔥 ${heroCountUp(tracker.currentStreak)}", color = onCardColor)
+                            }
+                            HeroPill(text = "${heroCountUp(weeklyMinutes.toInt())}m wk", color = onCardColor)
+                        }
 
-                    // Play: bottom-right thumb zone.
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Spacer(modifier = Modifier.weight(1f))
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
-                                .background(onCardColor.copy(alpha = 0.22f), CircleShape)
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(onCardColor.copy(alpha = 0.18f))
+                                .border(1.dp, onCardColor.copy(alpha = 0.25f), CircleShape)
                                 .clickable { if (doc != null) onPlayPause(doc) else onAddContent() },
                             contentAlignment = Alignment.Center
                         ) {
@@ -384,7 +378,7 @@ fun VeritasHomeHeroCard(
                                         else -> "Play"
                                     },
                                     tint = onCardColor,
-                                    modifier = Modifier.size(26.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
@@ -413,7 +407,7 @@ private fun heroCountUp(value: Int): Int {
 private fun HeroPill(text: String, color: Color) {
     Box(
         modifier = Modifier
-            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(50))
+            .border(1.dp, color.copy(alpha = 0.25f), RoundedCornerShape(50))
             .background(color.copy(alpha = 0.08f), RoundedCornerShape(50))
             .padding(horizontal = 9.dp, vertical = 4.dp)
     ) {

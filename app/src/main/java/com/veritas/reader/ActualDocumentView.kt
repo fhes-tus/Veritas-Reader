@@ -109,6 +109,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import com.veritas.reader.ui.screens.KeepScreenAwake
+import com.veritas.reader.ui.rememberSliderHaptics
 import com.veritas.reader.ui.screens.monitorReadingActivity
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -627,7 +628,8 @@ internal fun ActualDocumentView(
                 onOpenVoiceStudio = onOpenVoiceStudio,
                 voices = voices,
                 voiceSettings = voiceSettings,
-                onVoiceSelected = onVoiceSelected
+                onVoiceSelected = onVoiceSelected,
+                onToggleTextMode = onClose
             )
         }
     }
@@ -660,7 +662,8 @@ private fun DocPlayerPanel(
     onOpenVoiceStudio: () -> Unit,
     voices: List<TtsVoiceOption>,
     voiceSettings: VoiceSettings,
-    onVoiceSelected: (TtsVoiceOption) -> Unit
+    onVoiceSelected: (TtsVoiceOption) -> Unit,
+    onToggleTextMode: () -> Unit = {}
 ) {
     val density = LocalDensity.current
     val maxOffsetPx = with(density) { 152.dp.toPx() }
@@ -725,16 +728,7 @@ private fun DocPlayerPanel(
             ) {
                 // Tap to toggle expand / collapse
                 TextButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            draggableState.animateTo(
-                                if (draggableState.currentValue == DocPanelDragValue.Collapsed)
-                                    DocPanelDragValue.Expanded
-                                else
-                                    DocPanelDragValue.Collapsed
-                            )
-                        }
-                    },
+                    onClick = onToggleTextMode,
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Box(
@@ -753,7 +747,7 @@ private fun DocPlayerPanel(
                     ) {
                         Image(
                             painter = painterResource(id = R.drawable.veritas_reader_icon),
-                            contentDescription = "Veritas",
+                            contentDescription = "Switch to Text Mode",
                             modifier = Modifier
                                 .size(30.dp)
                                 .clip(RoundedCornerShape(8.dp)),
@@ -866,7 +860,7 @@ private fun DocPlayerPanel(
                     }
                     Slider(
                         value = rate,
-                        onValueChange = onRateChange,
+                        onValueChange = rememberSliderHaptics(rate, 0.5f..2.0f, 0, onRateChange),
                         valueRange = 0.5f..2.0f,
                         modifier = Modifier.padding(horizontal = 8.dp),
                         colors = SliderDefaults.colors(
@@ -892,7 +886,7 @@ private fun DocPlayerPanel(
                             )
                             Slider(
                                 value = pitch,
-                                onValueChange = onPitchChange,
+                                onValueChange = rememberSliderHaptics(pitch, 0.7f..1.4f, 0, onPitchChange),
                                 valueRange = 0.7f..1.4f,
                                 colors = SliderDefaults.colors(
                                     thumbColor = MaterialTheme.colorScheme.primary,
@@ -912,7 +906,7 @@ private fun DocPlayerPanel(
                             )
                             Slider(
                                 value = fontSizeSp.toFloat(),
-                                onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
+                                onValueChange = rememberSliderHaptics(fontSizeSp.toFloat(), 14f..28f, 13) { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
                                 valueRange = 14f..28f,
                                 steps = 13,
                                 colors = SliderDefaults.colors(
@@ -994,23 +988,24 @@ private fun SlimPageSlider(
 ) {
     if (pageCount <= 1) return
     val density = LocalDensity.current
+    val tickingPageSelect = com.veritas.reader.ui.rememberStepHaptics(pageIndex, onPageSelected)
     BoxWithConstraints(
         modifier = modifier
             .pointerInput(pageCount) {
                 detectTapGestures { offset ->
                     val width = size.width.toFloat().coerceAtLeast(1f)
-                    onPageSelected(((offset.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
+                    tickingPageSelect(((offset.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
                 }
             }
             .pointerInput(pageCount) {
                 detectDragGestures(
                     onDragStart = { offset ->
                         val width = size.width.toFloat().coerceAtLeast(1f)
-                        onPageSelected(((offset.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
+                        tickingPageSelect(((offset.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
                     },
                     onDrag = { change, _ ->
                         val width = size.width.toFloat().coerceAtLeast(1f)
-                        onPageSelected(((change.position.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
+                        tickingPageSelect(((change.position.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
                     }
                 )
             },

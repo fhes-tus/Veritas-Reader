@@ -134,6 +134,7 @@ import androidx.core.content.edit
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.veritas.reader.ui.OnboardingController
 import com.veritas.reader.ui.OnboardingStep
+import com.veritas.reader.ui.pressScale
 import com.veritas.reader.*
 import com.veritas.reader.ui.ReaderUiState
 import java.text.SimpleDateFormat
@@ -149,6 +150,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.material.icons.automirrored.outlined.Note
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 
@@ -169,7 +171,7 @@ internal fun HomeSidebarDialog(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.36f))
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f))
                     .clickable { onDismiss() }
             )
             Surface(
@@ -177,12 +179,13 @@ internal fun HomeSidebarDialog(
                     .fillMaxHeight()
                     .width(318.dp),
                 shape = RoundedCornerShape(
-                    topEnd = 24.dp,
-                    bottomEnd = 24.dp,
+                    topEnd = 28.dp,
+                    bottomEnd = 28.dp,
                     topStart = 0.dp,
                     bottomStart = 0.dp
                 ),
-                color = MaterialTheme.colorScheme.surface,
+                color = blendColors(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.primary, 0.08f).copy(alpha = 1f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 tonalElevation = 6.dp,
                 shadowElevation = 8.dp
             ) {
@@ -207,7 +210,7 @@ internal fun HomeSidebarDialog(
                     }
                     ReaderTrackerSidebarCard(snapshot = snapshot, onOpenStats = onOpenStats)
                     HorizontalDivider()
-                    SidebarAction("Library", "Saved readings and filters", Icons.AutoMirrored.Filled.LibraryBooks, onOpenLibrary)
+                    SidebarAction("Library", "Saved readings and filters", Icons.AutoMirrored.Filled.MenuBook, onOpenLibrary)
                     SidebarAction("Settings", "Reader, voice, import, AI, and backup", Icons.Filled.Settings, onOpenSettings)
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
@@ -225,9 +228,10 @@ internal fun HomeSidebarDialog(
 internal fun ReaderTrackerSidebarCard(snapshot: ReaderTrackerSnapshot, onOpenStats: () -> Unit) {
     Card(
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Reading Progress", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
@@ -622,7 +626,7 @@ internal fun ReadingStatsDashboardDialog(
                             TextButton(onClick = { OnboardingController.activeStep = OnboardingStep.INSIGHTS_SPOTLIGHT }) {
                                 Text("Back")
                             }
-                            Button(onClick = { OnboardingController.activeStep = OnboardingStep.DOCUMENT_SPOTLIGHT }) {
+                            Button(onClick = { OnboardingController.activeStep = OnboardingStep.NOTES_TAB_SPOTLIGHT }) {
                                 Text("Next")
                             }
                         }
@@ -1225,6 +1229,7 @@ internal fun MiniWeekBars(
                     val dayDesc = if (weekStartMonday > 0L && value > 0L)
                         "${labels.getOrElse(i) { "" }}: ${formatTrackerDuration(value)}"
                     else labels.getOrElse(i) { "" }
+                    val barInteraction = remember { MutableInteractionSource() }
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -1242,10 +1247,11 @@ internal fun MiniWeekBars(
                                         MaterialTheme.colorScheme.primaryContainer
                                     else trackColor
                                 )
+                                .pressScale(barInteraction)
                                 .clickable(
                                     enabled = todayIndex == -1 || i <= todayIndex,
                                     indication = null,
-                                    interactionSource = remember { MutableInteractionSource() }
+                                    interactionSource = barInteraction
                                 ) { onSelectDay(if (isSelected) -1 else i) },
                             contentAlignment = Alignment.BottomCenter
                         ) {

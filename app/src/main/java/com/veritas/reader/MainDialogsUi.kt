@@ -28,6 +28,10 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Book
@@ -153,6 +157,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.veritas.reader.ui.ReaderViewModel
 import com.veritas.reader.ui.VeritasPendingImport
+import com.veritas.reader.ui.VeritasSwitch
 import com.veritas.reader.ui.screens.AskAiSettingsDialog
 import com.veritas.reader.ui.screens.DocumentNotesDialog
 import com.veritas.reader.ui.screens.FeatureDropdownMenuItem
@@ -174,8 +179,7 @@ import com.veritas.reader.ReaderMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import com.veritas.reader.ui.rememberVeritasHaptics
 import com.veritas.reader.ui.screens.OnboardingQuestChecklist
 import com.veritas.reader.ui.screens.OnboardingSpotlightOverlay
 import com.veritas.reader.ui.screens.ConfettiOverlay
@@ -389,8 +393,12 @@ internal fun FileBrowserDialog(
             decorFitsSystemWindows = false
         )
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme))
+        ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -787,7 +795,7 @@ internal fun FileBrowserDialog(
                         ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 CircularProgressIndicator()
                                 Text(
@@ -965,20 +973,19 @@ internal fun FileBrowserDialog(
                 if (importing) {
                     ImportProgressOverlay(importingName.ifBlank { "selected file" })
                 }
+
+                if (showSortDialog) {
+                    FileBrowserSortDialog(
+                        sortMode = sortMode,
+                        sortAscending = sortAscending,
+                        onSortModeChange = { sortMode = it },
+                        onSortAscendingChange = { sortAscending = it },
+                        onDismiss = { showSortDialog = false }
+                    )
+                }
             }
         }
     }
-
-    if (showSortDialog) {
-        FileBrowserSortDialog(
-            sortMode = sortMode,
-            sortAscending = sortAscending,
-            onSortModeChange = { sortMode = it },
-            onSortAscendingChange = { sortAscending = it },
-            onDismiss = { showSortDialog = false }
-        )
-    }
-}
 
 @Composable
 internal fun FileBrowserEmptyState(
@@ -995,7 +1002,7 @@ internal fun FileBrowserEmptyState(
         ) {
             Column(
                 modifier = Modifier.padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
                     "No file access yet",
@@ -1036,7 +1043,7 @@ internal fun ImportProgressOverlay(title: String) {
             Column(
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 CircularProgressIndicator()
                 Text(
@@ -1062,21 +1069,36 @@ internal fun ImportProgressOverlay(title: String) {
     }
 }
 
-internal fun getFileColorAndIcon(file: VeritasBrowserFile): Triple<androidx.compose.ui.graphics.vector.ImageVector, Color, Color> {
+@Composable
+internal fun getFileColorAndIcon(file: VeritasBrowserFile): Triple<ImageVector, Color, Color> {
     if (file.isDirectory) {
         if (file.name == ".. (Go up)") {
-            return Triple(Icons.AutoMirrored.Filled.ArrowBack, Color(0xFF2F80ED), Color(0xFFEBF3FF))
+            val tint = MaterialTheme.colorScheme.primary
+            val bg = MaterialTheme.colorScheme.primaryContainer
+            return Triple(Icons.AutoMirrored.Filled.ArrowBack, tint, bg)
         }
-        return Triple(Icons.Outlined.Folder, Color(0xFFF2994A), Color(0xFFFFF7F0))
+        val tint = Color(0xFFF2994A)
+        val bg = tint.copy(alpha = 0.18f)
+        return Triple(Icons.Outlined.Folder, tint, bg)
     }
-    return when (file.type) {
-        VeritasBrowserTab.PDF -> Triple(Icons.Outlined.PictureAsPdf, Color(0xFFE24B4A), Color(0xFFFFF0F0))
-        VeritasBrowserTab.DOC -> Triple(Icons.Outlined.Description, Color(0xFF7C6FFF), Color(0xFFF0F3FF))
-        VeritasBrowserTab.BOOKS -> Triple(Icons.Outlined.Book, Color(0xFF0288D1), Color(0xFFE1F5FE))
-        VeritasBrowserTab.HTML -> Triple(Icons.Outlined.Language, Color(0xFF2F80ED), Color(0xFFEBF3FF))
-        VeritasBrowserTab.TXT -> Triple(Icons.Outlined.Article, Color(0xFF888888), Color(0xFFF5F5F5))
-        else -> Triple(Icons.Outlined.Article, Color(0xFF888888), Color(0xFFF5F5F5))
+    val tint = when (file.type) {
+        VeritasBrowserTab.PDF -> Color(0xFFE24B4A)
+        VeritasBrowserTab.DOC -> Color(0xFF7C6FFF)
+        VeritasBrowserTab.BOOKS -> Color(0xFF0288D1)
+        VeritasBrowserTab.HTML -> Color(0xFF2F80ED)
+        VeritasBrowserTab.TXT -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.secondary
     }
+    val bg = tint.copy(alpha = 0.18f)
+    val icon = when (file.type) {
+        VeritasBrowserTab.PDF -> Icons.Outlined.PictureAsPdf
+        VeritasBrowserTab.DOC -> Icons.Outlined.Description
+        VeritasBrowserTab.BOOKS -> Icons.Outlined.Book
+        VeritasBrowserTab.HTML -> Icons.Outlined.Language
+        VeritasBrowserTab.TXT -> Icons.Outlined.Article
+        else -> Icons.Outlined.Article
+    }
+    return Triple(icon, tint, bg)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1093,7 +1115,7 @@ internal fun FileBrowserFileRow(
 ) {
     val enabled = if (file.isDirectory) file.targetLocation != null else file.isSupported && !importing
     val action = if (file.isDirectory) onOpenDirectory else onImport
-    val haptic = LocalHapticFeedback.current
+    val haptic = rememberVeritasHaptics()
 
     val padding = when (viewMode) {
         LibraryViewMode.SMALL -> 6.dp
@@ -1128,7 +1150,7 @@ internal fun FileBrowserFileRow(
                 enabled = enabled,
                 onClick = {
                     if (selectionMode && !file.isDirectory) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.toggle(isSelected != true)
                         if (isSelected == true) onSelectedChange?.invoke(false)
                         else onSelectedChange?.invoke(true)
                     } else {
@@ -1137,17 +1159,16 @@ internal fun FileBrowserFileRow(
                 },
                 onLongClick = {
                     if (!file.isDirectory && onSelectedChange != null) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.longPress()
                         onSelectedChange(true)
                     }
                 }
             ),
-        shape = shape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        )
+        shape = VeritasPackStyle.cardShape(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+        ),
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Row(
             modifier = Modifier.padding(padding),
@@ -1158,7 +1179,7 @@ internal fun FileBrowserFileRow(
                 Checkbox(
                     checked = isSelected,
                     onCheckedChange = { checked ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.toggle(checked)
                         onSelectedChange(checked)
                     },
                     modifier = Modifier.padding(end = 4.dp)
@@ -1183,7 +1204,8 @@ internal fun FileBrowserFileRow(
                     maxLines = if (showDetails) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.SemiBold,
-                    style = titleStyle
+                    style = titleStyle,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 if (showDetails) {
                     Text(
@@ -1243,7 +1265,7 @@ internal fun FileBrowserFileTileCard(
 ) {
     val enabled = if (file.isDirectory) file.targetLocation != null else file.isSupported && !importing
     val action = if (file.isDirectory) onOpenDirectory else onImport
-    val haptic = LocalHapticFeedback.current
+    val haptic = rememberVeritasHaptics()
 
     val (icon, tint, bg) = getFileColorAndIcon(file)
 
@@ -1254,7 +1276,7 @@ internal fun FileBrowserFileTileCard(
                 enabled = enabled,
                 onClick = {
                     if (selectionMode && !file.isDirectory) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.toggle(isSelected != true)
                         if (isSelected == true) onSelectedChange?.invoke(false)
                         else onSelectedChange?.invoke(true)
                     } else {
@@ -1263,7 +1285,7 @@ internal fun FileBrowserFileTileCard(
                 },
                 onLongClick = {
                     if (!file.isDirectory && onSelectedChange != null) {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.longPress()
                         onSelectedChange(true)
                     }
                 }
@@ -1296,7 +1318,7 @@ internal fun FileBrowserFileTileCard(
                     Checkbox(
                         checked = isSelected,
                         onCheckedChange = { checked ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptic.toggle(checked)
                             onSelectedChange(checked)
                         },
                         modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
@@ -1458,13 +1480,43 @@ internal fun ReadingHistoryDialog(
                 shape = RoundedCornerShape(50)
             ) { Text("Clear") }
         },
-        title = { Text("Reading history") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.History, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text("Reading history")
+            }
+        },
         text = {
             if (visibleHistory.isEmpty()) {
-                Text(
-                    "Open a reading and it will appear here.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.History,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            "No reading history yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "Open a reading from your library and it will appear here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.heightIn(max = 520.dp),
@@ -1492,62 +1544,128 @@ internal fun ReadingHistoryRow(
     document: SavedDocument,
     onOpen: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
     val safeChunkCount = entry.chunkCount.coerceAtLeast(document.chunkCount).coerceAtLeast(1)
     val safeIndex = entry.currentIndex.coerceIn(0, safeChunkCount - 1)
+    val progress = ((safeIndex + 1).toFloat() / safeChunkCount.toFloat()).coerceIn(0f, 1f)
+    val percent = (progress * 100f).toInt().coerceIn(0, 100)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpen() },
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
         ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .background(
-                        MaterialTheme.colorScheme.primaryContainer,
-                        MaterialTheme.shapes.small
-                    ),
+                    .size(52.dp, 68.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    document.sourceLabel.take(3).uppercase(),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Black
-                )
+                if (coverFile != null && coverFile.exists()) {
+                    val bitmap = remember(coverFile.absolutePath) {
+                        android.graphics.BitmapFactory.decodeFile(coverFile.absolutePath)
+                    }
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = document.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            document.sourceLabel.take(3).uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                } else {
+                    Text(
+                        document.sourceLabel.take(3).uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
-            Spacer(modifier = Modifier.width(12.dp))
+
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     document.title,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                Text(
-                    "${document.sourceLabel} • sentence ${safeIndex + 1}/$safeChunkCount • ${
-                        progressPercent(
-                            document
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        Text(
+                            "$percent%",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
-                    }%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Text(
+                        "Sentence ${safeIndex + 1} of $safeChunkCount",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                 )
                 Text(
                     "Opened ${formatUpdated(entry.openedAt)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )
             }
-            TextButton(onClick = onOpen) { Text("Open") }
+
+            IconButton(
+                onClick = onOpen,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = "Resume",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
         }
     }
 }
@@ -1621,7 +1739,7 @@ internal fun PdfImportOptionsDialog(
                     .weight(1f)
                     .fillMaxWidth()
                     .padding(horizontal = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item {
                     Text(
@@ -1850,7 +1968,7 @@ internal fun PdfImportToggleRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(title, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        VeritasSwitch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -1883,178 +2001,260 @@ internal fun SyncCenterDialog(
     onExportSyncPack: () -> Unit,
     onShareSyncPack: () -> Unit,
     onImportSyncPack: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    fullBackupEstimateBytes: Long = 0L,
+    autoBackupEnabled: Boolean = true,
+    onToggleAutoBackup: () -> Unit = {},
+    onExportFull: () -> Unit = {}
 ) {
-    AlertDialog(
+    SyncAndBackupCenterDialog(
+        documentCount = documentCount,
+        annotationCount = annotationCount,
+        queueCount = queueCount,
+        pronunciationRuleCount = pronunciationRuleCount,
+        inProgress = inProgress,
+        message = message,
+        onExportSyncPack = onExportSyncPack,
+        onShareSyncPack = onShareSyncPack,
+        onImportSyncPack = onImportSyncPack,
+        onDismiss = onDismiss,
+        fullBackupEstimateBytes = fullBackupEstimateBytes,
+        autoBackupEnabled = autoBackupEnabled,
+        onToggleAutoBackup = onToggleAutoBackup,
+        onExportFull = onExportFull
+    )
+}
+
+@Composable
+internal fun SyncAndBackupCenterDialog(
+    documentCount: Int,
+    annotationCount: Int,
+    queueCount: Int,
+    pronunciationRuleCount: Int,
+    inProgress: Boolean,
+    message: String?,
+    onExportSyncPack: () -> Unit,
+    onShareSyncPack: () -> Unit,
+    onImportSyncPack: () -> Unit,
+    onDismiss: () -> Unit,
+    fullBackupEstimateBytes: Long = 0L,
+    autoBackupEnabled: Boolean = true,
+    onToggleAutoBackup: () -> Unit = {},
+    onExportFull: () -> Unit = {}
+) {
+    Dialog(
         onDismissRequest = onDismiss,
-        confirmButton = { Button(onClick = onDismiss, shape = RoundedCornerShape(50)) { Text("Close") } },
-        title = { Text("Sync") },
-        text = {
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme))
+        ) {
             Column(
                 modifier = Modifier
-                    .height(560.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Card(
+                // Header
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                    )
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Sync & Backup Center",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Summary Banner Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = VeritasPackStyle.cardShape(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ),
+                        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.primary,
-                                        MaterialTheme.shapes.medium
-                                    ),
-                                contentAlignment = Alignment.Center
+                            Text(
+                                text = "Library Sync & Backup Engine",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Veritas Sync & Backup creates portable backup files containing your entire library, reading progress, flashcards, notes, bookmarks, and custom voice rules. Import safely merges data without deleting local readings.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+
+                    // Included Data Summary Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = VeritasPackStyle.cardShape(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                        ),
+                        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "Data Included in Backup & Sync",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            SyncInfoRow("Saved Readings", documentCount.toString())
+                            SyncInfoRow("Bookmarks & Notes", annotationCount.toString())
+                            SyncInfoRow("Reading Queue", queueCount.toString())
+                            SyncInfoRow("Pronunciation Rules", pronunciationRuleCount.toString())
+                            SyncInfoRow("Flashcards, Decks & Progress", "Included")
+                            SyncInfoRow("Reading Streaks & History", "Included")
+                            SyncInfoRow("Voice & Reader Settings", "Included")
+                        }
+                    }
+
+                    // Actions Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = VeritasPackStyle.cardShape(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                        ),
+                        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "Backup & Sync Actions",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Button(
+                                onClick = onExportSyncPack,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = documentCount > 0,
+                                shape = VeritasPackStyle.chipShape(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                )
+                            ) {
+                                Text("Export Data Backup (.json)", fontWeight = FontWeight.Bold)
+                            }
+
+                            val fullBackupSizeMb = fullBackupEstimateBytes / (1024.0 * 1024.0)
+                            OutlinedButton(
+                                onClick = onExportFull,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = documentCount > 0,
+                                shape = VeritasPackStyle.chipShape()
                             ) {
                                 Text(
-                                    "⇅",
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 22.sp
+                                    if (fullBackupEstimateBytes > 0)
+                                        String.format(Locale.getDefault(), "Export Full Library (.zip ~%.1f MB)", fullBackupSizeMb)
+                                    else
+                                        "Export Full Library (.zip)",
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
+
+                            OutlinedButton(
+                                onClick = onShareSyncPack,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = documentCount > 0,
+                                shape = VeritasPackStyle.chipShape()
+                            ) {
+                                Text("Share Sync Pack (Drive / WhatsApp / Files)", fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = onImportSyncPack,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = VeritasPackStyle.chipShape()
+                            ) {
+                                Text("Import Sync / Backup Pack", fontWeight = FontWeight.Bold)
+                            }
+
+                            BackupStatusBlock(inProgress = inProgress, message = message)
+                        }
+                    }
+
+                    // Auto-Backup Settings Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = VeritasPackStyle.cardShape(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                        ),
+                        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    "Manual sync pack",
+                                    text = "Automatic Weekly Backups",
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Black
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    "Move your library between devices now. Drive login comes later.",
+                                    text = "Automatically save local backup archives every 7 days",
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            VeritasSwitch(
+                                checked = autoBackupEnabled,
+                                onCheckedChange = { onToggleAutoBackup() }
+                            )
                         }
-                        Text(
-                            "Export a sync file, share it through Google Drive, WhatsApp, Files, Nearby Share, or any app, then import it on another device. Import merges safely and does not delete local readings.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            "What the sync file includes",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Black
-                        )
-                        SyncInfoRow("Saved readings", documentCount.toString())
-                        SyncInfoRow("Bookmarks and notes", annotationCount.toString())
-                        SyncInfoRow("Queue", queueCount.toString())
-                        SyncInfoRow("Pronunciation rules", pronunciationRuleCount.toString())
-                        Text(
-                            "It also includes progress, collections, favorites, reader settings, voice settings, narration settings, AI prompt templates, and AI prompt history.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            "Manual sync flow",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Black
-                        )
-                        Button(
-                            onClick = onExportSyncPack,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = documentCount > 0,
-                            shape = RoundedCornerShape(50)
-                        ) {
-                            Text("Export sync file")
-                        }
-                        OutlinedButton(
-                            onClick = onShareSyncPack,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = documentCount > 0,
-                            shape = RoundedCornerShape(50)
-                        ) {
-                            Text("Share to Drive / WhatsApp / Files")
-                        }
-                        OutlinedButton(
-                            onClick = onImportSyncPack,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(50)
-                        ) {
-                            Text("Import sync file from another device")
-                        }
-                        BackupStatusBlock(inProgress = inProgress, message = message)
-                        Text(
-                            "Safe merge is always used in this beta. Existing local readings are kept unless you delete them manually.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            "Future cloud sync",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            "Google Drive sign-in, automatic upload, and restore controls are intentionally left out of this beta until OAuth and conflict handling are ready.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             }
         }
-    )
+    }
 }
 
 @Composable
@@ -2068,4 +2268,3 @@ internal fun SyncInfoRow(label: String, value: String) {
         SoftChip(value)
     }
 }
-

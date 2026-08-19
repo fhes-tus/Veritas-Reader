@@ -64,6 +64,11 @@ object NoteReminderScheduler {
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
                     description = "Reminders you set on your notes"
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 400, 200, 400)
+                    enableLights(true)
+                    setShowBadge(true)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 }
                 manager.createNotificationChannel(channel)
             }
@@ -108,7 +113,11 @@ class NoteReminderReceiver : BroadcastReceiver() {
             .setContentTitle(title)
             .setContentText(body.ifBlank { "Tap to open your note." })
             .setStyle(NotificationCompat.BigTextStyle().bigText(body.ifBlank { "Tap to open your note." }))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVibrate(longArrayOf(0, 400, 200, 400))
             .setAutoCancel(true)
             .setContentIntent(contentPendingIntent)
             .build()
@@ -116,5 +125,28 @@ class NoteReminderReceiver : BroadcastReceiver() {
         val manager = ContextCompat.getSystemService(context, NotificationManager::class.java) ?: return
         // POST_NOTIFICATIONS is requested elsewhere; notify is a no-op if not granted.
         runCatching { manager.notify(noteId.hashCode(), notification) }
+    }
+}
+
+class NoteReminderBootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action ?: return
+        if (action == Intent.ACTION_BOOT_COMPLETED ||
+            action == "android.intent.action.QUICKBOOT_POWERON" ||
+            action == "com.htc.intent.action.QUICKBOOT_POWERON" ||
+            action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+
+            runCatching {
+                val repo = DocumentRepository(context)
+                val notes = repo.loadGeneralNotes()
+                val now = System.currentTimeMillis()
+                notes.filter { it.reminderAt != null && it.reminderAt > now }.forEach { note ->
+                    val title = note.title.ifBlank { "Veritas note" }
+                    val body = note.content.take(120).ifBlank { "Tap to view note" }
+                    val reminderTime = note.reminderAt ?: return@forEach
+                    NoteReminderScheduler.schedule(context, note.id, title, body, reminderTime)
+                }
+            }
+        }
     }
 }

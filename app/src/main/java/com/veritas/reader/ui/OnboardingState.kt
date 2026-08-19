@@ -5,6 +5,210 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 
+/**
+ * Revamped multi-step onboarding pages.
+ */
+enum class OnboardingPage(
+    val pageIndex: Int,
+    val title: String,
+    val subtitle: String,
+    val spokenDescription: String
+) {
+    WELCOME_HERO(
+        pageIndex = 0,
+        title = "Read at the Speed of Thought",
+        subtitle = "Veritas combines high-fidelity text-to-speech, multi-format document reading, and intelligent AI study tools.",
+        spokenDescription = "Welcome to Veritas! Your personalized sanctuary for reading, listening, and study. Let's take a quick moment to tune your experience."
+    ),
+    PERSONA_SELECTION(
+        pageIndex = 1,
+        title = "What best describes you?",
+        subtitle = "This information will help guide our development efforts to provide features and improvements that are relevant to you.",
+        spokenDescription = "Tell us how you read so Veritas can tailor your narration speed, document tools, and study preferences."
+    ),
+    NAME_INPUT(
+        pageIndex = 2,
+        title = "What should we call you?",
+        subtitle = "Enter your name so Veritas can welcome you every time you open your library and personalize your study decks.",
+        spokenDescription = "What should we call you? Enter your name so Veritas can personalize your greeting, study sessions, and daily insights."
+    ),
+    VOICE_AUDITION(
+        pageIndex = 3,
+        title = "Meet Your Narrator",
+        subtitle = "Audition playback presets with interactive live speech before you dive into reading.",
+        spokenDescription = "Meet your narrator. Tap any preset to audition live playback and find your favorite reading rhythm."
+    ),
+    AI_SELECTION(
+        pageIndex = 4,
+        title = "Pair Your AI Assistant",
+        subtitle = "Choose your preferred assistant for instant study handoffs, explanations, and flashcards.",
+        spokenDescription = "Pair your favorite AI assistant for instant study explanations, summaries, and flashcard quizzes."
+    ),
+    FEATURE_SHOWCASE(
+        pageIndex = 5,
+        title = "Your Reading Superpowers",
+        subtitle = "Everything you need to read, listen, study, and remember.",
+        spokenDescription = "Explore your reading superpowers, including dual-engine PDF text switching and private reading insights."
+    ),
+    READY_CELEBRATION(
+        pageIndex = 6,
+        title = "You're Ready to Read!",
+        subtitle = "Your personalized reading studio is prepped and waiting.",
+        spokenDescription = "Your personalized reading studio is ready. Tap Start Guided Tour to explore your library."
+    )
+}
+
+/**
+ * Persona options inspired by modern onboarding rules.
+ */
+data class ReaderPersona(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val defaultPresetId: String,
+    val defaultAiFocus: String
+)
+
+val ReaderPersonas = listOf(
+    ReaderPersona(
+        id = "student",
+        title = "Student",
+        subtitle = "Textbooks, study notes & flashcard quizzes",
+        defaultPresetId = "speed",
+        defaultAiFocus = "flashcards"
+    ),
+    ReaderPersona(
+        id = "educator",
+        title = "Educator",
+        subtitle = "Curated readings, pronunciation & lesson notes",
+        defaultPresetId = "expressive",
+        defaultAiFocus = "deep_dive"
+    ),
+    ReaderPersona(
+        id = "professional",
+        title = "Professional",
+        subtitle = "Reports, technical docs & fast summaries",
+        defaultPresetId = "speed",
+        defaultAiFocus = "summary"
+    ),
+    ReaderPersona(
+        id = "book_lover",
+        title = "Book Lover",
+        subtitle = "Novels, literature & calm immersive reading",
+        defaultPresetId = "natural",
+        defaultAiFocus = "deep_dive"
+    )
+)
+
+/**
+ * Voice audition presets with speed and pitch configurations.
+ */
+data class VoiceAuditionPreset(
+    val id: String,
+    val title: String,
+    val description: String,
+    val iconEmoji: String,
+    val speed: Float,
+    val pitch: Float,
+    val sampleText: String
+)
+
+val VoiceAuditionPresets = listOf(
+    VoiceAuditionPreset(
+        id = "natural",
+        title = "Natural Narrator",
+        description = "Balanced, clear, and easy to follow for long reading sessions.",
+        iconEmoji = "🎙️",
+        speed = 1.0f,
+        pitch = 1.0f,
+        sampleText = "Knowledge begins with curiosity, and understanding grows with every sentence."
+    ),
+    VoiceAuditionPreset(
+        id = "speed",
+        title = "Speed Reader",
+        description = "Accelerated pace tuned for high-speed information capture.",
+        iconEmoji = "⚡",
+        speed = 1.35f,
+        pitch = 1.05f,
+        sampleText = "Absorb articles, papers, and research in half the time without missing key details."
+    ),
+    VoiceAuditionPreset(
+        id = "calm",
+        title = "Calm & Reflective",
+        description = "Relaxed, soothing cadence for thoughtful literature and bedtime reading.",
+        iconEmoji = "☕",
+        speed = 0.9f,
+        pitch = 0.95f,
+        sampleText = "Take a breath, slow down, and immerse yourself in the beauty of the written word."
+    ),
+    VoiceAuditionPreset(
+        id = "expressive",
+        title = "Expressive Drama",
+        description = "Dynamic pitch and pacing for dialogue and narrative depth.",
+        iconEmoji = "🎭",
+        speed = 1.05f,
+        pitch = 1.12f,
+        sampleText = "Stories come alive when every character and nuance finds its true voice."
+    )
+)
+
+/**
+ * Primary reading interest options.
+ */
+data class ReadingInterestOption(
+    val id: String,
+    val label: String,
+    val iconEmoji: String,
+    val detail: String
+)
+
+val ReadingInterestOptions = listOf(
+    ReadingInterestOption(
+        id = "pdf",
+        label = "PDF & Research",
+        iconEmoji = "📄",
+        detail = "Academic papers, reports, technical docs"
+    ),
+    ReadingInterestOption(
+        id = "books",
+        label = "Books & Novels",
+        iconEmoji = "📚",
+        detail = "EPUBs, fiction, biographies & literature"
+    ),
+    ReadingInterestOption(
+        id = "web",
+        label = "Web & Articles",
+        iconEmoji = "🌐",
+        detail = "Online journalism, essays & blogs"
+    ),
+    ReadingInterestOption(
+        id = "study",
+        label = "Study & Learning",
+        iconEmoji = "🎓",
+        detail = "Textbooks, flashcard decks & lecture notes"
+    )
+)
+
+/**
+ * AI Study Focus presets.
+ */
+data class AiStudyFocusOption(
+    val id: String,
+    val label: String,
+    val iconEmoji: String
+)
+
+val AiStudyFocusOptions = listOf(
+    AiStudyFocusOption("deep_dive", "Deep Explanations", "💡"),
+    AiStudyFocusOption("summary", "Key Point Summaries", "📝"),
+    AiStudyFocusOption("flashcards", "Flashcards & Quizzes", "🗂️"),
+    AiStudyFocusOption("translation", "Spoken Translation", "🗣️")
+)
+
+// --------------------------------------------------------------------
+// Contextual Spotlight & Tour steps (Preserved for in-app walkthrough)
+// --------------------------------------------------------------------
+
 enum class OnboardingStep(
     val key: String,
     val targetKey: String?,
@@ -14,8 +218,8 @@ enum class OnboardingStep(
     WELCOME(
         key = "welcome",
         targetKey = null,
-        title = "Welcome to Veritas",
-        body = "Let's walk through your reading environment. Tap Next to begin a quick tour of key locations."
+        title = "Interactive App Tour",
+        body = "Follow the highlights to discover your library, reading tools, study notes, and settings."
     ),
     NAME_INPUT(
         key = "name_input",
@@ -39,13 +243,31 @@ enum class OnboardingStep(
         key = "insights",
         targetKey = "insights_trigger",
         title = "Reading Insights Dashboard",
-        body = "This menu button opens your personalized dashboard. Tap Next and we'll take you straight there."
+        body = "This menu button opens your personalized dashboard. Tap Next to see your reading analytics."
     ),
     INSIGHTS_PAGE_SPOTLIGHT(
         key = "insights_page",
         targetKey = null,
         title = "Your Insights at a Glance",
         body = "Track daily reading streaks on the heatmap, see how your library splits by source, and watch where your listening time goes each month — all stored privately on your device."
+    ),
+    NOTES_TAB_SPOTLIGHT(
+        key = "notes_tab",
+        targetKey = null,
+        title = "Notes & Voice Memos",
+        body = "Here is your notes studio. Review all your document annotations, standalone notes, bookmarks, and audio recordings in one dedicated hub."
+    ),
+    STUDY_TAB_SPOTLIGHT(
+        key = "study_tab",
+        targetKey = null,
+        title = "AI Study Hub & Flashcards",
+        body = "Here is your study studio. Generate AI summaries, practice interactive flashcards, and review active recall quizzes across your library."
+    ),
+    SETTINGS_SPOTLIGHT(
+        key = "settings",
+        targetKey = null,
+        title = "Settings & Customization",
+        body = "Here is your settings hub. Tune voice engines, playback speeds, themes, cloud sync, backup tools, and pronunciation rules anytime."
     ),
     DOCUMENT_SPOTLIGHT(
         key = "document",

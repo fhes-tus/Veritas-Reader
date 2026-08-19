@@ -21,10 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import com.veritas.reader.ui.rememberVeritasHaptics
+import com.veritas.reader.ui.pressScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -44,6 +44,10 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.TheaterComedy
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -83,7 +87,7 @@ fun AudioModeScreen(
     val backgroundColor = MaterialTheme.colorScheme.background
     val contentColor = MaterialTheme.colorScheme.onBackground
     val primaryColor = MaterialTheme.colorScheme.primary
-    val haptic = LocalHapticFeedback.current
+    val haptic = rememberVeritasHaptics()
 
     // ── Real-time elapsed tracker (Pre-Phase Item 1) ──
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
@@ -162,7 +166,7 @@ fun AudioModeScreen(
                     currentMode = readerMode,
                     onModeSelected = onReaderModeChange,
                     hasCanvas = hasCanvas,
-                    modifier = Modifier.weight(1f).padding(horizontal = 16.dp)
+                    modifier = Modifier.weight(1f).padding(horizontal = 6.dp)
                 )
                 
                 var toolsExpanded by remember { mutableStateOf(false) }
@@ -180,28 +184,56 @@ fun AudioModeScreen(
                         modifier = Modifier.width(220.dp)
                     ) {
                         DropdownMenuItem(
-                            text = { Text("⏱️ Sleep timer") },
+                            text = { Text("Sleep timer") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.Timer,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
                             onClick = {
                                 toolsExpanded = false
                                 onOpenSleepTimer()
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("🎙️ Voice & language") },
+                            text = { Text("Voice & language") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.RecordVoiceOver,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
                             onClick = {
                                 toolsExpanded = false
                                 onOpenVoiceStudio()
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("🎭 Narration mode") },
+                            text = { Text("Narration mode") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.TheaterComedy,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
                             onClick = {
                                 toolsExpanded = false
                                 onOpenNarrationStudio()
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("📤 Export audio") },
+                            text = { Text("Export audio") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Outlined.FileDownload,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
                             onClick = {
                                 toolsExpanded = false
                                 onExportAudio()
@@ -289,7 +321,7 @@ fun AudioModeScreen(
                             .fillMaxSize()
                             .padding(vertical = 8.dp),
                         contentPadding = PaddingValues(vertical = 140.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         itemsIndexed(documentChunks) { index, sentence ->
@@ -320,6 +352,7 @@ fun AudioModeScreen(
                             val fontSize = fontSizeValue.sp
                             val textColor = contentColor.copy(alpha = alpha)
 
+                            val sentenceInteraction = remember { MutableInteractionSource() }
                             Text(
                                 text = sentence,
                                 style = MaterialTheme.typography.bodyLarge.copy(
@@ -333,8 +366,9 @@ fun AudioModeScreen(
                                     .fillMaxWidth()
                                     .padding(horizontal = 24.dp)
                                     .graphicsLayer { translationY = lift * 6.dp.toPx() }
+                                    .pressScale(sentenceInteraction, pressedScale = 0.98f)
                                     .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
+                                        interactionSource = sentenceInteraction,
                                         indication = null
                                     ) {
                                         onSentenceClick(index)
@@ -580,7 +614,7 @@ fun AudioModeScreen(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     contentColor = contentColor,
                     onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.select()
                         onPrevious()
                     }
                 )
@@ -593,7 +627,7 @@ fun AudioModeScreen(
                     color = primaryColor,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                     onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.toggle(!isPlaying)
                         onPlayPause()
                     }
                 )
@@ -606,7 +640,7 @@ fun AudioModeScreen(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     contentColor = contentColor,
                     onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        haptic.select()
                         onNext()
                     }
                 )
