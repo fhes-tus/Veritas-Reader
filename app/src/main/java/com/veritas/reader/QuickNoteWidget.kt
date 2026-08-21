@@ -42,7 +42,7 @@ class QuickNoteWidget : GlanceAppWidget() {
             val borderModifier = GlanceModifier
                 .fillMaxSize()
                 .background(VeritasWidgetColors.border)
-                .cornerRadius(24.dp)
+                .cornerRadius(28.dp)
 
             Box(
                 modifier = borderModifier,
@@ -52,18 +52,19 @@ class QuickNoteWidget : GlanceAppWidget() {
                     modifier = GlanceModifier
                         .fillMaxSize()
                         .padding(1.dp)
-                        .cornerRadius(23.dp)
+                        .cornerRadius(27.dp)
                         .background(VeritasWidgetColors.frostedBackground)
                         .padding(12.dp)
                 ) {
+                    // Header
                     Row(
                         modifier = GlanceModifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Notes",
+                            text = "Notes & Tasks",
                             style = TextStyle(
-                                fontSize = if (size.width >= 240.dp) 17.sp else 15.sp,
+                                fontSize = if (size.width >= 240.dp) 16.sp else 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = VeritasWidgetColors.textPrimary
                             ),
@@ -81,7 +82,7 @@ class QuickNoteWidget : GlanceAppWidget() {
                             Text(
                                 text = "+ New",
                                 style = TextStyle(
-                                    fontSize = if (size.width >= 240.dp) 13.sp else 11.sp,
+                                    fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = VeritasWidgetColors.playIconColor
                                 )
@@ -97,7 +98,7 @@ class QuickNoteWidget : GlanceAppWidget() {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "No notes yet",
+                                text = "No notes yet • Tap to create",
                                 style = TextStyle(
                                     fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
                                     color = VeritasWidgetColors.textMuted
@@ -110,7 +111,7 @@ class QuickNoteWidget : GlanceAppWidget() {
                         ) {
                             items(notes) { note ->
                                 val title = note.title.ifBlank { "Untitled Note" }
-                                val preview = note.content.ifBlank { "(Empty)" }
+                                val preview = note.content.ifBlank { "(Empty note)" }
                                 
                                 val clickParams = actionParametersOf(NoteClickCallback.NoteIdKey to note.id)
                                 val pinParams = actionParametersOf(TogglePinActionCallback.NoteIdKey to note.id)
@@ -118,14 +119,14 @@ class QuickNoteWidget : GlanceAppWidget() {
                                 Box(
                                     modifier = GlanceModifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
+                                        .padding(vertical = 3.dp)
                                 ) {
                                     Row(
                                         modifier = GlanceModifier
                                             .fillMaxWidth()
-                                            .cornerRadius(12.dp)
+                                            .cornerRadius(14.dp)
                                             .background(VeritasWidgetColors.cardBackground)
-                                            .padding(10.dp),
+                                            .padding(8.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(
@@ -133,41 +134,55 @@ class QuickNoteWidget : GlanceAppWidget() {
                                                 .defaultWeight()
                                                 .clickable(actionRunCallback<NoteClickCallback>(clickParams))
                                         ) {
-                                            Text(
-                                                text = title,
-                                                style = TextStyle(
-                                                    fontSize = if (size.width >= 240.dp) 15.sp else 13.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = VeritasWidgetColors.textPrimary
-                                                ),
-                                                maxLines = 1
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (note.isChecklist) {
+                                                    Text(
+                                                        text = "☑ ",
+                                                        style = TextStyle(
+                                                            fontSize = 11.sp,
+                                                            color = VeritasWidgetColors.primaryAccent
+                                                        )
+                                                    )
+                                                }
+                                                Text(
+                                                    text = title,
+                                                    style = TextStyle(
+                                                        fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = VeritasWidgetColors.textPrimary
+                                                    ),
+                                                    maxLines = 1
+                                                )
+                                            }
                                             Spacer(modifier = GlanceModifier.height(2.dp))
                                             Text(
                                                 text = preview,
                                                 style = TextStyle(
-                                                    fontSize = if (size.width >= 240.dp) 13.sp else 11.sp,
+                                                    fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
                                                     color = VeritasWidgetColors.textMuted
                                                 ),
                                                 maxLines = 1
                                             )
                                         }
                                         
-                                        Spacer(modifier = GlanceModifier.width(8.dp))
+                                        Spacer(modifier = GlanceModifier.width(6.dp))
                                         
                                         Box(
                                             modifier = GlanceModifier
                                                 .size(28.dp)
                                                 .cornerRadius(14.dp)
                                                 .background(
-                                                    if (note.pinned) VeritasWidgetColors.playButtonAccent else ColorProvider(Color.Transparent)
+                                                    if (note.pinned) VeritasWidgetColors.cardElevated else ColorProvider(Color.Transparent)
                                                 )
                                                 .clickable(actionRunCallback<TogglePinActionCallback>(pinParams)),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                text = if (note.pinned) "📌" else "📍",
-                                                style = TextStyle(fontSize = if (size.width >= 240.dp) 14.sp else 12.sp)
+                                                text = if (note.pinned) "📌" else "·",
+                                                style = TextStyle(
+                                                    fontSize = if (note.pinned) 12.sp else 18.sp,
+                                                    color = VeritasWidgetColors.textMuted
+                                                )
                                             )
                                         }
                                     }

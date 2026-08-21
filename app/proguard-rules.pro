@@ -86,4 +86,16 @@
 -keep class com.veritas.reader.ReadingGoal** { *; }
 -keep class com.veritas.reader.StudyDeck** { *; }
 -keep class com.veritas.reader.ReadingInsightsData** { *; }
+-keep class com.veritas.reader.WebArticle { *; }
+-keep class com.veritas.reader.tts.OfflineVoiceDescriptor { *; }
+-keep class com.veritas.reader.tts.NeuralPackageDescriptor { *; }
+-keep class com.veritas.reader.tts.DownloadState** { *; }
+-keep class com.veritas.reader.NoteReminder** { *; }
+-keep class com.veritas.reader.Streak** { *; }
+-keep class com.veritas.reader.Math** { *; }
+-keep class com.veritas.reader.VeritasReadingList** { *; }
+-keep class com.veritas.reader.CrashReporter { *; }
+-keep class com.veritas.reader.AutoBackupWorker { *; }
+-keep class com.veritas.reader.StreakReminderWorker { *; }
+
 

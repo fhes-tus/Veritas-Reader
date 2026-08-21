@@ -86,6 +86,28 @@ object PptxExtractor {
     }
 
     /**
+     * Extracts all embedded image byte arrays for a given slide.
+     */
+    fun extractSlideImages(zipBytes: ByteArray, slide: PptxSlideContent): List<ByteArray> {
+        if (slide.mediaPaths.isEmpty()) return emptyList()
+        val mediaSet = slide.mediaPaths.map { it.trimStart('/') }.toSet()
+        val images = mutableListOf<ByteArray>()
+        runCatching {
+            ZipInputStream(ByteArrayInputStream(zipBytes)).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    if (entry.isDirectory) continue
+                    val name = entry.name.trimStart('/')
+                    if (mediaSet.contains(name)) {
+                        images.add(zip.readBytes())
+                    }
+                }
+            }
+        }
+        return images
+    }
+
+    /**
      * Renders the stored document text: one [[VERITAS_PAGE:n]] marker per slide so
      * every sentence maps to its exact slide, title set off with a blank line,
      * bullets/tables/notes/OCR beneath it in reading order.

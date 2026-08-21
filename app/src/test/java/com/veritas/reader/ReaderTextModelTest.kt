@@ -22,4 +22,13 @@ class ReaderTextModelTest {
         assertEquals("The lead researcher at", sentences[0])
         assertEquals("Harvard University discovered a cure.", sentences[1])
     }
+
+    @Test
+    fun `reader text model page count matches max sentence page number`() {
+        val multilineText = (1..10).joinToString("\n\n") { "[[VERITAS_PAGE:$it]]\nThis is sentence on page $it." }
+        val model = ReaderTextIndex.build(multilineText)
+        assertEquals(10, model.pageCount)
+        assertEquals(10, model.sentences.maxOf { it.pageNumber })
+        assertEquals(10, model.sentences.size)
+    }
 }

@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="widget_frosted_background">#D9FFFFFF</color>
+    <color name="widget_frosted_background">#F2FFFFFF</color>
     <color name="widget_border">#20000000</color>
-    <color name="widget_text_primary">#FF1E1E2E</color>
-    <color name="widget_text_muted">#FF6C7086</color>
-    <color name="widget_card_background">#FFF2F2F7</color>
+    <color name="widget_text_primary">#FF0F172A</color>
+    <color name="widget_text_muted">#FF64748B</color>
+    <color name="widget_card_background">#FFF1F5F9</color>
+    <color name="widget_card_elevated">#FFFFFFFF</color>
     <color name="widget_background">#FFFFFFFF</color>
-    <color name="widget_play_button_accent">#FFFFCCA3</color>
-    <color name="widget_play_icon_color">#FF1E1E2E</color>
-    <color name="widget_primary_accent">#FF7C4DFF</color>
+    <color name="widget_play_button_accent">#FF6366F1</color>
+    <color name="widget_play_icon_color">#FFFFFFFF</color>
+    <color name="widget_primary_accent">#FF6366F1</color>
+    <color name="widget_secondary_accent">#FFEC4899</color>
+    <color name="widget_streak_accent">#FFF97316</color>
+    <color name="widget_success_accent">#FF10B981</color>
+    <color name="widget_progress_track">#FFE2E8F0</color>
 </resources>

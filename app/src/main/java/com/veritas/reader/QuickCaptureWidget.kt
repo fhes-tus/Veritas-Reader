@@ -39,35 +39,35 @@ class QuickCaptureWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
             val size = androidx.glance.LocalSize.current
-            val isCompact = size.width < 160.dp
+            val isCompact = size.width < 180.dp
 
             Box(
                 modifier = GlanceModifier
                     .fillMaxSize()
                     .background(VeritasWidgetColors.border)
-                    .cornerRadius(24.dp),
+                    .cornerRadius(28.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = GlanceModifier
                         .fillMaxSize()
                         .padding(1.dp)
-                        .cornerRadius(23.dp)
+                        .cornerRadius(27.dp)
                         .background(VeritasWidgetColors.frostedBackground)
-                        .padding(8.dp),
+                        .padding(10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isCompact) {
-                        // 2x1 Layout: Rounded Capsule
+                        // 2x1 Layout: Modern Capsule with quick action buttons
                         Row(
                             modifier = GlanceModifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = GlanceModifier
-                                    .size(36.dp)
-                                    .cornerRadius(8.dp)
-                                    .background(ColorProvider(Color.White)),
+                                    .size(38.dp)
+                                    .cornerRadius(12.dp)
+                                    .background(VeritasWidgetColors.cardElevated),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Image(
@@ -80,57 +80,105 @@ class QuickCaptureWidget : GlanceAppWidget() {
                             Text(
                                 text = "Veritas",
                                 style = TextStyle(
-                                    fontSize = if (size.width >= 130.dp) 15.sp else 13.sp,
+                                    fontSize = if (size.width >= 140.dp) 15.sp else 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = VeritasWidgetColors.textPrimary
                                 ),
                                 maxLines = 1,
                                 modifier = GlanceModifier.defaultWeight()
                             )
+                            
+                            val newNoteParams = actionParametersOf(QuickCaptureActionCallback.ActionKey to MainActivity.ACTION_NEW_NOTE)
                             Box(
                                 modifier = GlanceModifier
-                                    .size(44.dp)
+                                    .cornerRadius(16.dp)
+                                    .background(VeritasWidgetColors.playButtonAccent)
+                                    .clickable(actionRunCallback<QuickCaptureActionCallback>(newNoteParams))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "+ Note",
+                                    style = TextStyle(
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = VeritasWidgetColors.playIconColor
+                                    )
+                                )
+                            }
+                            
+                            Spacer(modifier = GlanceModifier.width(4.dp))
+                            
+                            Box(
+                                modifier = GlanceModifier
+                                    .size(34.dp)
+                                    .cornerRadius(17.dp)
+                                    .background(VeritasWidgetColors.cardBackground)
                                     .clickable(actionRunCallback<LaunchWidgetMenuActivityCallback>()),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = GlanceModifier
-                                        .size(32.dp)
-                                        .cornerRadius(16.dp)
-                                        .background(VeritasWidgetColors.playButtonAccent),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "+",
-                                        style = TextStyle(
-                                            fontSize = if (size.width >= 130.dp) 20.sp else 18.sp, 
-                                            fontWeight = FontWeight.Bold, 
-                                            color = VeritasWidgetColors.playIconColor
-                                        )
-                                    )
-                                }
+                                Image(
+                                    provider = ImageProvider(R.drawable.ic_widget_import),
+                                    contentDescription = "More",
+                                    modifier = GlanceModifier.size(18.dp),
+                                    colorFilter = ColorFilter.tint(VeritasWidgetColors.primaryAccent)
+                                )
                             }
                         }
                     } else {
-                        // >= 2x2 Grid Visual Layout: 3 rows of 2 columns each (6 options)
+                        // >= 2x2 Grid Visual Layout with Modern Tiles
                         Column(
                             modifier = GlanceModifier.fillMaxSize(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Header
+                            Row(
+                                modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Quick Actions",
+                                    style = TextStyle(
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = VeritasWidgetColors.textPrimary
+                                    ),
+                                    modifier = GlanceModifier.defaultWeight()
+                                )
+                                Box(
+                                    modifier = GlanceModifier
+                                        .cornerRadius(8.dp)
+                                        .background(VeritasWidgetColors.cardBackground)
+                                        .clickable(actionRunCallback<LaunchWidgetMenuActivityCallback>())
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "Menu ▾",
+                                        style = TextStyle(
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = VeritasWidgetColors.primaryAccent
+                                        )
+                                    )
+                                }
+                            }
+                            
+                            Spacer(modifier = GlanceModifier.height(6.dp))
+
                             Row(
                                 modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 ActionCard(
                                     iconRes = R.drawable.ic_widget_notes,
-                                    label = "Text Notes",
+                                    label = "Text Note",
                                     action = MainActivity.ACTION_SHOW_NOTES,
                                     modifier = GlanceModifier.defaultWeight()
                                 )
                                 Spacer(modifier = GlanceModifier.width(6.dp))
                                 ActionCard(
                                     iconRes = R.drawable.ic_widget_checklist,
-                                    label = "List",
+                                    label = "Checklist",
                                     action = MainActivity.ACTION_NEW_CHECKLIST_NOTE,
                                     modifier = GlanceModifier.defaultWeight()
                                 )
@@ -149,7 +197,7 @@ class QuickCaptureWidget : GlanceAppWidget() {
                                 Spacer(modifier = GlanceModifier.width(6.dp))
                                 ActionCard(
                                     iconRes = R.drawable.ic_widget_reading,
-                                    label = "Active Reading",
+                                    label = "Read Now",
                                     action = MainActivity.ACTION_ACTIVE_READING,
                                     modifier = GlanceModifier.defaultWeight()
                                 )
@@ -168,7 +216,7 @@ class QuickCaptureWidget : GlanceAppWidget() {
                                 Spacer(modifier = GlanceModifier.width(6.dp))
                                 ActionCard(
                                     iconRes = R.drawable.ic_widget_import,
-                                    label = "Import Documents",
+                                    label = "Import Doc",
                                     action = MainActivity.ACTION_IMPORT_DOCUMENTS,
                                     modifier = GlanceModifier.defaultWeight()
                                 )
@@ -191,29 +239,32 @@ class QuickCaptureWidget : GlanceAppWidget() {
         Box(
             modifier = modifier
                 .fillMaxHeight()
-                .cornerRadius(12.dp)
+                .cornerRadius(14.dp)
                 .background(VeritasWidgetColors.cardBackground)
                 .clickable(actionRunCallback<QuickCaptureActionCallback>(params)),
             contentAlignment = Alignment.Center
         ) {
             Row(
-                modifier = GlanceModifier.padding(horizontal = 8.dp),
+                modifier = GlanceModifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Image(
-                    provider = ImageProvider(iconRes),
-                    contentDescription = label,
-                    modifier = GlanceModifier.size(20.dp),
-                    colorFilter = ColorFilter.tint(VeritasWidgetColors.primaryAccent)
-                )
+                Box(
+                    modifier = GlanceModifier
+                        .size(28.dp)
+                        .cornerRadius(8.dp)
+                        .background(VeritasWidgetColors.cardElevated),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        provider = ImageProvider(iconRes),
+                        contentDescription = label,
+                        modifier = GlanceModifier.size(18.dp),
+                        colorFilter = ColorFilter.tint(VeritasWidgetColors.primaryAccent)
+                    )
+                }
                 Spacer(modifier = GlanceModifier.width(6.dp))
                 val currentSize = androidx.glance.LocalSize.current
-                val isLongLabel = label.length > 10
-                val fontSize = if (currentSize.width >= 240.dp) {
-                    if (isLongLabel) 11.sp else 13.sp
-                } else {
-                    if (isLongLabel) 9.sp else 11.sp
-                }
+                val fontSize = if (currentSize.width >= 240.dp) 12.sp else 10.sp
                 Text(
                     text = label,
                     style = TextStyle(

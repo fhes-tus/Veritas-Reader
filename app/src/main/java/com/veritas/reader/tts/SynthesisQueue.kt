@@ -46,7 +46,13 @@ class SynthesisQueue(
             }
         }
 
-        val result = deferred.await()
+        val result = try {
+            deferred.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            null
+        } catch (e: Exception) {
+            null
+        }
         // Clean up completed cache entry to conserve memory
         cache.remove(index)
         return result

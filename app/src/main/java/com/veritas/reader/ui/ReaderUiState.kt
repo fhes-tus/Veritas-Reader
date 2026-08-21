@@ -55,6 +55,8 @@ data class ReaderUiState(
     val noteTargetIndex: Int? = null,
     val noteTargetIndexes: List<Int> = emptyList(),
     val noteDraft: String = "",
+    val noteAudioPath: String? = null,
+    val noteAudioDuration: Int = 0,
     val documentNoteDraft: String = "",
     val pronunciationRules: List<PronunciationRule> = emptyList(),
     val voiceSettings: VoiceSettings = VoiceSettings(),
@@ -131,6 +133,8 @@ data class ReaderUiState(
     val documentReadingTimes: Map<String, Long> = emptyMap(),
     val navStack: List<VeritasScreen> = emptyList(),
     val showUpdateDialog: Boolean = false,
+    val isCheckingForUpdates: Boolean = false,
+    val updateStatusMessage: String? = null,
     val updateVersionName: String = "",
     val updateUrl: String = "",
     val updateApkUrl: String = "",
@@ -145,5 +149,8 @@ data class ReaderUiState(
     val pendingWidgetDocId: String? = null,
     val pendingWidgetNoteId: String? = null,
     val pendingImportOnStart: Boolean = false,
-    val readingInterest: String = "Books & Novels"
+    val readingInterest: String = "Books & Novels",
+    val showClassicsCatalog: Boolean = false,
+    val showOceanOfPdfBrowser: Boolean = false,
+    val oceanOfPdfQuery: String = ""
 )

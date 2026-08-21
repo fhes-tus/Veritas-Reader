@@ -174,6 +174,8 @@ import com.veritas.reader.ui.screens.UserManualDialog
 import com.veritas.reader.ui.screens.SleepTimerDialog
 import com.veritas.reader.ui.screens.UpdateAvailableDialog
 import com.veritas.reader.ui.screens.ReleaseNotesDialog
+import com.veritas.reader.ui.screens.ClassicsCatalogDialog
+import com.veritas.reader.ui.screens.OceanOfPdfBrowserDialog
 import com.veritas.reader.ui.screens.VoiceStudioDialog
 import com.veritas.reader.ReaderMode
 import kotlinx.coroutines.delay
@@ -316,10 +318,31 @@ class MainActivity : ComponentActivity() {
     private fun maybeShowTtsEngineHint() {
         val prefs = getSharedPreferences("veritas_reader_library", MODE_PRIVATE)
         if (prefs.getBoolean("tts_engine_hint_shown", false)) return
+
+        // 1. Check if Google TTS package is installed on the phone
+        val isGoogleTtsInstalled = runCatching {
+            packageManager.getPackageInfo("com.google.android.tts", 0)
+            true
+        }.getOrElse {
+            runCatching {
+                val tts = android.speech.tts.TextToSpeech(applicationContext, null)
+                val engines = tts.engines?.map { it.name } ?: emptyList()
+                tts.shutdown()
+                engines.any { it.startsWith("com.google.android.tts") }
+            }.getOrElse { false }
+        }
+
+        // If Google TTS is already installed on the phone, never prompt the user to download it
+        if (isGoogleTtsInstalled) {
+            prefs.edit().putBoolean("tts_engine_hint_shown", true).apply()
+            return
+        }
+
+        // 2. Only show the download recommendation dialog if Google TTS is absent from device
         val engine = runCatching {
             android.provider.Settings.Secure.getString(contentResolver, "tts_default_synth")
         }.getOrNull() ?: return
-        if (engine.isBlank() || engine.startsWith("com.google.android.tts")) return
+        if (engine.isNotBlank() && engine.startsWith("com.google.android.tts")) return
         prefs.edit().putBoolean("tts_engine_hint_shown", true).apply()
         android.app.AlertDialog.Builder(this)
             .setTitle(getString(R.string.tts_hint_title))
@@ -355,6 +378,7 @@ class MainActivity : ComponentActivity() {
         // device's TTS engine isn't Google's, which degrades highlighting/voice quality.
         CrashReporter.install(this)
         CrashReporter.offerPendingReport(this)
+        com.veritas.reader.audio.AmbientSoundManager.init(this)
         maybeShowTtsEngineHint()
         maybeShowBatteryOptimizationHint()
         // Weekly data-only safety-net backup (worker checks the setting itself).
@@ -1404,6 +1428,7 @@ internal fun VeritasReaderApp(
                     onImportImage = { importFileLauncher.launch(arrayOf("image/*")) },
                     onAdvancedPdfImport = { viewModel.updateState { it.copy(showPdfImportTools = true) } },
                     onOpenFileBrowser = { viewModel.openFileBrowser() },
+                    onOpenClassicsCatalog = { viewModel.updateState { it.copy(showClassicsCatalog = true) } },
                     onOpenReadingLists = { viewModel.updateState { it.copy(showReadingLists = true) } },
                     onCreateReadingList = { title, docId -> viewModel.createReadingList(title, docId) },
                     onAddDocumentToReadingList = viewModel::addDocumentToReadingList,
@@ -1471,10 +1496,11 @@ internal fun VeritasReaderApp(
                     onImportFlashcards = { name, cards -> viewModel.importFlashcards("pasted", name, cards) },
                     onRenameFlashcardSet = viewModel::renameFlashcardSet,
                     onDeleteFlashcardSet = viewModel::deleteFlashcardSet,
+                    onSaveReaderSettings = { viewModel.saveReaderSettings(it) },
                     onSearchLibraryContent = viewModel::searchLibraryContent
                 )
                 val areQuestsIncomplete = !uiState.questTourDone || !uiState.questImportDone || !uiState.questSpeedDone || !uiState.questBookmarkDone
-                if ((uiState.showTutorial || areQuestsIncomplete) && !uiState.questChecklistDismissed) {
+                if (areQuestsIncomplete && !uiState.questChecklistDismissed) {
                     OnboardingQuestChecklist(
                         questTourDone = uiState.questTourDone,
                         questImportDone = uiState.questImportDone,
@@ -1587,6 +1613,39 @@ internal fun VeritasReaderApp(
                                     localeTag = voice.localeTag
                                 )
                             )
+                        },
+                        onReadFromSentence = { selectedText ->
+                            val cleanText = selectedText.trim()
+                            if (cleanText.isNotBlank()) {
+                                fun normalize(s: String) = s.lowercase().replace(Regex("[^a-z0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+                                val normQuery = normalize(cleanText)
+                                val queryWords = normQuery.split(' ').filter { it.length >= 3 }
+
+                                var bestIndex = -1
+                                var bestScore = 0
+
+                                activeDocument.chunks.forEachIndexed { index, chunk ->
+                                    val normChunk = normalize(chunk)
+                                    if (normChunk.contains(normQuery) || (normQuery.length >= 12 && normChunk.contains(normQuery.take(30)))) {
+                                        bestIndex = index
+                                        bestScore = 10000
+                                        return@forEachIndexed
+                                    }
+                                    if (queryWords.isNotEmpty()) {
+                                        val matchedWords = queryWords.count { normChunk.contains(it) }
+                                        if (matchedWords > bestScore && matchedWords >= maxOf(1, queryWords.size / 2)) {
+                                            bestScore = matchedWords
+                                            bestIndex = index
+                                        }
+                                    }
+                                }
+
+                                if (bestIndex >= 0) {
+                                    viewModel.moveTo(bestIndex, autoPlay = true, forcePlaybackStart = true)
+                                } else {
+                                    viewModel.moveTo(0, autoPlay = true, forcePlaybackStart = true)
+                                }
+                            }
                         },
                         onClose = { viewModel.updateState { it.copy(showCanvasView = false) } }
                     )
@@ -1705,6 +1764,7 @@ internal fun VeritasReaderApp(
                             }
                         },
                         onOpenDocumentNotes = { viewModel.openDocumentNotes() },
+                        onExportStudyGuidePdf = { viewModel.exportStudyGuidePdf() },
                         onOpenCanvas = {
                             val metadata = activeMetadata
                             val file = metadata?.let { documentRepository.originalFile(it) }
@@ -1882,7 +1942,8 @@ internal fun VeritasReaderApp(
                 onOpenReadingLists = { viewModel.updateState { it.copy(showReadingLists = true) } },
                 onOpenUserManual = { viewModel.updateState { it.copy(showUserManual = true) } },
                 onOpenStorage = { showStorageTools = true },
-                onOpenAccessibility = { viewModel.updateState { it.copy(showAccessibilitySettings = true) } }
+                onOpenAccessibility = { viewModel.updateState { it.copy(showAccessibilitySettings = true) } },
+                onCheckForUpdates = { viewModel.checkForUpdates(isManual = true) }
             )
         }
 
@@ -2104,9 +2165,11 @@ internal fun VeritasReaderApp(
                     )
                 },
                 onThemeChange = { themeId ->
+                    val isHc = themeId == "dark_high_contrast" || themeId == "white_high_contrast" || themeId == "blue_high_contrast"
                     viewModel.saveReaderSettings(
                         uiState.readerSettings.copy(
-                            themeId = themeId
+                            themeId = themeId,
+                            previousThemeId = if (isHc) uiState.readerSettings.previousThemeId else null
                         )
                     )
                 },
@@ -2148,6 +2211,14 @@ internal fun VeritasReaderApp(
                 onThemeChange = { themeId ->
                     viewModel.saveReaderSettings(uiState.readerSettings.copy(themeId = themeId))
                 },
+                onToggleContrastTheme = { themeId, previousThemeId ->
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(
+                            themeId = themeId,
+                            previousThemeId = previousThemeId
+                        )
+                    )
+                },
                 onToggleAdaptiveCover = {
                     viewModel.saveReaderSettings(
                         uiState.readerSettings.copy(adaptiveCover = !uiState.readerSettings.adaptiveCover)
@@ -2169,6 +2240,21 @@ internal fun VeritasReaderApp(
                 onToggleReduceMotion = {
                     viewModel.saveReaderSettings(
                         uiState.readerSettings.copy(reduceMotion = !uiState.readerSettings.reduceMotion)
+                    )
+                },
+                onToggleBionicReading = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(bionicReading = !uiState.readerSettings.bionicReading)
+                    )
+                },
+                onToggleShakeToExtend = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(shakeToExtendSleepTimer = !uiState.readerSettings.shakeToExtendSleepTimer)
+                    )
+                },
+                onToggleCollapsibleBars = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(collapsibleReaderBars = !uiState.readerSettings.collapsibleReaderBars)
                     )
                 }
             )
@@ -2393,6 +2479,38 @@ internal fun VeritasReaderApp(
             )
         }
 
+        if (uiState.showClassicsCatalog) {
+            ClassicsCatalogDialog(
+                existingDocuments = uiState.documents,
+                onDownloadBook = { book ->
+                    viewModel.downloadClassicBook(book)
+                },
+                onOpenOceanOfPdf = { query ->
+                    viewModel.updateState {
+                        it.copy(
+                            showOceanOfPdfBrowser = true,
+                            oceanOfPdfQuery = query
+                        )
+                    }
+                },
+                onDismiss = {
+                    viewModel.updateState { it.copy(showClassicsCatalog = false) }
+                }
+            )
+        }
+
+        if (uiState.showOceanOfPdfBrowser) {
+            OceanOfPdfBrowserDialog(
+                initialQuery = uiState.oceanOfPdfQuery,
+                onImportDownloadedFile = { file, title ->
+                    viewModel.importDownloadedBook(file, title)
+                },
+                onDismiss = {
+                    viewModel.updateState { it.copy(showOceanOfPdfBrowser = false, oceanOfPdfQuery = "") }
+                }
+            )
+        }
+
         val pending = uiState.pendingImport
         if (pending != null) {
             VeritasImportPreviewDialog(
@@ -2561,6 +2679,10 @@ internal fun VeritasReaderApp(
                         viewModel.saveDocumentNoteDraft()
                         viewModel.shareActiveDocumentNotes()
                     },
+                    onExportPdf = {
+                        viewModel.saveDocumentNoteDraft()
+                        viewModel.exportStudyGuidePdf()
+                    },
                     onDismiss = { viewModel.updateState { it.copy(showDocumentNotes = false) } }
                 )
             }
@@ -2575,6 +2697,8 @@ internal fun VeritasReaderApp(
                     document = document,
                     sentenceIndexes = noteIndexes,
                     noteDraft = uiState.noteDraft,
+                    audioPath = uiState.noteAudioPath,
+                    audioDuration = uiState.noteAudioDuration,
                     onNoteChange = { draft ->
                         viewModel.updateState {
                             it.copy(
@@ -2582,6 +2706,14 @@ internal fun VeritasReaderApp(
                                     draft,
                                     300
                                 )
+                            )
+                        }
+                    },
+                    onAudioChange = { path, duration ->
+                        viewModel.updateState {
+                            it.copy(
+                                noteAudioPath = path,
+                                noteAudioDuration = duration
                             )
                         }
                     },

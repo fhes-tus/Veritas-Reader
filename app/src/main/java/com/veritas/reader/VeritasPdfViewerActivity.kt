@@ -12,7 +12,10 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import android.os.Bundle
+import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
@@ -21,13 +24,19 @@ import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.animation.DecelerateInterpolator
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import android.graphics.drawable.StateListDrawable
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -51,7 +60,9 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private var viewerFragment: PdfViewerFragment? = null
     private var pdfView: PdfView? = null
     private var playPauseControl: TextView? = null
-    private var syncCheckBox: CheckBox? = null
+    private var isSyncEnabled = true
+    private var syncPill: LinearLayout? = null
+    private var syncLabel: TextView? = null
     private var highlightJob: Job? = null
     private var extractedChunks: List<String> = emptyList()
     private var readerTextModel: ReaderTextModel? = null
@@ -97,38 +108,31 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
         val settings = repository.loadReaderSettings()
         val themeId = settings.themeId
-        isLightTheme = if (themeId == "system") {
+        val packId = settings.themePackId
+
+        val resolvedTheme = if (themeId == "system") {
             val mode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-            mode != android.content.res.Configuration.UI_MODE_NIGHT_YES
+            if (mode == android.content.res.Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
         } else {
-            themeId == "light" || themeId == "white_high_contrast" || themeId == "bw_gradient_light" || themeId == "github_light"
+            themeId
         }
 
-        if (isLightTheme) {
-            colorPrimary = Color.rgb(91, 79, 207)
-            colorBackground = Color.rgb(244, 246, 250)
-            colorToolbar = Color.rgb(238, 238, 242)
-            colorSurface = Color.rgb(255, 255, 255)
-            colorSurfaceVariant = Color.rgb(238, 238, 242)
-            colorTextPrimary = Color.rgb(26, 26, 46)
-            colorTextSecondary = Color.rgb(84, 84, 100)
-            colorOutline = Color.rgb(200, 200, 208)
-            colorSyncBackground = Color.rgb(220, 226, 255)
-            colorActiveStrip = Color.rgb(91, 79, 207)
-            colorAccentButton = Color.rgb(91, 79, 207)
-        } else {
-            colorPrimary = Color.rgb(142, 220, 230)
-            colorBackground = Color.rgb(23, 31, 43)
-            colorToolbar = Color.rgb(39, 49, 64)
-            colorSurface = Color.rgb(23, 31, 43)
-            colorSurfaceVariant = Color.rgb(39, 49, 64)
-            colorTextPrimary = Color.rgb(233, 238, 245)
-            colorTextSecondary = Color.rgb(196, 206, 217)
-            colorOutline = Color.rgb(60, 75, 90)
-            colorSyncBackground = Color.rgb(12, 78, 86)
-            colorActiveStrip = Color.rgb(66, 133, 244)
-            colorAccentButton = Color.rgb(126, 218, 230)
-        }
+        val baseScheme = veritasColorScheme(resolvedTheme, this)
+        val scheme = veritasPackColorScheme(baseScheme, packId)
+
+        isLightTheme = scheme.background.luminance() > 0.45f
+
+        colorPrimary = scheme.primary.toArgb()
+        colorBackground = scheme.background.toArgb()
+        colorToolbar = scheme.surface.toArgb()
+        colorSurface = scheme.surface.toArgb()
+        colorSurfaceVariant = scheme.surfaceVariant.toArgb()
+        colorTextPrimary = scheme.onSurface.toArgb()
+        colorTextSecondary = scheme.onSurfaceVariant.toArgb()
+        colorOutline = scheme.outlineVariant.toArgb()
+        colorSyncBackground = scheme.primaryContainer.toArgb()
+        colorActiveStrip = scheme.primary.toArgb()
+        colorAccentButton = scheme.primary.toArgb()
 
         configureSystemBars()
 
@@ -181,32 +185,78 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         }
         applyToolbarInsets(toolbar)
         toolbar.addView(iconButton(R.drawable.ic_m3_chevron_left) { finish() })
-        toolbar.addView(TextView(this).apply {
+
+        val titleCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(4.dp, 0, 4.dp, 0)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val titleView = TextView(this).apply {
             text = title
             setTextColor(colorTextPrimary)
-            textSize = 17f
+            textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        syncCheckBox = CheckBox(this).apply {
-            text = "🔗 Sync"
+        }
+        val subRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 2.dp, 0, 0)
+        }
+        val badgeView = TextView(this).apply {
+            text = "PDF"
+            setTextColor(colorPrimary)
+            textSize = 9f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(5.dp, 1.dp, 5.dp, 1.dp)
+            background = rounded(colorSyncBackground, 4.dp)
+        }
+        val subTextView = TextView(this).apply {
+            text = " • Original View"
             setTextColor(colorTextSecondary)
             textSize = 11f
-            gravity = Gravity.CENTER
-            buttonTintList = ColorStateList.valueOf(colorPrimary)
-            setPadding(0, 0, 0, 0)
-            layoutParams = LinearLayout.LayoutParams(68.dp, 44.dp)
-            isChecked = true
-            setOnCheckedChangeListener { _, checked ->
-                if (checked) {
-                    pendingManualPageSync = true
-                    lifecycleScope.launch { updateSentenceHighlight(forceSync = true) }
-                }
+            maxLines = 1
+        }
+        subRow.addView(badgeView)
+        subRow.addView(subTextView)
+        titleCol.addView(titleView)
+        titleCol.addView(subRow)
+        toolbar.addView(titleCol)
+
+        // Modern Material 3 Live Sync Pill Chip
+        val pill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(8.dp, 5.dp, 8.dp, 5.dp)
+            background = rounded(colorSyncBackground, 14.dp)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = 4.dp
             }
         }
-        toolbar.addView(syncCheckBox)
+        val label = TextView(this).apply {
+            text = "🔗 Live Sync"
+            setTextColor(colorPrimary)
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        pill.addView(label)
+        syncPill = pill
+        syncLabel = label
+
+        pill.setOnClickListener {
+            isSyncEnabled = !isSyncEnabled
+            updateSyncPillUi()
+            if (isSyncEnabled) {
+                pendingManualPageSync = true
+                lifecycleScope.launch { updateSentenceHighlight(forceSync = true) }
+                Toast.makeText(this@VeritasPdfViewerActivity, "Live sync enabled", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@VeritasPdfViewerActivity, "Live sync disabled", Toast.LENGTH_SHORT).show()
+            }
+        }
+        toolbar.addView(pill)
+
         toolbar.addView(iconButton(R.drawable.ic_m3_search) { toggleSearch() })
         toolbar.addView(iconButton(R.drawable.ic_m3_rotate_right) { rotateViewer() })
         toolbar.addView(iconButton(R.drawable.ic_m3_more_vert) { showTopMenu(toolbar) })
@@ -216,15 +266,29 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             id = R.id.pdf_fragment_container
             setBackgroundColor(if (isLightTheme) colorBackground else Color.WHITE)
             if (!isLightTheme) {
-                // True dark mode: soft brightness inversion that PRESERVES HUE. White paper
-                // -> ~#242424, black text -> ~#EBEBEB, but coloured elements keep their hue
-                // (red stays reddish, blue stays bluish) instead of flipping to cyan/orange.
+                val settings = repository.loadReaderSettings()
+                val resolvedTheme = if (settings.themeId == "system") {
+                    val mode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                    if (mode == android.content.res.Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
+                } else settings.themeId
+                val scheme = veritasPackColorScheme(veritasColorScheme(resolvedTheme, this@VeritasPdfViewerActivity), settings.themePackId)
+                val bgR = scheme.surface.red
+                val bgG = scheme.surface.green
+                val bgB = scheme.surface.blue
+                val fgR = scheme.onSurface.red
+                val fgG = scheme.onSurface.green
+                val fgB = scheme.onSurface.blue
+                
+                val deltaR = bgR - fgR
+                val deltaG = bgG - fgG
+                val deltaB = bgB - fgB
+                
                 val paint = android.graphics.Paint().apply {
                     colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
-                         0.4477f, -1.1154f, -0.1123f, 0.0f, 235.0f,
-                        -0.3323f, -0.3354f, -0.1123f, 0.0f, 235.0f,
-                        -0.3323f, -1.1154f,  0.6677f, 0.0f, 235.0f,
-                         0.0f,     0.0f,     0.0f,    1.0f,   0.0f
+                        0.299f * deltaR, 0.587f * deltaR, 0.114f * deltaR, 0.0f, fgR * 255.0f,
+                        0.299f * deltaG, 0.587f * deltaG, 0.114f * deltaG, 0.0f, fgG * 255.0f,
+                        0.299f * deltaB, 0.587f * deltaB, 0.114f * deltaB, 0.0f, fgB * 255.0f,
+                        0.0f,            0.0f,            0.0f,            1.0f, 0.0f
                     ))
                 }
                 setLayerType(View.LAYER_TYPE_HARDWARE, paint)
@@ -707,15 +771,25 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         val docId = document?.id ?: return
         val input = android.widget.EditText(this).apply {
             hint = "Write sentence note..."
+            setTextColor(colorTextPrimary)
+            setHintTextColor(colorTextSecondary)
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setPadding(16.dp, 12.dp, 16.dp, 12.dp)
         }
         val container = FrameLayout(this).apply {
-            val padding = (16 * resources.displayMetrics.density).toInt()
-            setPadding(padding, padding, padding, padding)
+            val padding = 16.dp
+            setPadding(padding, 8.dp, padding, 8.dp)
             addView(input)
         }
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Add note to sentence ${sentenceIndex + 1}")
+        val titleView = TextView(this).apply {
+            text = "Add note to sentence ${sentenceIndex + 1}"
+            setTextColor(colorTextPrimary)
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(20.dp, 16.dp, 20.dp, 4.dp)
+        }
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setCustomTitle(titleView)
             .setView(container)
             .setPositiveButton("Save") { _, _ ->
                 val text = input.text.toString().trim()
@@ -734,7 +808,11 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(colorSurface))
+        dialog.show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(colorPrimary)
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(colorTextSecondary)
     }
 
     private fun findCopyMenuItem(menu: android.view.Menu): android.view.MenuItem? {
@@ -832,14 +910,456 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         runCatching { startActivity(Intent.createChooser(intent, "Open original document")) }
     }
 
+    enum class PaperToneMode {
+        ACTIVE_THEME,
+        DARK,
+        NATURAL_WHITE
+    }
+
+    data class OverflowMenuItem(
+        val title: String,
+        val subtitle: String? = null,
+        val iconRes: Int? = null,
+        val isHeader: Boolean = false,
+        val enabled: Boolean = true,
+        val action: (() -> Unit)? = null
+    )
+
+    private var paperToneMode = PaperToneMode.ACTIVE_THEME
+
+    private fun toggleFullScreen() {
+        if (chromeVisible) {
+            hideChrome()
+        } else {
+            showChrome(keepVisible = true)
+        }
+    }
+
+    private fun applyPaperToneMode() {
+        when (paperToneMode) {
+            PaperToneMode.ACTIVE_THEME -> {
+                val settings = repository.loadReaderSettings()
+                val resolvedTheme = if (settings.themeId == "system") {
+                    val mode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                    if (mode == android.content.res.Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
+                } else settings.themeId
+                val scheme = veritasPackColorScheme(veritasColorScheme(resolvedTheme, this@VeritasPdfViewerActivity), settings.themePackId)
+                val bgR = scheme.surface.red
+                val bgG = scheme.surface.green
+                val bgB = scheme.surface.blue
+                val fgR = scheme.onSurface.red
+                val fgG = scheme.onSurface.green
+                val fgB = scheme.onSurface.blue
+
+                val deltaR = bgR - fgR
+                val deltaG = bgG - fgG
+                val deltaB = bgB - fgB
+
+                val paint = android.graphics.Paint().apply {
+                    colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
+                        0.299f * deltaR, 0.587f * deltaR, 0.114f * deltaR, 0.0f, fgR * 255.0f,
+                        0.299f * deltaG, 0.587f * deltaG, 0.114f * deltaG, 0.0f, fgG * 255.0f,
+                        0.299f * deltaB, 0.587f * deltaB, 0.114f * deltaB, 0.0f, fgB * 255.0f,
+                        0.0f,            0.0f,            0.0f,            1.0f, 0.0f
+                    ))
+                }
+                fragmentContainer?.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+            }
+            PaperToneMode.DARK -> {
+                val colorMatrix = android.graphics.ColorMatrix(floatArrayOf(
+                    -1f, 0f, 0f, 0f, 255f,
+                    0f, -1f, 0f, 0f, 255f,
+                    0f, 0f, -1f, 0f, 255f,
+                    0f, 0f, 0f, 1f, 0f
+                ))
+                val paint = android.graphics.Paint().apply {
+                    colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
+                }
+                fragmentContainer?.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+            }
+            PaperToneMode.NATURAL_WHITE -> {
+                fragmentContainer?.setLayerType(View.LAYER_TYPE_NONE, null)
+            }
+        }
+    }
+
+    private fun cyclePaperToneMode() {
+        paperToneMode = when (paperToneMode) {
+            PaperToneMode.ACTIVE_THEME -> PaperToneMode.DARK
+            PaperToneMode.DARK -> PaperToneMode.NATURAL_WHITE
+            PaperToneMode.NATURAL_WHITE -> PaperToneMode.ACTIVE_THEME
+        }
+        applyPaperToneMode()
+        val toastMessage = when (paperToneMode) {
+            PaperToneMode.ACTIVE_THEME -> "Active Theme Paper Tone"
+            PaperToneMode.DARK -> "Dark Paper (High Contrast)"
+            PaperToneMode.NATURAL_WHITE -> "Natural Paper Colors (White)"
+        }
+        Toast.makeText(this, toastMessage, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showJumpToPageDialog() {
+        val total = runCatching { pdfView?.pdfDocument?.pageCount }.getOrNull() ?: 1
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "1–$total"
+            setTextColor(colorTextPrimary)
+            setHintTextColor(colorTextSecondary)
+            setPadding(16.dp, 12.dp, 16.dp, 12.dp)
+        }
+        val layout = FrameLayout(this).apply {
+            setPadding(20.dp, 8.dp, 20.dp, 8.dp)
+            addView(input)
+        }
+        val titleView = TextView(this).apply {
+            text = "Jump to Page"
+            setTextColor(colorTextPrimary)
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(20.dp, 16.dp, 20.dp, 4.dp)
+        }
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setCustomTitle(titleView)
+            .setView(layout)
+            .setPositiveButton("Go") { _, _ ->
+                val num = input.text.toString().trim().toIntOrNull()
+                if (num != null && num in 1..total) {
+                    pdfView?.scrollToPage(num - 1)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(colorSurface))
+        dialog.show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(colorPrimary)
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(colorTextSecondary)
+    }
+
+    private fun sharePdf() {
+        val metadata = document ?: return
+        val uri = repository.originalUri(metadata) ?: run {
+            Toast.makeText(this, "Could not locate PDF file to share.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(Intent.createChooser(intent, "Share PDF Document")) }
+    }
+
     private fun showTopMenu(anchor: View) {
         showChrome(keepVisible = true)
-        showMenu(anchor, listOf(
-            "Search PDF" to ::toggleSearch,
-            "Rotate view" to ::rotateViewer,
-            "Open original" to ::openOriginal,
-            "Back to extracted text" to ::finish
-        ), alignTopEnd = true)
+        val pageCount = runCatching { pdfView?.pdfDocument?.pageCount }.getOrNull() ?: 1
+        val items = mutableListOf<OverflowMenuItem>()
+
+        // Display
+        items.add(OverflowMenuItem(title = "Display", isHeader = true))
+        items.add(OverflowMenuItem(
+            title = if (chromeVisible) "Full Screen Mode" else "Exit Full Screen",
+            subtitle = if (chromeVisible) "Hide toolbar & player bars" else "Show toolbar & player bars",
+            iconRes = R.drawable.ic_m3_fullscreen,
+            action = ::toggleFullScreen
+        ))
+        items.add(OverflowMenuItem(
+            title = "Fit to Screen",
+            subtitle = "Reset zoom and fit page width",
+            iconRes = R.drawable.ic_m3_fitscreen,
+            action = { pdfView?.scrollToPage(pdfView?.firstVisiblePage ?: 0) }
+        ))
+        items.add(OverflowMenuItem(
+            title = "Rotate View (90°)",
+            subtitle = "Switch screen orientation",
+            iconRes = R.drawable.ic_m3_rotate_right,
+            action = ::rotateViewer
+        ))
+        items.add(OverflowMenuItem(
+            title = when (paperToneMode) {
+                PaperToneMode.ACTIVE_THEME -> "Theme-Adapted Paper (Active)"
+                PaperToneMode.DARK -> "Theme-Adapted Paper (Dark)"
+                PaperToneMode.NATURAL_WHITE -> "Natural Paper Colors (White)"
+            },
+            subtitle = when (paperToneMode) {
+                PaperToneMode.ACTIVE_THEME -> "Tap for dark paper"
+                PaperToneMode.DARK -> "Tap for authentic white paper"
+                PaperToneMode.NATURAL_WHITE -> "Tap to adapt paper to active theme"
+            },
+            iconRes = R.drawable.ic_m3_contrast,
+            action = ::cyclePaperToneMode
+        ))
+
+        // Navigation
+        if (pageCount > 1) {
+            items.add(OverflowMenuItem(title = "Navigation", isHeader = true))
+            items.add(OverflowMenuItem(
+                title = "Jump to Page...",
+                subtitle = "Go to 1–$pageCount",
+                iconRes = R.drawable.ic_m3_jump_page,
+                action = ::showJumpToPageDialog
+            ))
+            items.add(OverflowMenuItem(
+                title = "First Page (1)",
+                subtitle = "Jump to beginning",
+                iconRes = R.drawable.ic_m3_first_page,
+                action = { pdfView?.scrollToPage(0) }
+            ))
+            items.add(OverflowMenuItem(
+                title = "Last Page ($pageCount)",
+                subtitle = "Jump to end of document",
+                iconRes = R.drawable.ic_m3_last_page,
+                action = { pdfView?.scrollToPage(pageCount - 1) }
+            ))
+        }
+
+        // Reading & Audio
+        items.add(OverflowMenuItem(title = "Reading & Audio", isHeader = true))
+        items.add(OverflowMenuItem(
+            title = if (isSyncEnabled) "Live Sync (Enabled)" else "Live Sync (Disabled)",
+            subtitle = if (isSyncEnabled) "Tap to pause auto-highlighting" else "Tap to sync speech with PDF",
+            iconRes = R.drawable.ic_m3_link,
+            action = {
+                isSyncEnabled = !isSyncEnabled
+                updateSyncPillUi()
+                if (isSyncEnabled) {
+                    pendingManualPageSync = true
+                    lifecycleScope.launch { updateSentenceHighlight(forceSync = true) }
+                    Toast.makeText(this@VeritasPdfViewerActivity, "Live sync enabled", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@VeritasPdfViewerActivity, "Live sync disabled", Toast.LENGTH_SHORT).show()
+                }
+            }
+        ))
+        items.add(OverflowMenuItem(
+            title = "Switch to Text Reader",
+            subtitle = "Flowing text, notes & speed reader",
+            iconRes = R.drawable.ic_m3_book,
+            action = ::finish
+        ))
+        items.add(OverflowMenuItem(
+            title = "Voice Studio",
+            subtitle = "Narrators, speed & audio tuning",
+            iconRes = R.drawable.ic_m3_mic,
+            action = ::togglePanelExpand
+        ))
+
+        // File & Share
+        items.add(OverflowMenuItem(title = "File & Share", isHeader = true))
+        items.add(OverflowMenuItem(
+            title = "Share Original File",
+            subtitle = "Send to other apps",
+            iconRes = R.drawable.ic_m3_share,
+            action = ::sharePdf
+        ))
+        items.add(OverflowMenuItem(
+            title = "Open in External App",
+            subtitle = "Use system PDF or photo viewer",
+            iconRes = R.drawable.ic_m3_open_in_new,
+            action = ::openOriginal
+        ))
+        items.add(OverflowMenuItem(
+            title = "Document Information",
+            subtitle = "Metadata, length & format",
+            iconRes = R.drawable.ic_m3_info,
+            action = ::showDocInfoDialog
+        ))
+
+        showOverflowPopup(anchor, items)
+    }
+
+    private fun showOverflowPopup(
+        anchor: View,
+        items: List<OverflowMenuItem>
+    ) {
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(300.dp, (resources.displayMetrics.heightPixels * 0.70f).toInt())
+            isVerticalScrollBarEnabled = false
+        }
+        val menu = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 12.dp, 0, 12.dp)
+            background = rounded(colorSurface, 18.dp)
+        }
+        scroll.addView(menu)
+
+        // Header Title matching Screenshot 2
+        val headerCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18.dp, 4.dp, 18.dp, 6.dp)
+        }
+        val headerTitle = TextView(this).apply {
+            text = "Document Tools"
+            setTextColor(colorTextPrimary)
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val headerSubtitle = TextView(this).apply {
+            text = document?.title.orEmpty()
+            setTextColor(colorTextSecondary)
+            textSize = 11f
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, 2.dp, 0, 0)
+        }
+        headerCol.addView(headerTitle)
+        headerCol.addView(headerSubtitle)
+        menu.addView(headerCol)
+
+        val popup = PopupWindow(scroll, 300.dp, LinearLayout.LayoutParams.WRAP_CONTENT, true).apply {
+            elevation = 14f
+            isOutsideTouchable = true
+            isClippingEnabled = false
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
+        showChrome(keepVisible = true)
+        chromeMenuOpen = true
+
+        items.forEach { item ->
+            if (item.isHeader) {
+                val divider = View(this).apply {
+                    setBackgroundColor(colorSyncBackground)
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1.dp).apply {
+                        setMargins(16.dp, 6.dp, 16.dp, 6.dp)
+                    }
+                }
+                menu.addView(divider)
+
+                val headerView = TextView(this).apply {
+                    text = item.title
+                    setTextColor(colorPrimary)
+                    textSize = 12f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(18.dp, 4.dp, 18.dp, 2.dp)
+                }
+                menu.addView(headerView)
+            } else {
+                val itemRow = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(16.dp, 9.dp, 16.dp, 9.dp)
+                    isClickable = item.enabled
+                    isFocusable = item.enabled
+                    background = StateListDrawable().apply {
+                        addState(intArrayOf(android.R.attr.state_pressed), rounded(colorSyncBackground, 8.dp))
+                    }
+
+                    if (item.iconRes != null) {
+                        val iconView = ImageView(this@VeritasPdfViewerActivity).apply {
+                            setImageResource(item.iconRes)
+                            setColorFilter(colorPrimary)
+                            layoutParams = LinearLayout.LayoutParams(24.dp, 24.dp).apply {
+                                marginEnd = 14.dp
+                            }
+                        }
+                        addView(iconView)
+                    } else {
+                        val spacer = View(this@VeritasPdfViewerActivity).apply {
+                            layoutParams = LinearLayout.LayoutParams(24.dp, 24.dp).apply {
+                                marginEnd = 14.dp
+                            }
+                        }
+                        addView(spacer)
+                    }
+
+                    val textCol = LinearLayout(this@VeritasPdfViewerActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    val titleView = TextView(this@VeritasPdfViewerActivity).apply {
+                        text = item.title
+                        setTextColor(if (item.enabled) colorTextPrimary else colorTextSecondary)
+                        textSize = 13.5f
+                        typeface = Typeface.DEFAULT_BOLD
+                    }
+                    textCol.addView(titleView)
+                    if (item.subtitle != null) {
+                        val subView = TextView(this@VeritasPdfViewerActivity).apply {
+                            text = item.subtitle
+                            setTextColor(colorTextSecondary)
+                            textSize = 10.5f
+                            setPadding(0, 2.dp, 0, 0)
+                        }
+                        textCol.addView(subView)
+                    }
+                    addView(textCol)
+
+                    setOnClickListener {
+                        popup.dismiss()
+                        item.action?.invoke()
+                    }
+                }
+                menu.addView(itemRow)
+            }
+        }
+
+        popup.setOnDismissListener {
+            chromeMenuOpen = false
+            scheduleChromeAutoHide()
+        }
+        popup.showAtLocation(window.decorView, Gravity.TOP or Gravity.END, 12.dp, statusBarHeight() + 56.dp)
+    }
+
+    private fun showDocInfoDialog() {
+        val metadata = document ?: return
+        val items = listOf(
+            "Title" to metadata.title,
+            "Format" to "PDF (Original Document)",
+            "Total Sentences" to "${metadata.sentenceCount}",
+            "Est. Reading Time" to "${(metadata.sentenceCount * 2.5 / 60).toInt().coerceAtLeast(1)} min",
+            "Added Date" to SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(metadata.createdAt))
+        )
+        val view = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20.dp, 16.dp, 20.dp, 16.dp)
+            items.forEach { (label, value) ->
+                val row = LinearLayout(this@VeritasPdfViewerActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, 6.dp, 0, 6.dp)
+                    addView(TextView(this@VeritasPdfViewerActivity).apply {
+                        text = label
+                        setTextColor(colorTextSecondary)
+                        textSize = 13f
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(TextView(this@VeritasPdfViewerActivity).apply {
+                        text = value
+                        setTextColor(colorTextPrimary)
+                        textSize = 13f
+                        typeface = Typeface.DEFAULT_BOLD
+                    })
+                }
+                addView(row)
+            }
+        }
+        val titleView = TextView(this).apply {
+            text = "Document Details"
+            setTextColor(colorTextPrimary)
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(20.dp, 16.dp, 20.dp, 4.dp)
+        }
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setCustomTitle(titleView)
+            .setView(view)
+            .setPositiveButton("Close", null)
+            .create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(colorSurface))
+        dialog.show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(colorPrimary)
+    }
+
+    private fun updateSyncPillUi() {
+        val pill = syncPill ?: return
+        val label = syncLabel ?: return
+        if (isSyncEnabled) {
+            pill.background = rounded(colorSyncBackground, 14.dp)
+            label.setTextColor(colorPrimary)
+            label.text = "🔗 Live Sync"
+        } else {
+            pill.background = rounded(colorSurface, 14.dp)
+            label.setTextColor(colorTextSecondary)
+            label.text = "🔗 Sync Off"
+        }
     }
 
     private fun showPlaybackMenu(anchor: View) {
@@ -1239,10 +1759,13 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 view.firstVisiblePage.coerceIn(0, pageCount - 1)
             }
         val targetPage = estimatedPage.coerceIn(0, pageCount - 1)
-        val syncEnabled = syncCheckBox?.isChecked == true
+        val syncEnabled = isSyncEnabled
         val visiblePage = runCatching { view.firstVisiblePage }.getOrDefault(targetPage).coerceIn(0, pageCount - 1)
         if (syncEnabled && !manualSync && lastSyncedTargetPage == targetPage && abs(visiblePage - targetPage) >= 1) {
-            syncCheckBox?.post { syncCheckBox?.isChecked = false }
+            syncPill?.post {
+                isSyncEnabled = false
+                updateSyncPillUi()
+            }
             lastSyncedTargetPage = null
             return
         }
@@ -1281,15 +1804,71 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         sentence: String,
         pageRange: IntRange
     ): List<Highlight> {
-        val words = sentence.split(Regex("\\s+")).filter { it.length > 1 }
+        fun sanitize(str: String): String = str
+            .replace('\u2018', '\'')
+            .replace('\u2019', '\'')
+            .replace('\u201C', '"')
+            .replace('\u201D', '"')
+            .replace('\u2014', ' ') // em-dash
+            .replace('\u2013', ' ') // en-dash
+            .replace('\u2212', '-') // minus
+            .replace("ﬁ", "fi")
+            .replace("ﬂ", "fl")
+            .replace("ﬀ", "ff")
+            .replace("ﬃ", "ffi")
+            .replace("ﬄ", "ffl")
+            .replace(Regex("[\\r\\n\\t]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        val cleanSentence = sanitize(sentence)
+        val words = cleanSentence.split(' ').filter { it.isNotBlank() }
+        val alphanumericWords = words.map { it.replace(Regex("[^a-zA-Z0-9]"), "") }.filter { it.length >= 3 }
+        val stopWords = setOf("the", "and", "for", "are", "but", "not", "you", "all", "any", "can", "had", "her", "was", "one", "our", "out", "day", "get", "has", "him", "his", "how", "man", "new", "now", "old", "see", "two", "way", "who", "boy", "did", "its", "let", "put", "say", "she", "too", "use", "with", "from", "that", "this", "they", "have", "been", "were", "what", "when", "your", "said", "each", "which", "their", "time", "will", "about", "many", "then", "them", "some", "into", "more", "other")
+        val distinctiveWords = alphanumericWords.filter { it.lowercase() !in stopWords }
+
         val candidates = buildList {
-            add(sentence.take(180))
-            if (words.size >= 8) add(words.take(14).joinToString(" "))
-            if (words.size >= 12) add(words.drop(words.size / 3).take(12).joinToString(" "))
-            if (words.size >= 8) add(words.takeLast(12).joinToString(" "))
-        }.map { it.replace(Regex("\\s+"), " ").trim() }
-            .filter { it.length >= 12 }
+            // Level 1: Full raw sentence prefix
+            add(cleanSentence.take(160))
+            if (cleanSentence.length > 80) add(cleanSentence.take(80))
+
+            // Level 2: Punctuation-stripped prefix
+            val stripped = cleanSentence.replace(Regex("[.,:;!?\"'()\\[\\]{}]"), " ").replace(Regex("\\s+"), " ").trim()
+            if (stripped != cleanSentence) {
+                add(stripped.take(120))
+                if (stripped.length > 60) add(stripped.take(60))
+            }
+
+            // Level 3: Distinctive word n-grams (3-5 words)
+            if (distinctiveWords.size >= 4) {
+                add(distinctiveWords.take(4).joinToString(" "))
+                if (distinctiveWords.size >= 8) {
+                    add(distinctiveWords.drop(distinctiveWords.size / 2).take(4).joinToString(" "))
+                }
+            }
+
+            // Level 4: Sliding consecutive word windows (3-5 words)
+            if (words.size >= 5) {
+                add(words.take(5).joinToString(" "))
+                add(words.takeLast(minOf(5, words.size)).joinToString(" "))
+                if (words.size >= 8) {
+                    val mid = words.size / 2
+                    add(words.subList(maxOf(0, mid - 2), minOf(words.size, mid + 3)).joinToString(" "))
+                }
+            }
+            if (words.size in 3..4) {
+                add(words.joinToString(" "))
+            }
+
+            // Level 5: Longest distinctive words
+            val longestWords = alphanumericWords.sortedByDescending { it.length }.take(3)
+            if (longestWords.size >= 2 && longestWords.first().length >= 6) {
+                add(longestWords.joinToString(" "))
+            }
+        }.map { sanitize(it) }
+            .filter { it.length >= 6 }
             .distinct()
+
         for (query in candidates) {
             val highlights = runCatching {
                 val matches = document.searchDocument(query, pageRange)

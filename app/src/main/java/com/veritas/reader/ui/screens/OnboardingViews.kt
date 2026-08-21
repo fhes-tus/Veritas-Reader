@@ -2037,15 +2037,21 @@ fun OnboardingSpotlightOverlay(
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        // Transparent black layer with a clear cutout
-        Canvas(
+        // Fullscreen touch barrier to prevent clicks from bleeding through to underlying home screen tabs and buttons
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures {
-                        // Prevent clicks passing to behind views on backdrop
-                    }
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null
+                ) {
+                    // Consume background taps so underlying UI cannot be accidentally pressed
                 }
+        )
+
+        // Transparent black layer with a clear cutout
+        Canvas(
+            modifier = Modifier.fillMaxSize()
         ) {
             val canvasWidth = size.width
             val canvasHeight = size.height

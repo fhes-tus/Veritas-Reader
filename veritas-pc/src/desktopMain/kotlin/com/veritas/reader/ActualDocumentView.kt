@@ -307,8 +307,9 @@ internal fun ActualDocumentView(
             val viewportWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
             val viewportHeightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
             fun clampOffset(offset: Offset, scale: Float): Offset {
-                val maxOffsetX = (viewportWidthPx * (scale - 1f)) / 2f
-                val maxOffsetY = (viewportHeightPx * (scale - 1f)) / 2f
+                if (scale <= 1.0f) return Offset.Zero
+                val maxOffsetX = maxOf(0f, (viewportWidthPx * (scale - 1f)) / 2f)
+                val maxOffsetY = maxOf(0f, (viewportHeightPx * (scale - 1f)) / 2f)
                 return Offset(
                     offset.x.coerceIn(-maxOffsetX, maxOffsetX),
                     offset.y.coerceIn(-maxOffsetY, maxOffsetY)
@@ -421,7 +422,7 @@ internal fun ActualDocumentView(
                                 horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 TextButton(
-                                    onClick = { setZoom(zoomScale / CANVAS_ZOOM_STEP) },
+                                    onClick = { setZoom((zoomScale - CANVAS_ZOOM_STEP).coerceAtLeast(MIN_CANVAS_ZOOM)) },
                                     enabled = zoomScale > MIN_CANVAS_ZOOM + 0.01f
                                 ) { Text("−") }
                                 TextButton(onClick = { setZoom(1f, Offset.Zero) }) {
@@ -433,7 +434,7 @@ internal fun ActualDocumentView(
                                     )
                                 }
                                 TextButton(
-                                    onClick = { setZoom(zoomScale * CANVAS_ZOOM_STEP) },
+                                    onClick = { setZoom((zoomScale + CANVAS_ZOOM_STEP).coerceAtMost(MAX_CANVAS_ZOOM)) },
                                     enabled = zoomScale < MAX_CANVAS_ZOOM - 0.01f
                                 ) { Text("+") }
                             }
@@ -1031,6 +1032,6 @@ private fun CanvasControlButton(
     }
 }
 
-private const val MIN_CANVAS_ZOOM = 1f
-private const val MAX_CANVAS_ZOOM = 4f
-private const val CANVAS_ZOOM_STEP = 1.25f
+private const val MIN_CANVAS_ZOOM = 0.75f
+private const val MAX_CANVAS_ZOOM = 5.0f
+private const val CANVAS_ZOOM_STEP = 0.25f

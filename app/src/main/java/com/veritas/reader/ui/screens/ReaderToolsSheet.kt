@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material.icons.outlined.Timer
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Spellcheck
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.FileDownload
@@ -94,6 +96,7 @@ fun ReaderToolsSheet(
     onOpenReaderSettings: () -> Unit,
     onOpenPronunciationRules: () -> Unit,
     onExportAudio: () -> Unit,
+    onExportStudyGuidePdf: () -> Unit = {},
     onToggleQueue: () -> Unit,
     onPlayQueue: () -> Unit,
     
@@ -265,6 +268,13 @@ fun ReaderToolsSheet(
                     onClick = { choose(onOpenDocumentNotes) }
                 )
 
+                SettingsItem(
+                    title = "Export Study Guide PDF",
+                    leadingIcon = Icons.AutoMirrored.Outlined.MenuBook,
+                    subtitle = "Styled A4 PDF with booknotes & highlights",
+                    onClick = { choose(onExportStudyGuidePdf) }
+                )
+
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
                 // STUDY SECTION
@@ -341,7 +351,7 @@ fun ReaderToolsSheet(
                 val pronunciationFeature = readerFeature(VeritasFeatureId.PRONUNCIATION_RULES)
                 SettingsItem(
                     title = "Pronunciation rules",
-                    leadingIcon = Icons.Outlined.RecordVoiceOver,
+                    leadingIcon = Icons.Outlined.Spellcheck,
                     enabled = pronunciationFeature.enabled,
                     subtitle = if (!pronunciationFeature.enabled) pronunciationFeature.disabledReason else null,
                     onClick = { choose(onOpenPronunciationRules) }

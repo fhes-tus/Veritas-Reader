@@ -67,7 +67,7 @@ class VeritasAudioBuffer(
         }
     }
 
-    fun playSentencePcm(index: Int, text: String, onComplete: () -> Unit) {
+    fun playSentencePcm(index: Int, text: String, onComplete: (success: Boolean) -> Unit) {
         scope.launch(Dispatchers.IO) {
             isPlaying = true
             val requestedAt = System.currentTimeMillis()
@@ -150,11 +150,14 @@ class VeritasAudioBuffer(
                         delay(15)
                     }
                 }
+                withContext(Dispatchers.Main) {
+                    onComplete(true)
+                }
             } else {
                 Log.w(TAG, "No audio generated for sentence $index")
-            }
-            withContext(Dispatchers.Main) {
-                onComplete()
+                withContext(Dispatchers.Main) {
+                    onComplete(false)
+                }
             }
         }
     }

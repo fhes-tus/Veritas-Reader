@@ -67,24 +67,60 @@ fun UserManualDialog(
     val allSections = remember {
         listOf(
             ManualSection(
+                title = "Home & Navigation",
+                icon = Icons.Outlined.Home,
+                description = "4-tab navigation, daily goals, activity charts, and quick quests",
+                chapters = listOf(
+                    ManualChapter(
+                        title = "Home Dashboard & Quests",
+                        icon = Icons.Outlined.Dashboard,
+                        subtitle = "Daily targets, reading streak, and instant resume",
+                        content = "The Home tab is your daily reading companion. View your active book with a quick 'Continue' button, track daily reading minutes toward your goal ring, see weekly reading bar charts, and conquer fun daily reading quests.",
+                        ctaText = "Go to Settings",
+                        ctaAction = "reader_settings",
+                        flowSteps = listOf(
+                            "Tap 'Home' on the bottom navigation bar",
+                            "Tap 'Continue' on the hero banner to resume your current book",
+                            "Check off your daily reading goals and track streaks"
+                        ),
+                        imageResId = R.drawable.manual_library_main,
+                        tags = listOf("home", "dashboard", "quest", "goal", "streak", "continue reading", "hero")
+                    ),
+                    ManualChapter(
+                        title = "Four Main Workspaces",
+                        icon = Icons.Outlined.ViewStream,
+                        subtitle = "Home, Library, Study, and Settings Hub",
+                        content = "Veritas is organized into 4 primary tabs: 'Home' for daily reading momentum, 'Library' for your document catalog and imports, 'Study' for flashcards and reading insights, and 'Settings' for complete audio, visual, and backup configuration.",
+                        ctaText = "Explore Settings",
+                        ctaAction = "reader_settings",
+                        flowSteps = listOf(
+                            "Use the bottom bar to switch between Home, Library, Study, and Settings",
+                            "Enjoy fluid animated transitions between all four tabs",
+                            "Access all tools without getting lost in nested submenus"
+                        ),
+                        tags = listOf("tabs", "navigation", "workspaces", "home", "library", "study", "settings hub")
+                    )
+                )
+            ),
+            ManualSection(
                 title = "Library & Files",
                 icon = Icons.AutoMirrored.Outlined.MenuBook,
                 description = "Manage your books, documents, and web imports",
                 chapters = listOf(
                     ManualChapter(
-                        title = "Library Dashboard",
+                        title = "Library Dashboard & Shelf",
                         icon = Icons.Outlined.CollectionsBookmark,
-                        subtitle = "Central document library overview",
-                        content = "The Library dashboard is your starting point in Veritas. It compiles all your imported books, documents, and web articles. View reading progress per file, see completion status, filter your lists, and tap any item to start reading instantly.",
+                        subtitle = "Catalog, category chips, and preloaded books",
+                        content = "The Library dashboard compiles all your imported books, documents, and web articles, alongside preloaded classics like 'Who Moved My Cheese?'. Use category filter chips (All, Reading, Finished, Unread, Audio, Favorites) and instant search to find any title in seconds.",
                         ctaText = "Manage Reading Lists",
                         ctaAction = "reading_lists",
                         flowSteps = listOf(
-                            "Launch Veritas to view your Library",
-                            "Filter or sort your list using the top toolbar",
-                            "Tap on a book card to open the reader"
+                            "Tap the 'Library' tab on the bottom bar",
+                            "Filter by status using the category chips under the search bar",
+                            "Tap any book card to open the reader canvas instantly"
                         ),
                         imageResId = R.drawable.manual_library_main,
-                        tags = listOf("dashboard", "library", "books", "documents", "articles", "lists", "shelf")
+                        tags = listOf("dashboard", "library", "books", "documents", "articles", "lists", "shelf", "who moved my cheese", "filter")
                     ),
                     ManualChapter(
                         title = "Document Actions & Metadata",
@@ -117,10 +153,10 @@ fun UserManualDialog(
                         tags = listOf("batch", "bulk", "multi-select", "select all", "delete multiple", "organize")
                     ),
                     ManualChapter(
-                        title = "Adding Content",
+                        title = "Adding Content & Formats",
                         icon = Icons.Outlined.AddCircleOutline,
-                        subtitle = "Quick-add drawer options",
-                        content = "Tap the floating '+' action button to expand content addition options. Import local document files, scrape online articles by pasting a web link, or open a clean canvas in the text editor to write scratch notes.",
+                        subtitle = "Import EPUB, PDF, DOCX, PPTX, TXT, and Web links",
+                        content = "Tap the floating '+' action button to import content. Veritas supports universal document parsing for EPUB eBooks, PDF papers, Word DOCX files, PowerPoint PPTX presentations, plain text TXT files, and instant web article scraping.",
                         ctaText = "Open File Browser",
                         ctaAction = "file_browser",
                         flowSteps = listOf(
@@ -129,7 +165,7 @@ fun UserManualDialog(
                             "Confirm the selection to add it to your library"
                         ),
                         imageResId = R.drawable.manual_add_sheet,
-                        tags = listOf("add", "import", "plus", "url", "web", "scrape", "link", "new")
+                        tags = listOf("add", "import", "plus", "url", "web", "scrape", "link", "new", "epub", "pdf", "docx", "pptx", "txt")
                     ),
                     ManualChapter(
                         title = "Integrated File Browser",
@@ -145,21 +181,6 @@ fun UserManualDialog(
                         ),
                         imageResId = R.drawable.manual_file_browser,
                         tags = listOf("file browser", "storage", "directory", "folder", "epub", "pdf", "docx", "txt", "import")
-                    ),
-                    ManualChapter(
-                        title = "File Browser Custom Filters",
-                        icon = Icons.Outlined.FilterList,
-                        subtitle = "Sort and filter local storage files",
-                        content = "Refine lists in the local browser using the options menu. Sort files by size, date, or name, and toggle the visibility of hidden system folders or files to quickly locate specific digital books or textbooks.",
-                        ctaText = "File Sort Tip",
-                        ctaAction = "file_browser_filters",
-                        flowSteps = listOf(
-                            "Open the local file browser screen",
-                            "Tap the three-dot menu at the top-right",
-                            "Apply sorting rules or filter constraints"
-                        ),
-                        imageResId = R.drawable.manual_file_browser_menu,
-                        tags = listOf("sort", "filter", "hidden files", "file size", "alphabetical", "directory filter")
                     ),
                     ManualChapter(
                         title = "PDF & Text Extraction Settings",
@@ -181,28 +202,42 @@ fun UserManualDialog(
             ManualSection(
                 title = "Reader & Display",
                 icon = Icons.Outlined.AutoStories,
-                description = "Customize font, display modes, themes, and PDF layout",
+                description = "Reflowed text, bionic reading, theme packs, and PDF zoom",
                 chapters = listOf(
                     ManualChapter(
-                        title = "Reader Screen Text Mode",
+                        title = "Reader Screen & Page Swiping",
                         icon = Icons.Outlined.Article,
-                        subtitle = "Reflowed layout reading canvas",
-                        content = "Open any book in Text Mode to view clean, reflowed paragraphs. Fixed page borders and margins are removed, allowing text to fit your screen size perfectly. Text matches your theme colors, and double-tapping acts as a shortcut for definitions.",
+                        subtitle = "Reflowed layout and smooth page navigation",
+                        content = "Open any book in Text Mode to view clean, reflowed paragraphs with fluid horizontal swipe transitions. Text matches your theme colors, font size and section spacing adjust dynamically, and tapping any sentence starts audio playback.",
                         ctaText = "Select Text Tip",
                         ctaAction = "text_selection",
                         flowSteps = listOf(
                             "Open a document card from your Library",
-                            "Swipe or scroll to navigate between pages",
-                            "Double-tap any word to select it"
+                            "Swipe left and right to navigate smoothly between pages",
+                            "Double-tap any word to select it or tap play to listen"
                         ),
                         imageResId = R.drawable.manual_reader_screen,
-                        tags = listOf("reflow", "text mode", "canvas", "paragraphs", "font size", "margin", "padding")
+                        tags = listOf("reflow", "text mode", "canvas", "paragraphs", "font size", "margin", "padding", "swipe", "pages")
+                    ),
+                    ManualChapter(
+                        title = "Bionic Reading Mode",
+                        icon = Icons.Outlined.Bolt,
+                        subtitle = "Enhanced visual fixation for faster comprehension",
+                        content = "Enable Bionic Reading in the reader settings toolbar to emphasize the initial letters of each word. This guides your eyes across the text, dramatically boosting reading speed and cognitive retention.",
+                        ctaText = "Reader Settings",
+                        ctaAction = "reader_settings",
+                        flowSteps = listOf(
+                            "Tap the typography gear icon in the reader bar",
+                            "Toggle 'Bionic Reading' ON",
+                            "Experience fast, effortless eye tracking across paragraphs"
+                        ),
+                        tags = listOf("bionic", "speed reading", "fixation", "eye tracking", "font", "focus")
                     ),
                     ManualChapter(
                         title = "Original PDF Layout Mode",
                         icon = Icons.Outlined.PictureInPicture,
-                        subtitle = "Read fixed-page PDF documents",
-                        content = "Switch to Original Mode to view documents exactly as formatted. Ideal for textbooks, multi-column research papers, and books with complex visual layouts. Zoom, pan, and tap sentences to trigger speech narration or sync coordinates.",
+                        subtitle = "Read fixed-page PDF documents with zoom",
+                        content = "Switch to Original Mode to view documents in their native layout. Ideal for textbooks, multi-column research papers, and books with charts. Pinch to zoom, pan freely, and tap sentences to trigger synchronized speech narration.",
                         ctaText = "PDF Tools Settings",
                         ctaAction = "pdf_tools",
                         flowSteps = listOf(
@@ -214,40 +249,25 @@ fun UserManualDialog(
                         tags = listOf("pdf", "original", "fixed layout", "columns", "zoom", "pan", "textbook")
                     ),
                     ManualChapter(
-                        title = "Reader Presentation Modes",
-                        icon = Icons.Outlined.ViewCarousel,
-                        subtitle = "Toggle TEXT, LISTEN, and ORIGINAL views",
-                        content = "Maximize focus by choosing the ideal presentation mode. 'TEXT' extracts and reflows content for clean reading, 'LISTEN' focuses on audio playback controls, and 'ORIGINAL' displays the document's native fixed format page layout.",
-                        ctaText = "Reader Settings",
-                        ctaAction = "reader_settings",
-                        flowSteps = listOf(
-                            "While reading a book, locate the mode selector tabs",
-                            "Tap 'TEXT' for clean reflow or 'LISTEN' for audio layout",
-                            "Switch back to 'ORIGINAL' for original formatting"
-                        ),
-                        imageResId = R.drawable.manual_reader_tabs,
-                        tags = listOf("presentation", "listen mode", "text mode", "original mode", "tabs", "view")
-                    ),
-                    ManualChapter(
-                        title = "Typography & Theme Controls",
+                        title = "Theme Packs & Paired Colours",
                         icon = Icons.Outlined.Palette,
-                        subtitle = "Personalize fonts, sizes, and layout",
-                        content = "Adjust the reader interface to fit your reading preferences. Switch background colors (Light, Dark, Sepia, or glassmorphic theme packs), customize fonts (including Lexend and OpenDyslexic), and set custom line spacing or page margins.",
+                        subtitle = "Liquid Glass, One UI, Material You, and Dark palettes",
+                        content = "Personalize the entire app interface. Choose between 4 distinct Theme Packs (Veritas Media, Liquid Glass, One UI, Material You) and comprehensive color schemes (Light, Dark, Midnight Dark, GitHub Dark/Light, Dracula, One Dark Pro, Neon, and Blue High Contrast).",
                         ctaText = "Configure Appearance",
                         ctaAction = "reader_settings",
                         flowSteps = listOf(
-                            "Tweak spacing or font style while reading",
-                            "Tap the typography gear icon in the reader bar",
-                            "Select a combination that maximizes your comfort"
+                            "Go to Settings -> Display & theme",
+                            "Select your favorite Theme Pack and Colour Theme",
+                            "Enjoy a cohesive visual style with dedicated card surfaces and container tones"
                         ),
                         imageResId = R.drawable.manual_reader_settings,
-                        tags = listOf("font", "theme", "dark mode", "sepia", "lexend", "opendyslexic", "line spacing", "margins", "appearance")
+                        tags = listOf("theme", "theme packs", "liquid glass", "one ui", "material you", "dark", "midnight dark", "dracula", "github", "neon")
                     ),
                     ManualChapter(
                         title = "Reader Tools Overflow",
                         icon = Icons.Outlined.Tune,
-                        subtitle = "Secondary actions inside the reader",
-                        content = "Tap the options overflow in the reader to access extra tools. This menu houses quick bookmark creation, word search inside the active book, reader progress resets, and options to export highlighted notes to external Markdown files.",
+                        subtitle = "Bookmarks, in-book search, and notes export",
+                        content = "Tap the options overflow in the reader to access extra tools. This menu houses quick bookmark creation, instant word search inside the active book, reader progress resets, and options to export highlighted notes to external Markdown files.",
                         ctaText = "Reader Options Tip",
                         ctaAction = "reader_tools",
                         flowSteps = listOf(
@@ -257,27 +277,13 @@ fun UserManualDialog(
                         ),
                         imageResId = R.drawable.manual_reader_tools_menu,
                         tags = listOf("bookmark", "search text", "export notes", "markdown", "reset progress")
-                    ),
-                    ManualChapter(
-                        title = "Adaptive Book Cover Themes",
-                        icon = Icons.Outlined.ColorLens,
-                        subtitle = "Extract theme colors dynamically",
-                        content = "Veritas automatically extracts vibrant color palettes from your document cover designs. When the 'Adaptive Cover' theme option is selected in Reader Settings, the reader UI changes its layout color schemes dynamically to match your book's primary and accent colors.",
-                        ctaText = "Adaptive Cover Settings",
-                        ctaAction = "reader_settings",
-                        flowSteps = listOf(
-                            "Open Reader Settings from the reader menu",
-                            "Select 'Adaptive Cover' from theme options",
-                            "Enjoy a beautifully matched background and UI"
-                        ),
-                        tags = listOf("cover", "adaptive theme", "dynamic color", "palette", "accent color")
                     )
                 )
             ),
             ManualSection(
                 title = "Audio & Narration",
                 icon = Icons.Outlined.RecordVoiceOver,
-                description = "Speed controls, voice engines, speech synthesis, and sleep timer",
+                description = "Veritas Studio & Lite offline neural voices, narration studio, and sleep timer",
                 chapters = listOf(
                     ManualChapter(
                         title = "Audio Player & Playback Control",
@@ -295,19 +301,19 @@ fun UserManualDialog(
                         tags = listOf("audio", "tts", "play", "pause", "speed", "playback", "listen", "narrate", "loud")
                     ),
                     ManualChapter(
-                        title = "Voice Studio & Engines",
+                        title = "Voice Studio & Offline Neural Voices",
                         icon = Icons.Outlined.RecordVoiceOver,
-                        subtitle = "Manage text-to-speech speech synthesis",
-                        content = "Customize your voice engine in the Voice Studio. Select from system speech synthesis engines (such as Google TTS), download regional language packs, and preview accents to find the clearest, most natural voice.",
+                        subtitle = "Veritas Studio (Kokoro) & Veritas Lite (Piper)",
+                        content = "Enjoy ultra-high-quality offline speech synthesis with zero cloud dependency. Download Veritas Studio (Kokoro neural voices) for studio-grade narration or Veritas Lite (Piper) for ultra-fast, lightweight playback.",
                         ctaText = "Manage Voice Settings",
                         ctaAction = "voice_studio",
                         flowSteps = listOf(
-                            "Open settings and click Voice Studio",
-                            "Select your preferred Speech Synthesis Engine",
-                            "Choose a specific voice profile from the list"
+                            "Open Settings -> Voice Studio",
+                            "Select Veritas Studio or Veritas Lite",
+                            "Download voice models and audition voice presets"
                         ),
                         imageResId = R.drawable.manual_voice_language,
-                        tags = listOf("voice", "engine", "tts", "google tts", "accent", "language", "speech synthesis", "speak")
+                        tags = listOf("voice", "engine", "tts", "veritas studio", "kokoro", "veritas lite", "piper", "offline", "neural voice")
                     ),
                     ManualChapter(
                         title = "Full-Cast Narration Studio",
@@ -317,7 +323,7 @@ fun UserManualDialog(
                         ctaText = "Narration Controls",
                         ctaAction = "narration_studio",
                         flowSteps = listOf(
-                            "Go to settings and select Narration Studio",
+                            "Go to Settings -> Narration Studio",
                             "Enable Full-cast multi-voice mode",
                             "Create character profiles and customize pitch/speed"
                         ),
@@ -332,12 +338,12 @@ fun UserManualDialog(
                         ctaText = "Configure Pronunciation",
                         ctaAction = "pronunciation",
                         flowSteps = listOf(
-                            "Select Pronunciation Rules in settings",
+                            "Select Speech Edits in Settings",
                             "Tap '+' to add a word replacement pair",
                             "Write target word and its phonetic correction"
                         ),
                         imageResId = R.drawable.manual_pronunciation_rules,
-                        tags = listOf("pronunciation", "phonetics", "acronyms", "mispronounce", "dictionary", "replace word")
+                        tags = listOf("pronunciation", "phonetics", "acronyms", "mispronounce", "dictionary", "replace word", "speech edits")
                     ),
                     ManualChapter(
                         title = "Sleep Timer Settings",
@@ -423,24 +429,23 @@ fun UserManualDialog(
                 )
             ),
             ManualSection(
-                title = "Advanced Tools & Cloud",
+                title = "Data, Storage & Backup",
                 icon = Icons.Outlined.Settings,
-                description = "AI helpers, sync center, backups, and custom selection tools",
+                description = "Storage manager, sync center, backups, and interactive selection tools",
                 chapters = listOf(
                     ManualChapter(
-                        title = "AI Handoff & Summaries",
-                        icon = Icons.Outlined.AutoAwesome,
-                        subtitle = "Summarize text segments using AI helpers",
-                        content = "Send highlighted paragraphs or chapters to AI helper tools. These assistants summarize complex sections, explain difficult concepts, translate foreign phrases, and create question-and-answer study sheets.",
-                        ctaText = "Open AI Center",
-                        ctaAction = "ai_center",
+                        title = "Storage Manager & Smart Cleanup",
+                        icon = Icons.Outlined.Storage,
+                        subtitle = "Inspect file sizes and clear cached TTS audio",
+                        content = "Monitor disk usage from Settings -> Storage Manager. View storage consumed by your library books, extracted PDFs, downloaded voice models, and generated speech cache, with one-tap smart cache clearing.",
+                        ctaText = "Open Storage Manager",
+                        ctaAction = "storage_manager",
                         flowSteps = listOf(
-                            "Highlight a paragraph in the reader",
-                            "Tap 'AI Handoff' action from toolbar",
-                            "Choose an option (Summarize, Translate, or Explain)"
+                            "Go to Settings -> Storage Manager",
+                            "Inspect breakdown of documents and voice models",
+                            "Tap 'Clear Cache' to free up disk space safely"
                         ),
-                        imageResId = R.drawable.manual_ai_handoff,
-                        tags = listOf("ai", "summary", "translate", "explain", "assistant", "chat", "smart", "prompt")
+                        tags = listOf("storage", "cache", "cleanup", "disk", "free space", "delete voice", "audio cache")
                     ),
                     ManualChapter(
                         title = "Interactive Text Selection",
@@ -465,7 +470,7 @@ fun UserManualDialog(
                         ctaText = "Manage Sync Center",
                         ctaAction = "sync_center",
                         flowSteps = listOf(
-                            "Open settings and click Sync Center",
+                            "Open Settings -> Sync Center",
                             "Configure WebDAV or cloud accounts",
                             "Tap 'Sync Now' to manually synchronize files"
                         ),

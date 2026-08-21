@@ -18,7 +18,13 @@ class KokoroTtsEngine(context: Context, private val voiceId: String) : TtsEngine
 
     init {
         val dir = VoiceModelManager.getVoiceDirectory(context, OfflineEngineType.KOKORO)
-        if (VoiceModelManager.isVoiceInstalled(context, voiceId)) {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val memInfo = android.app.ActivityManager.MemoryInfo().also { am?.getMemoryInfo(it) }
+        val isCriticallyLowMemory = memInfo.lowMemory || (memInfo.availMem in 1L until 150_000_000L)
+
+        if (isCriticallyLowMemory) {
+            Log.w(TAG, "Device memory is critically low (${memInfo.availMem / (1024 * 1024)}MB available); skipping Kokoro ONNX neural allocation to avoid LMK crash.")
+        } else if (VoiceModelManager.isVoiceInstalled(context, voiceId)) {
             engine = runCatching {
                 val modelFile = listOf("model.onnx", "model.fp16.onnx", "model.int8.onnx")
                     .map { java.io.File(dir, it) }

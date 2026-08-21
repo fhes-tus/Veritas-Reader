@@ -57,7 +57,7 @@ class ReadingProgressWidget : GlanceAppWidget() {
             val borderModifier = GlanceModifier
                 .fillMaxSize()
                 .background(VeritasWidgetColors.border)
-                .cornerRadius(24.dp)
+                .cornerRadius(28.dp)
 
             Box(
                 modifier = borderModifier,
@@ -67,16 +67,17 @@ class ReadingProgressWidget : GlanceAppWidget() {
                     modifier = GlanceModifier
                         .fillMaxSize()
                         .padding(1.dp)
-                        .cornerRadius(23.dp)
+                        .cornerRadius(27.dp)
                         .background(VeritasWidgetColors.frostedBackground)
                         .padding(12.dp)
                 ) {
+                    // Header
                     Row(
                         modifier = GlanceModifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Reading Progress",
+                            text = "Reading Tracker",
                             style = TextStyle(
                                 fontSize = if (size.width >= 240.dp) 15.sp else 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -89,15 +90,15 @@ class ReadingProgressWidget : GlanceAppWidget() {
                             modifier = GlanceModifier
                                 .cornerRadius(12.dp)
                                 .background(VeritasWidgetColors.cardBackground)
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "🔥 ${tracker.currentStreak}d",
+                                text = "🔥 ${tracker.currentStreak}d Streak",
                                 style = TextStyle(
-                                    fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
+                                    fontSize = if (size.width >= 240.dp) 11.sp else 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = ColorProvider(Color(0xFFFAB387))
+                                    color = VeritasWidgetColors.streakAccent
                                 )
                             )
                         }
@@ -111,7 +112,7 @@ class ReadingProgressWidget : GlanceAppWidget() {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "No document active. Tap to open app.",
+                                text = "No active book. Tap to open library.",
                                 style = TextStyle(
                                     fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
                                     color = VeritasWidgetColors.textMuted
@@ -141,91 +142,109 @@ class ReadingProgressWidget : GlanceAppWidget() {
                             ContinueReadingActionCallback.DocIdKey to activeDoc.id
                         )
 
-                        Row(
-                            modifier = GlanceModifier.defaultWeight().fillMaxWidth().clickable(actionRunCallback<ContinueReadingActionCallback>(continueParams)),
-                            verticalAlignment = Alignment.CenterVertically
+                        Box(
+                            modifier = GlanceModifier
+                                .fillMaxWidth()
+                                .defaultWeight()
+                                .cornerRadius(16.dp)
+                                .background(VeritasWidgetColors.cardBackground)
+                                .padding(10.dp)
+                                .clickable(actionRunCallback<ContinueReadingActionCallback>(continueParams)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            val coverFile = CoverExtractor.coverFile(context, activeDoc.id)
-                            val bitmap = if (coverFile != null && coverFile.exists()) {
-                                runCatching { BitmapFactory.decodeFile(coverFile.absolutePath) }.getOrNull()
-                            } else null
+                            Row(
+                                modifier = GlanceModifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val coverFile = CoverExtractor.coverFile(context, activeDoc.id)
+                                val bitmap = if (coverFile != null && coverFile.exists()) {
+                                    runCatching { BitmapFactory.decodeFile(coverFile.absolutePath) }.getOrNull()
+                                } else null
 
-                            if (bitmap != null) {
-                                Image(
-                                    provider = ImageProvider(bitmap),
-                                    contentDescription = "Cover",
-                                    modifier = GlanceModifier.size(40.dp, 56.dp).cornerRadius(8.dp)
-                                )
-                            } else {
-                                // Premium gradient card cover placeholder
-                                Box(
-                                    modifier = GlanceModifier
-                                        .size(40.dp, 56.dp)
-                                        .cornerRadius(8.dp)
-                                        .background(ImageProvider(R.drawable.ic_widget_book_cover_gradient)),
-                                    contentAlignment = Alignment.Center
-                                ) {
+                                if (bitmap != null) {
                                     Image(
-                                        provider = ImageProvider(R.drawable.ic_widget_library),
-                                        contentDescription = "Book icon",
-                                        modifier = GlanceModifier.size(24.dp),
-                                        colorFilter = ColorFilter.tint(ColorProvider(Color.White))
+                                        provider = ImageProvider(bitmap),
+                                        contentDescription = "Cover",
+                                        modifier = GlanceModifier.size(42.dp, 58.dp).cornerRadius(8.dp)
+                                    )
+                                } else {
+                                    // Premium gradient card cover placeholder
+                                    Box(
+                                        modifier = GlanceModifier
+                                            .size(42.dp, 58.dp)
+                                            .cornerRadius(8.dp)
+                                            .background(ImageProvider(R.drawable.ic_widget_book_cover_gradient)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            provider = ImageProvider(R.drawable.ic_widget_library),
+                                            contentDescription = "Book icon",
+                                            modifier = GlanceModifier.size(24.dp),
+                                            colorFilter = ColorFilter.tint(ColorProvider(Color.White))
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = GlanceModifier.width(10.dp))
+
+                                Column(
+                                    modifier = GlanceModifier.defaultWeight()
+                                ) {
+                                    Text(
+                                        text = activeDoc.title,
+                                        style = TextStyle(
+                                            fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = VeritasWidgetColors.textPrimary
+                                        ),
+                                        maxLines = 1
+                                    )
+                                    Spacer(modifier = GlanceModifier.height(2.dp))
+                                    Text(
+                                        text = "$progressPercent% complete • $todayMinutes min today",
+                                        style = TextStyle(
+                                            fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
+                                            color = VeritasWidgetColors.textMuted
+                                        ),
+                                        maxLines = 1
+                                    )
+                                    Spacer(modifier = GlanceModifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = progressVal,
+                                        modifier = GlanceModifier.fillMaxWidth().height(4.dp),
+                                        color = VeritasWidgetColors.primaryAccent,
+                                        backgroundColor = VeritasWidgetColors.progressTrack
                                     )
                                 }
                             }
-
-                            Spacer(modifier = GlanceModifier.width(10.dp))
-
-                            Column(
-                                modifier = GlanceModifier.defaultWeight()
-                            ) {
-                                Text(
-                                    text = activeDoc.title,
-                                    style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 15.sp else 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = VeritasWidgetColors.textPrimary
-                                    ),
-                                    maxLines = 1
-                                )
-                                Spacer(modifier = GlanceModifier.height(4.dp))
-                                Text(
-                                    text = "$progressPercent% read • $todayMinutes min today",
-                                    style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 13.sp else 11.sp,
-                                        color = VeritasWidgetColors.textMuted
-                                    ),
-                                    maxLines = 1
-                                )
-                                Spacer(modifier = GlanceModifier.height(6.dp))
-                                LinearProgressIndicator(
-                                    progress = progressVal,
-                                    modifier = GlanceModifier.fillMaxWidth().height(4.dp),
-                                    color = VeritasWidgetColors.primaryAccent,
-                                    backgroundColor = VeritasWidgetColors.cardBackground
-                                )
-                            }
                         }
 
-                        Spacer(modifier = GlanceModifier.height(8.dp))
+                        Spacer(modifier = GlanceModifier.height(6.dp))
 
                         Row(
                             modifier = GlanceModifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Text(
+                                text = "Daily Goal: 30 min",
+                                style = TextStyle(
+                                    fontSize = 11.sp,
+                                    color = VeritasWidgetColors.textMuted
+                                )
+                            )
                             Spacer(modifier = GlanceModifier.defaultWeight())
                             Box(
                                 modifier = GlanceModifier
-                                    .cornerRadius(16.dp)
+                                    .cornerRadius(14.dp)
                                     .background(VeritasWidgetColors.playButtonAccent)
                                     .clickable(actionRunCallback<ContinueReadingActionCallback>(continueParams))
-                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    .padding(horizontal = 14.dp, vertical = 5.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "Continue",
+                                    text = "Resume ▶",
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
+                                        fontSize = if (size.width >= 240.dp) 13.sp else 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = VeritasWidgetColors.playIconColor
                                     )

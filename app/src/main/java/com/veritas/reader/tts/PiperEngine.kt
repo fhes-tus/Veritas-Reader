@@ -25,17 +25,17 @@ class PiperEngine(context: Context, private val voiceId: String) : TtsEngine {
         if (modelBase != null && VoiceModelManager.isVoiceInstalled(context, voiceId)) {
             engine = runCatching {
                 OfflineTts(
-                config = OfflineTtsConfig(
-                    model = OfflineTtsModelConfig(
-                        vits = OfflineTtsVitsModelConfig(
-                            model = "${dir.absolutePath}/$modelBase.onnx",
-                            tokens = "${dir.absolutePath}/tokens.txt",
-                            // One bundle shared by every Piper voice.
-                            dataDir = VoiceModelManager.sharedEspeakDirectory(context).absolutePath
-                        ),
-                        numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+                    config = OfflineTtsConfig(
+                        model = OfflineTtsModelConfig(
+                            vits = OfflineTtsVitsModelConfig(
+                                model = "${dir.absolutePath}/$modelBase.onnx",
+                                tokens = "${dir.absolutePath}/tokens.txt",
+                                // One bundle shared by every Piper voice.
+                                dataDir = VoiceModelManager.sharedEspeakDirectory(context).absolutePath
+                            ),
+                            numThreads = 2
+                        )
                     )
-                )
                 )
             }.onFailure { Log.e(TAG, "Could not initialize Piper voice $voiceId", it) }.getOrNull()
         } else if (modelBase == null) {
@@ -47,10 +47,14 @@ class PiperEngine(context: Context, private val voiceId: String) : TtsEngine {
 
     override suspend fun synthesize(sentence: String): ShortArray? = withContext(Dispatchers.Default) {
         val tts = engine ?: return@withContext null
-        if (sentence.isBlank()) return@withContext null
+        val clean = sentence.trim()
+        if (clean.isBlank()) return@withContext null
         runCatching {
-            tts.generate(sentence).samples.let { samples ->
-                ShortArray(samples.size) { index -> (samples[index].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort() }
+            val audio = tts.generate(clean, sid = 0, speed = 1.0f)
+            val samples = audio.samples
+            if (samples.isEmpty()) return@withContext null
+            ShortArray(samples.size) { index ->
+                (samples[index].coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort()
             }
         }.onFailure { Log.e(TAG, "Piper synthesis failed", it) }.getOrNull()
     }

@@ -31,6 +31,12 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.MediaStyleNotificationHelper
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.VibrationEffect
+import android.os.Vibrator
 import java.io.File
 import java.util.UUID
 import kotlin.math.min
@@ -104,10 +110,6 @@ class PlaybackService : MediaSessionService() {
     private var resumeWordCount = 0
     private var pendingJumpCharOffset: Int? = null
     private var sleepTimerRunnable: Runnable? = null
-    // When true, the sleep timer has fired but we are mid-sentence.
-    // The timer action will execute at the next sentence boundary (onDone)
-    // so playback never cuts off mid-word.
-    private var pendingTimerFire = false
 
     private var audioFocusRequest: android.media.AudioFocusRequest? = null
     private var pausedDueToTransientFocusLoss = false
@@ -116,6 +118,7 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         repository = DocumentRepository(applicationContext)
+        com.veritas.reader.audio.AmbientSoundManager.init(this)
         PlaybackStateStore.queueCount = repository.loadQueueDocuments().size
         createNotificationChannel()
         setupMediaSession()
@@ -331,6 +334,36 @@ class PlaybackService : MediaSessionService() {
         val voiceSettings = repository.loadVoiceSettings()
         val requestedEngine = voiceSettings.enginePackage.ifBlank { null }
         if (VoiceManager.isVeritasEngine(requestedEngine)) {
+            val installed = com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(
+                applicationContext,
+                voiceSettings.voiceName
+            )
+            if (!installed) {
+                val engineType = if (requestedEngine == VoiceManager.VERITAS_LITE) {
+                    com.veritas.reader.tts.OfflineEngineType.PIPER
+                } else {
+                    com.veritas.reader.tts.OfflineEngineType.KOKORO
+                }
+                val fallbackVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
+                    .firstOrNull { it.engineType == engineType && com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(applicationContext, it.id) }
+                if (fallbackVoice != null) {
+                    val updatedSettings = voiceSettings.copy(voiceName = fallbackVoice.id)
+                    repository.saveVoiceSettings(updatedSettings)
+                    PlaybackStateStore.statusMessage = "Switched to installed voice: ${fallbackVoice.name}"
+                } else {
+                    Log.w(TAG, "Selected engine $requestedEngine is not downloaded. Falling back to system TTS.")
+                    PlaybackStateStore.statusMessage = "Voice not downloaded. Falling back to system voice."
+                    val updatedSettings = voiceSettings.copy(enginePackage = "")
+                    repository.saveVoiceSettings(updatedSettings)
+                    veritasAudioBuffer?.shutdown()
+                    veritasAudioBuffer = null
+                    activeEnginePackage = null
+                    ttsReady = false
+                    pendingSpeak = true
+                    tts = TextToSpeech(applicationContext) { status -> handleTtsInit(status) }
+                    return
+                }
+            }
             if (activeEnginePackage != requestedEngine) {
                 runCatching { tts?.stop() }
                 runCatching { tts?.shutdown() }
@@ -377,6 +410,33 @@ class PlaybackService : MediaSessionService() {
         val voiceSettings = repository.loadVoiceSettings()
         val requestedEngine = voiceSettings.enginePackage.ifBlank { null }
         if (VoiceManager.isVeritasEngine(requestedEngine)) {
+            val installed = com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(
+                applicationContext,
+                voiceSettings.voiceName
+            )
+            if (!installed) {
+                val engineType = if (requestedEngine == VoiceManager.VERITAS_LITE) {
+                    com.veritas.reader.tts.OfflineEngineType.PIPER
+                } else {
+                    com.veritas.reader.tts.OfflineEngineType.KOKORO
+                }
+                val fallbackVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
+                    .firstOrNull { it.engineType == engineType && com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(applicationContext, it.id) }
+                if (fallbackVoice != null) {
+                    val updatedSettings = voiceSettings.copy(voiceName = fallbackVoice.id)
+                    repository.saveVoiceSettings(updatedSettings)
+                } else {
+                    val updatedSettings = voiceSettings.copy(enginePackage = "")
+                    repository.saveVoiceSettings(updatedSettings)
+                    veritasAudioBuffer?.shutdown()
+                    veritasAudioBuffer = null
+                    activeEnginePackage = null
+                    ttsReady = false
+                    pendingSelectionText = text
+                    tts = TextToSpeech(applicationContext) { status -> handleTtsInit(status) }
+                    return
+                }
+            }
             if (activeEnginePackage != requestedEngine) {
                 runCatching { tts?.stop() }
                 runCatching { tts?.shutdown() }
@@ -498,9 +558,12 @@ class PlaybackService : MediaSessionService() {
     private var ttsSessionId: Int = android.media.AudioManager.ERROR
     private var ttsEqualizer: android.media.audiofx.Equalizer? = null
 
+    private var sleepFadeVolume: Float = 1.0f
+
     private fun ttsParams(utteranceId: String?): android.os.Bundle {
         val params = android.os.Bundle()
         utteranceId?.let { params.putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, it) }
+        params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, sleepFadeVolume)
         if (ttsSessionId != android.media.AudioManager.ERROR) {
             params.putInt(TextToSpeech.Engine.KEY_PARAM_SESSION_ID, ttsSessionId)
         }
@@ -580,13 +643,6 @@ class PlaybackService : MediaSessionService() {
                     } else if (PlaybackStateStore.isPlaying) {
                         // Attribute this sentence's duration to background listening time.
                         recordBackgroundListening()
-                        // If the sleep timer fired while this sentence was playing,
-                        // execute it now at the clean sentence boundary.
-                        if (pendingTimerFire) {
-                            pendingTimerFire = false
-                            executePendingTimerFire()
-                            return@post
-                        }
                         // clearResumePoint() nulls activeChunkUtteranceId AND calls
                         // clearQueuedChunk(), so every value this decision depends on has to
                         // be captured before it runs. It did not used to be, which made the
@@ -813,8 +869,12 @@ class PlaybackService : MediaSessionService() {
             veritasBuffer.prebufferAhead(chunks.size, index, 4) { chunkIndex ->
                 SpeechSanitizer.forSpeech(repository.applyPronunciationRules(chunks[chunkIndex]))
             }
-            veritasBuffer.playSentencePcm(index, speakText) {
-                advanceAfterSection()
+            veritasBuffer.playSentencePcm(index, speakText) { success ->
+                if (success) {
+                    advanceAfterSection()
+                } else {
+                    handleTtsFailure("Voice synthesis failed. Please download the voice in Voice Studio.", activeChunkUtteranceId)
+                }
             }
             return
         }
@@ -856,8 +916,12 @@ class PlaybackService : MediaSessionService() {
             PlaybackStateStore.statusMessage = "Reading selected text."
             updateMediaSessionState()
             refreshForegroundNotification()
-            veritasBufferFor(repository.loadVoiceSettings()).playSentencePcm(-1, speakText) {
-                PlaybackStateStore.statusMessage = "Finished selected text."
+            veritasBufferFor(repository.loadVoiceSettings()).playSentencePcm(-1, speakText) { success ->
+                if (success) {
+                    PlaybackStateStore.statusMessage = "Finished selected text."
+                } else {
+                    handleTtsFailure("Voice synthesis failed. Please download the voice in Voice Studio.")
+                }
                 updateMediaSessionState()
                 refreshForegroundNotification()
             }
@@ -1132,20 +1196,140 @@ class PlaybackService : MediaSessionService() {
         stopSelf()
     }
 
+    private var sensorManager: SensorManager? = null
+    private var accelerometer: Sensor? = null
+    private var lastShakeTimestamp = 0L
+    private var lastAcceleration = 0f
+    private var currentAcceleration = 0f
+    private var shakeAcceleration = 0f
+    private var isShakeListenerRegistered = false
+
+    private val shakeEventListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent?) {
+            if (event == null) return
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            lastAcceleration = currentAcceleration
+            currentAcceleration = kotlin.math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+            val delta = currentAcceleration - lastAcceleration
+            shakeAcceleration = shakeAcceleration * 0.9f + delta
+            if (shakeAcceleration > 11.5f) {
+                val now = System.currentTimeMillis()
+                if (now - lastShakeTimestamp > 2000L) {
+                    lastShakeTimestamp = now
+                    onShakeDetected()
+                }
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    private fun registerShakeListenerIfNeeded() {
+        if (isShakeListenerRegistered) return
+        val settings = runCatching { repository.loadReaderSettings() }.getOrNull()
+        if (settings?.shakeToExtendSleepTimer != false) {
+            if (sensorManager == null) {
+                sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+                accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            }
+            accelerometer?.let { sensor ->
+                sensorManager?.registerListener(shakeEventListener, sensor, SensorManager.SENSOR_DELAY_UI)
+                isShakeListenerRegistered = true
+            }
+        }
+    }
+
+    private fun unregisterShakeListener() {
+        if (isShakeListenerRegistered) {
+            sensorManager?.unregisterListener(shakeEventListener)
+            isShakeListenerRegistered = false
+        }
+    }
+
+    private fun onShakeDetected() {
+        val snapshot = PlaybackStateStore.activeSleepTimerSnapshot()
+        val settings = runCatching { repository.loadReaderSettings() }.getOrNull()
+        if (settings?.shakeToExtendSleepTimer == false) return
+
+        // If sleep timer is active and near end (<= 3 min remaining):
+        if (snapshot != null && snapshot.remainingMillis() <= 3 * 60 * 1000L) {
+            val extendMillis = 10 * 60 * 1000L
+            val action = snapshot.action
+            val newSnapshot = VeritasSleepTimerRequest(
+                durationMillis = extendMillis,
+                action = action,
+                stopAtEndOfSection = false
+            )
+            PlaybackStateStore.setSleepTimer(newSnapshot)
+            repository.saveSleepTimerState(
+                durationMillis = extendMillis,
+                endsAtMillis = System.currentTimeMillis() + extendMillis,
+                actionName = action.name,
+                stopAtEndOfSection = false
+            )
+            scheduleSleepTimerFromStore()
+            vibrateShake()
+            PlaybackStateStore.statusMessage = "Sleep timer extended by 10 min ⏳"
+            updateMediaSessionState()
+            refreshForegroundNotification()
+        }
+    }
+
+    private fun vibrateShake() {
+        runCatching {
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createOneShot(120L, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(120L)
+            }
+        }
+    }
+
+    private val sleepTimerTicker = object : Runnable {
+        override fun run() {
+            val snapshot = PlaybackStateStore.activeSleepTimerSnapshot()
+            if (snapshot == null) {
+                sleepFadeVolume = 1.0f
+                return
+            }
+            if (snapshot.stopAtEndOfSection) {
+                return
+            }
+            val remaining = snapshot.remainingMillis()
+            if (remaining <= 0) {
+                sleepFadeVolume = 1.0f
+                fireSleepTimer()
+            } else {
+                if (remaining <= 60_000L) {
+                    sleepFadeVolume = (remaining.toFloat() / 60_000f).coerceIn(0.05f, 1.0f)
+                } else {
+                    sleepFadeVolume = 1.0f
+                }
+                mainHandler.postDelayed(this, 1000L)
+            }
+        }
+    }
+
     private fun scheduleSleepTimerFromStore() {
         cancelSleepTimerCallback()
         val snapshot = PlaybackStateStore.activeSleepTimerSnapshot() ?: return
+        registerShakeListenerIfNeeded()
         if (snapshot.stopAtEndOfSection) {
             return
         }
-        val runnable = Runnable { fireSleepTimer() }
-        sleepTimerRunnable = runnable
-        mainHandler.postDelayed(runnable, snapshot.remainingMillis().coerceAtLeast(1L))
+        mainHandler.post(sleepTimerTicker)
     }
 
     private fun cancelSleepTimerCallback() {
+        mainHandler.removeCallbacks(sleepTimerTicker)
         sleepTimerRunnable?.let(mainHandler::removeCallbacks)
         sleepTimerRunnable = null
+        sleepFadeVolume = 1.0f
+        unregisterShakeListener()
     }
 
     private fun cancelSleepTimer(message: String) {
@@ -1158,36 +1342,15 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun fireSleepTimer() {
-        val snapshot = PlaybackStateStore.activeSleepTimerSnapshot() ?: return
+        val snapshot = PlaybackStateStore.activeSleepTimerSnapshot()
+        val action = snapshot?.action ?: VeritasSleepTimerAction.PAUSE
         cancelSleepTimerCallback()
         repository.clearSleepTimerState()
-        // If TTS is actively speaking, defer the action until the current
-        // sentence finishes (pendingTimerFire checked in onDone).
-        // If not playing, fire immediately.
-        if (PlaybackStateStore.isPlaying) {
-            pendingTimerFire = true
-            // Store the snapshot action so executePendingTimerFire can use it.
-            // We clear the store timer here so the section-advance logic doesn't
-            // re-trigger, but we keep the action locally.
-            PlaybackStateStore.clearSleepTimer()
-            // Store the action in a field for deferred execution.
-            pendingTimerAction = snapshot.action
-        } else {
-            PlaybackStateStore.clearSleepTimer()
-            when (snapshot.action) {
-                VeritasSleepTimerAction.PAUSE -> pauseSpeech("Sleep timer paused playback.")
-                VeritasSleepTimerAction.STOP  -> stopSpeechAndService("Sleep timer stopped playback.")
-            }
-        }
-    }
-
-    private var pendingTimerAction: VeritasSleepTimerAction = VeritasSleepTimerAction.PAUSE
-
-    private fun executePendingTimerFire() {
-        clearResumePoint()
-        when (pendingTimerAction) {
-            VeritasSleepTimerAction.PAUSE -> pauseSpeech("Sleep timer paused after sentence.")
-            VeritasSleepTimerAction.STOP  -> stopSpeechAndService("Sleep timer stopped after sentence.")
+        PlaybackStateStore.clearSleepTimer()
+        sleepFadeVolume = 1.0f
+        when (action) {
+            VeritasSleepTimerAction.PAUSE -> pauseSpeech("Sleep timer paused playback.")
+            VeritasSleepTimerAction.STOP  -> stopSpeechAndService("Sleep timer stopped playback.")
         }
     }
 

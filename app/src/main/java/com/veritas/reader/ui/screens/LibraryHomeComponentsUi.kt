@@ -1848,6 +1848,12 @@ internal fun ImportSheetMenu(
         
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ImportSheetOptionCard(
+                icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                title = "Classic Books Catalog",
+                subtitle = "Browse free public domain masterpieces (Meditations, Art of War…)",
+                onClick = { onSelectOption(ImportOption.CLASSICS) }
+            )
+            ImportSheetOptionCard(
                 icon = Icons.Filled.FolderOpen,
                 title = "File browser",
                 subtitle = "Browse and batch import local files",
@@ -2497,7 +2503,9 @@ data class NoteGroup(
     val noteText: String,
     val highlightColor: String?,
     val startSentence: Int,
-    val endSentence: Int
+    val endSentence: Int,
+    val audioPath: String? = null,
+    val audioDurationSeconds: Int = 0
 )
 
 fun groupNotes(
@@ -2517,6 +2525,8 @@ fun groupNotes(
         val end = sortedAnnots.last().chunkIndex
         val text = sortedAnnots.first().note
         val color = sortedAnnots.first().highlightColor
+        val audio = sortedAnnots.firstOrNull { !it.audioPath.isNullOrBlank() }?.audioPath
+        val duration = sortedAnnots.firstOrNull { it.audioDurationSeconds > 0 }?.audioDurationSeconds ?: 0
         groups.add(
             NoteGroup(
                 id = groupId ?: java.util.UUID.randomUUID().toString(),
@@ -2525,7 +2535,9 @@ fun groupNotes(
                 noteText = text,
                 highlightColor = color,
                 startSentence = start,
-                endSentence = end
+                endSentence = end,
+                audioPath = audio,
+                audioDurationSeconds = duration
             )
         )
     }
@@ -2539,7 +2551,9 @@ fun groupNotes(
                 noteText = ann.note,
                 highlightColor = ann.highlightColor,
                 startSentence = ann.chunkIndex,
-                endSentence = ann.chunkIndex
+                endSentence = ann.chunkIndex,
+                audioPath = ann.audioPath,
+                audioDurationSeconds = ann.audioDurationSeconds
             )
         )
     }
@@ -2830,6 +2844,31 @@ internal fun NoteGroupCard(
             if (firstText.length > 60) firstText.take(57) + "..." else firstText
         }
     }
+
+    val memoDuration = remember(group.audioPath, group.audioDurationSeconds) {
+        if (group.audioDurationSeconds > 0) {
+            String.format(java.util.Locale.US, "%02d:%02d", group.audioDurationSeconds / 60, group.audioDurationSeconds % 60)
+        } else if (!group.audioPath.isNullOrBlank()) {
+            try {
+                val file = java.io.File(group.audioPath)
+                if (file.exists()) {
+                    val retriever = android.media.MediaMetadataRetriever()
+                    retriever.setDataSource(group.audioPath)
+                    val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    val durMs = durStr?.toLongOrNull() ?: 0L
+                    val totalSec = durMs / 1000
+                    retriever.release()
+                    String.format(java.util.Locale.US, "%02d:%02d", totalSec / 60, totalSec % 60)
+                } else "0:00"
+            } catch (_: Exception) {
+                "0:00"
+            }
+        } else ""
+    }
+
+    val recordingState by com.veritas.reader.VoiceNoteRecorder.recordingState.collectAsState()
+    val activeAudioPath by com.veritas.reader.VoiceNoteRecorder.activeAudioPath.collectAsState()
+    val isPlayingThis = recordingState == com.veritas.reader.VoiceRecordingState.PLAYING && activeAudioPath == group.audioPath
     
     val highlightColor = remember(group.highlightColor) {
         runCatching { Color(android.graphics.Color.parseColor(group.highlightColor)) }
@@ -2873,14 +2912,35 @@ internal fun NoteGroupCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (group.noteText.isNotBlank()) {
-                        Text(
-                            text = group.noteText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (!group.audioPath.isNullOrBlank()) {
+                            Icon(
+                                imageVector = Icons.Filled.Mic,
+                                contentDescription = "Voice Memo",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        if (group.noteText.isNotBlank()) {
+                            Text(
+                                text = group.noteText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else if (!group.audioPath.isNullOrBlank()) {
+                            Text(
+                                text = "Voice Memo ($memoDuration)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
                 
@@ -2960,6 +3020,21 @@ internal fun NoteGroupCard(
                                 )
                             }
                         }
+                    }
+
+                    if (!group.audioPath.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        AudioVoiceMemoWaveform(
+                            durationLabel = if (group.noteText.isNotBlank()) "Voice Memo • $memoDuration" else "Voice Memo ($memoDuration)",
+                            isPlaying = isPlayingThis,
+                            onTogglePlay = {
+                                if (isPlayingThis) {
+                                    com.veritas.reader.VoiceNoteRecorder.stopPlayback()
+                                } else {
+                                    com.veritas.reader.VoiceNoteRecorder.playAudio(group.audioPath)
+                                }
+                            }
+                        )
                     }
                     
                     Spacer(modifier = Modifier.height(6.dp))

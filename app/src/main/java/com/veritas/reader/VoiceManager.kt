@@ -168,13 +168,13 @@ object VoiceManager {
 
         val studio = TtsEngineOption(
             packageName = VERITAS_STUDIO,
-            label = if (installed(com.veritas.reader.tts.OfflineEngineType.KOKORO)) "⚡ Veritas Studio"
-            else "⚡ Veritas Studio (tap to download)"
+            label = if (installed(com.veritas.reader.tts.OfflineEngineType.KOKORO)) "Veritas Studio"
+            else "Veritas Studio (tap to download)"
         )
         val lite = TtsEngineOption(
             packageName = VERITAS_LITE,
-            label = if (installed(com.veritas.reader.tts.OfflineEngineType.PIPER)) "⚡ Veritas Lite"
-            else "⚡ Veritas Lite (tap to download)"
+            label = if (installed(com.veritas.reader.tts.OfflineEngineType.PIPER)) "Veritas Lite"
+            else "Veritas Lite (tap to download)"
         )
         return listOf(studio, lite) + systemEngines
     }
@@ -304,6 +304,12 @@ object VoiceManager {
         return engine
     }
 
+    private val previewScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default + kotlinx.coroutines.SupervisorJob())
+    private var previewJob: kotlinx.coroutines.Job? = null
+    private var previewSystemTts: TextToSpeech? = null
+    private var lastPreviewTapTime: Long = 0L
+    private var lastPreviewVoiceId: String = ""
+
     private fun releasePreviewTrack() {
         previewTrack?.let { track ->
             runCatching { track.stop() }
@@ -312,9 +318,20 @@ object VoiceManager {
         previewTrack = null
     }
 
-    /** Frees the cached preview engine and any track still holding its audio. */
+    private fun releaseSystemTts() {
+        previewSystemTts?.let { tts ->
+            runCatching { tts.stop() }
+            runCatching { tts.shutdown() }
+        }
+        previewSystemTts = null
+    }
+
+    /** Frees the cached preview engine, active preview coroutine, and any track still holding its audio. */
     fun releasePreviewEngine() {
+        previewJob?.cancel()
+        previewJob = null
         releasePreviewTrack()
+        releaseSystemTts()
         previewEngine?.shutdown()
         previewEngine = null
         previewEngineVoiceId = null
@@ -328,8 +345,21 @@ object VoiceManager {
         rate: Float = 1.0f,
         pitch: Float = 1.0f
     ) {
+        val now = System.currentTimeMillis()
+        if (voiceName == lastPreviewVoiceId && now - lastPreviewTapTime < 450L) {
+            // Ignore rapid duplicate tap on the exact same voice preview
+            return
+        }
+        lastPreviewTapTime = now
+        lastPreviewVoiceId = voiceName
+
+        // Cancel previous preview immediately so multiple previews never overlap
+        previewJob?.cancel()
+        releasePreviewTrack()
+        releaseSystemTts()
+
         if (isVeritasEngine(enginePackage)) {
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            previewJob = previewScope.launch {
                 // Auditioning voices used to build a whole engine per tap — a 114MB
                 // model load and teardown to speak one phrase. Keep the last one and
                 // only rebuild when the voice actually changes.
@@ -366,9 +396,6 @@ object VoiceManager {
                         .setTransferMode(android.media.AudioTrack.MODE_STATIC)
                         .build()
                     audioTrack.write(pcm, 0, pcm.size)
-                    // MODE_STATIC plays asynchronously, so the track has to outlive
-                    // this block; it was simply dropped before, leaking one AudioTrack
-                    // per preview. Held here and released on the next preview.
                     previewTrack = audioTrack
                     audioTrack.play()
                 } else {
@@ -386,7 +413,7 @@ object VoiceManager {
 
         var engine: TextToSpeech? = null
         val listener = TextToSpeech.OnInitListener { status ->
-            if (status == TextToSpeech.SUCCESS) {
+            if (status == TextToSpeech.SUCCESS && previewSystemTts === engine) {
                 engine?.voices?.firstOrNull { it.name == voiceName }?.let { voice ->
                     engine?.voice = voice
                 }
@@ -395,11 +422,15 @@ object VoiceManager {
                 engine?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
                     override fun onDone(utteranceId: String?) {
-                        runCatching { engine?.shutdown() }
+                        if (previewSystemTts === engine) {
+                            releaseSystemTts()
+                        }
                     }
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
-                        runCatching { engine?.shutdown() }
+                        if (previewSystemTts === engine) {
+                            releaseSystemTts()
+                        }
                     }
                 })
                 engine?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "preview")
@@ -412,6 +443,7 @@ object VoiceManager {
         } else {
             TextToSpeech(context.applicationContext, listener, enginePackage)
         }
+        previewSystemTts = engine
     }
 }
 

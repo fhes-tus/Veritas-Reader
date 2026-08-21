@@ -265,6 +265,13 @@ object DocumentExtractor {
 
         val document = try {
             PDDocument.load(tempFile)
+        } catch (e: com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException) {
+            throw IllegalArgumentException("This PDF is password-protected. Please remove password protection before importing.", e)
+        } catch (e: java.io.IOException) {
+            if (e.message?.contains("password", ignoreCase = true) == true || e.message?.contains("encrypted", ignoreCase = true) == true) {
+                throw IllegalArgumentException("This PDF is password-protected or encrypted. Please remove password protection before importing.", e)
+            }
+            throw e
         } finally {
             runCatching { tempFile.delete() }
         }
@@ -305,12 +312,21 @@ object DocumentExtractor {
         val selectedPageCount = (endPage - startPage + 1).coerceAtLeast(1)
         val diagnostics = mutableListOf<String>()
 
+        val internalPdfTitle = runCatching { document.documentInformation?.title }.getOrNull()?.trim()
+        val resolvedTitle = if (displayName.isNotBlank() && displayName != "Imported document" && displayName != "Imported Book" && !displayName.startsWith("Fetching Resource", ignoreCase = true)) {
+            displayName
+        } else if (!internalPdfTitle.isNullOrBlank() && !internalPdfTitle.equals("untitled", ignoreCase = true) && !internalPdfTitle.startsWith("Fetching Resource", ignoreCase = true)) {
+            cleanDocumentTitle(internalPdfTitle)
+        } else {
+            displayName.ifBlank { "Imported document" }
+        }
+
         if (normalizedOptions.forceOcr) {
             diagnostics.add("Forced OCR mode was used for this PDF import.")
             val ocr = extractPdfOcr(context, uri, normalizedOptions, null)
             val text = ocr.text.normalizeExtractedText().smartFormatPdfContent().let { MathText.beautify(it) }
             return ExtractedImport(
-                title = displayName.ifBlank { "Imported document" },
+                title = resolvedTitle,
                 text = text,
                 sourceLabel = "PDF",
                 note = (diagnostics + ocr.diagnostics).joinToString("\n").ifBlank { null },
@@ -362,7 +378,7 @@ object DocumentExtractor {
                 val text = ocr.text.normalizeExtractedText().smartFormatPdfContent().let { MathText.beautify(it) }
                 runCatching { cacheDir.deleteRecursively() }
                 return ExtractedImport(
-                    title = displayName.ifBlank { "Imported document" },
+                    title = resolvedTitle,
                     text = text,
                     sourceLabel = "PDF",
                     note = (diagnostics + ocr.diagnostics).joinToString("\n").ifBlank { null },
@@ -377,7 +393,7 @@ object DocumentExtractor {
 
         val text = cleaned.text.normalizeExtractedText().smartFormatPdfContent().let { MathText.beautify(it) }
         return ExtractedImport(
-            title = displayName.ifBlank { "Imported document" },
+            title = resolvedTitle,
             text = text,
             sourceLabel = "PDF",
             note = diagnostics.joinToString("\n").ifBlank { null },
@@ -402,16 +418,10 @@ object DocumentExtractor {
             mimeType.contains("pdf") || extension == "pdf" || uri.path?.lowercase(Locale.getDefault())?.endsWith(".pdf") == true -> "PDF"
             mimeType.contains("wordprocessingml") || extension == "docx" || uri.path?.lowercase(Locale.getDefault())?.endsWith(".docx") == true -> "DOCX"
             mimeType.contains("presentationml") || extension == "pptx" || uri.path?.lowercase(Locale.getDefault())?.endsWith(".pptx") == true -> "PPTX"
-            extension == "ppt" || mimeType.contains("ms-powerpoint") -> "PPT_LEGACY"
+            extension == "ppt" || mimeType.contains("ms-powerpoint") -> "PPT"
             mimeType.contains("epub") || extension == "epub" || uri.path?.lowercase(Locale.getDefault())?.endsWith(".epub") == true -> "EPUB"
             mimeType.startsWith("image/") || extension in imageExtensions || imageExtensions.any { uri.path?.lowercase(Locale.getDefault())?.endsWith(".$it") == true } -> "OCR"
             else -> "TXT"
-        }
-
-        if (sourceLabel == "PPT_LEGACY") {
-            throw IllegalArgumentException(
-                "Legacy PowerPoint (.ppt) files aren't supported. Open the file in PowerPoint or Google Slides, save it as .pptx, and import again."
-            )
         }
 
         val extracted = when (sourceLabel) {
@@ -419,6 +429,7 @@ object DocumentExtractor {
             "PDF" -> extractPdf(context, uri, pdfOptions, foregroundBudgetMillis)
             "DOCX" -> ExtractionBody(extractDocx(readAllBytes(context, uri)))
             "PPTX" -> extractPptx(readAllBytes(context, uri), pptxOptions, foregroundBudgetMillis)
+            "PPT" -> PptLegacyExtractor.extract(readAllBytes(context, uri))
             "EPUB" -> ExtractionBody(extractEpub(readAllBytes(context, uri)))
             else -> extractPlainText(context, uri, textOptions, isHtmlish(displayName) || mimeType.contains("html"))
         }
@@ -496,7 +507,13 @@ object DocumentExtractor {
         } ?: return@coroutineScope ExtractionBody("", listOf("Could not open PDF pages for OCR rendering."))
 
         descriptor.use { pfd ->
-            val renderer = PdfRenderer(pfd)
+            val renderer = try {
+                PdfRenderer(pfd)
+            } catch (e: SecurityException) {
+                return@coroutineScope ExtractionBody("", listOf("This PDF is password-protected or encrypted. Please remove password protection before running OCR."))
+            } catch (e: Exception) {
+                return@coroutineScope ExtractionBody("", listOf("Could not initialize PDF renderer for OCR: ${e.localizedMessage ?: "Unknown error"}"))
+            }
             try {
                 val normalizedOptions = options.normalized(renderer.pageCount)
                 val startPage = normalizedOptions.startPage ?: 1
@@ -665,7 +682,16 @@ object DocumentExtractor {
         PDFBoxResourceLoader.init(context.applicationContext)
         context.contentResolver.openInputStream(uri).use { stream ->
             if (stream == null) return ExtractionBody("")
-            val document = PDDocument.load(stream)
+            val document = try {
+                PDDocument.load(stream)
+            } catch (e: com.tom_roush.pdfbox.pdmodel.encryption.InvalidPasswordException) {
+                throw IllegalArgumentException("This PDF is password-protected. Please remove password protection before importing.", e)
+            } catch (e: java.io.IOException) {
+                if (e.message?.contains("password", ignoreCase = true) == true || e.message?.contains("encrypted", ignoreCase = true) == true) {
+                    throw IllegalArgumentException("This PDF is password-protected or encrypted. Please remove password protection before importing.", e)
+                }
+                throw e
+            }
             return try {
                 val pageCount = document.numberOfPages.coerceAtLeast(1)
                 val normalizedOptions = options.normalized(pageCount)
@@ -1107,7 +1133,8 @@ private data class PdfColumnLayout(
     val columnTopY: Float,
     val columnBottomY: Float,
     val pageWidth: Float,
-    val pageHeight: Float
+    val pageHeight: Float,
+    val rowBreaks: List<Pair<Float, Float>> = emptyList()
 )
 
 private class PdfLayoutProbeStripper : PDFTextStripper() {
@@ -1237,54 +1264,87 @@ private object PdfPageTextExtractor {
         val box = page.cropBox ?: page.mediaBox ?: return null
         val pageWidth = box.width.coerceAtLeast(1f)
         val pageHeight = box.height.coerceAtLeast(1f)
-        detectColumnsFromSegments(probe.segments, pageWidth, pageHeight)?.let { return it }
+        val fromSegments = detectColumnsFromSegments(probe.segments, pageWidth, pageHeight)
+        
         val usefulLines = probe.lines
             .filter { it.text.length >= 2 && it.width > 8f && it.y in (pageHeight * 0.08f)..(pageHeight * 0.92f) }
             .sortedWith(compareBy<PositionedPdfLine> { it.y }.thenBy { it.minX })
-        if (usefulLines.size < 12) return null
+        if (usefulLines.size < 12 && fromSegments == null) return null
 
-        val contentMinX = usefulLines.minOf { it.minX }
-        val contentMaxX = usefulLines.maxOf { it.maxX }
+        val contentMinX = usefulLines.minOfOrNull { it.minX } ?: (pageWidth * 0.08f)
+        val contentMaxX = usefulLines.maxOfOrNull { it.maxX } ?: (pageWidth * 0.92f)
         val contentWidth = (contentMaxX - contentMinX).coerceAtLeast(1f)
         val midX = contentMinX + contentWidth / 2f
         val fullWidthThreshold = contentWidth * 0.64f
         val columnLines = usefulLines.filterNot { line ->
             line.width >= fullWidthThreshold || (line.minX < midX && line.maxX > midX)
         }
-        if (columnLines.size < 10) return null
 
-        val left = columnLines.filter { it.centerX < midX }
-        val right = columnLines.filter { it.centerX >= midX }
-        if (left.size < 5 || right.size < 5) return null
+        val baseLayout = if (columnLines.size >= 10) {
+            val left = columnLines.filter { it.centerX < midX }
+            val right = columnLines.filter { it.centerX >= midX }
+            if (left.size >= 5 && right.size >= 5) {
+                val leftMaxX = left.maxOf { it.maxX }
+                val rightMinX = right.minOf { it.minX }
+                val gutter = rightMinX - leftMaxX
+                if (gutter >= maxOf(12f, contentWidth * 0.02f)) {
+                    val leftTop = left.minOf { it.y }
+                    val rightTop = right.minOf { it.y }
+                    val leftBottom = left.maxOf { it.y }
+                    val rightBottom = right.maxOf { it.y }
+                    val overlapTop = maxOf(leftTop, rightTop)
+                    val overlapBottom = minOf(leftBottom, rightBottom)
+                    val overlapHeight = overlapBottom - overlapTop
+                    val columnHeight = (maxOf(leftBottom, rightBottom) - minOf(leftTop, rightTop)).coerceAtLeast(1f)
+                    if (overlapHeight >= columnHeight * 0.42f) {
+                        val averageLineHeight = columnLines.map { it.height.toDouble() }.average()
+                            .takeIf { !it.isNaN() }
+                            ?.toFloat()
+                            ?: 10f
+                        val columnTopY = (minOf(leftTop, rightTop) - averageLineHeight).coerceIn(0f, pageHeight)
+                        val columnBottomY = (maxOf(leftBottom, rightBottom) + averageLineHeight * 2f).coerceIn(columnTopY, pageHeight)
+                        PdfColumnLayout(
+                            splitX = ((leftMaxX + rightMinX) / 2f).coerceIn(1f, pageWidth - 1f),
+                            columnTopY = columnTopY,
+                            columnBottomY = columnBottomY,
+                            pageWidth = pageWidth,
+                            pageHeight = pageHeight
+                        )
+                    } else null
+                } else null
+            } else null
+        } else null
 
-        val leftMaxX = left.maxOf { it.maxX }
-        val rightMinX = right.minOf { it.minX }
-        val gutter = rightMinX - leftMaxX
-        if (gutter < maxOf(12f, contentWidth * 0.02f)) return null
+        val finalBase = baseLayout ?: fromSegments ?: return null
 
-        val leftTop = left.minOf { it.y }
-        val rightTop = right.minOf { it.y }
-        val leftBottom = left.maxOf { it.y }
-        val rightBottom = right.maxOf { it.y }
-        val overlapTop = maxOf(leftTop, rightTop)
-        val overlapBottom = minOf(leftBottom, rightBottom)
-        val overlapHeight = overlapBottom - overlapTop
-        val columnHeight = (maxOf(leftBottom, rightBottom) - minOf(leftTop, rightTop)).coerceAtLeast(1f)
-        if (overlapHeight < columnHeight * 0.42f) return null
+        // Detect horizontal breaks / chapter dividers spanning across the page within the column area
+        val breakLines = usefulLines.filter { line ->
+            val isHeader = Regex("""^(CHAPTER|Chapter|PROLOGUE|Prologue|EPILOGUE|Epilogue|INTRODUCTION|Introduction|PART|Part|BOOK|Book|SECTION|Section)\b.*""", RegexOption.IGNORE_CASE).containsMatchIn(line.text)
+            val crossesGutter = (line.minX < finalBase.splitX - 10f && line.maxX > finalBase.splitX + 10f)
+            val isCenteredBreak = kotlin.math.abs(line.centerX - finalBase.splitX) < contentWidth * 0.15f && line.width >= contentWidth * 0.35f
+            val isPageSpanningHeader = (crossesGutter || isCenteredBreak) && (isHeader || line.width >= contentWidth * 0.45f)
+            isPageSpanningHeader && line.y in (finalBase.columnTopY + 35f)..(finalBase.columnBottomY - 35f)
+        }
 
-        val averageLineHeight = columnLines.map { it.height.toDouble() }.average()
-            .takeIf { !it.isNaN() }
-            ?.toFloat()
-            ?: 10f
-        val columnTopY = (minOf(leftTop, rightTop) - averageLineHeight).coerceIn(0f, pageHeight)
-        val columnBottomY = (maxOf(leftBottom, rightBottom) + averageLineHeight * 2f).coerceIn(columnTopY, pageHeight)
-        return PdfColumnLayout(
-            splitX = ((leftMaxX + rightMinX) / 2f).coerceIn(1f, pageWidth - 1f),
-            columnTopY = columnTopY,
-            columnBottomY = columnBottomY,
-            pageWidth = pageWidth,
-            pageHeight = pageHeight
-        )
+        val rowBreaks = if (breakLines.isNotEmpty()) {
+            val sortedBreaks = breakLines.sortedBy { it.y }
+            val clusters = mutableListOf<MutableList<PositionedPdfLine>>()
+            sortedBreaks.forEach { line ->
+                val lastCluster = clusters.lastOrNull()
+                if (lastCluster != null && line.y - lastCluster.last().y < 28f) {
+                    lastCluster.add(line)
+                } else {
+                    clusters.add(mutableListOf(line))
+                }
+            }
+            clusters.map { cluster ->
+                val topY = (cluster.minOf { it.y } - 8f).coerceAtLeast(finalBase.columnTopY)
+                val bottomY = (cluster.maxOf { it.y + it.height } + 8f).coerceAtMost(finalBase.columnBottomY)
+                Pair(topY, bottomY)
+            }
+        } else emptyList()
+
+        return finalBase.copy(rowBreaks = rowBreaks)
     }
 
     private fun detectColumnsFromSegments(
@@ -1338,32 +1398,90 @@ private object PdfPageTextExtractor {
     }
 
     private fun extractColumnPage(page: PDPage, layout: PdfColumnLayout): String {
-        val top = RectF(0f, 0f, layout.pageWidth, layout.columnTopY)
-        val left = RectF(0f, layout.columnTopY, layout.splitX, layout.columnBottomY)
-        val right = RectF(layout.splitX, layout.columnTopY, layout.pageWidth, layout.columnBottomY)
-        val bottom = RectF(0f, layout.columnBottomY, layout.pageWidth, layout.pageHeight)
         val stripper = PDFTextStripperByArea().apply {
             sortByPosition = true
-            if (top.height() > 4f) addRegion("top", top)
-            addRegion("left", left)
-            addRegion("right", right)
-            if (bottom.height() > 4f) addRegion("bottom", bottom)
         }
-        stripper.extractRegions(page)
-        fun regionText(name: String): String {
-            return if (name in stripper.regions) cleanRegionText(stripper.getTextForRegion(name)) else ""
+
+        val top = RectF(0f, 0f, layout.pageWidth, layout.columnTopY)
+        if (top.height() > 4f) stripper.addRegion("top", top)
+
+        val bottom = RectF(0f, layout.columnBottomY, layout.pageWidth, layout.pageHeight)
+        if (bottom.height() > 4f) stripper.addRegion("bottom", bottom)
+
+        val resultParts = mutableListOf<String>()
+
+        if (layout.rowBreaks.isEmpty()) {
+            val left = RectF(0f, layout.columnTopY, layout.splitX, layout.columnBottomY)
+            val right = RectF(layout.splitX, layout.columnTopY, layout.pageWidth, layout.columnBottomY)
+            stripper.addRegion("left", left)
+            stripper.addRegion("right", right)
+            stripper.extractRegions(page)
+
+            fun regionText(name: String): String =
+                if (name in stripper.regions) cleanRegionText(stripper.getTextForRegion(name)) else ""
+
+            val topText = regionText("top")
+            val leftText = regionText("left")
+            val rightText = regionText("right")
+            val bottomText = regionText("bottom")
+            val middleText = if (looksLikeDuplicateColumnText(leftText, rightText)) leftText else {
+                listOf(leftText, rightText).filter { it.isNotBlank() }.joinToString("\n\n")
+            }
+            return listOf(topText, middleText, bottomText).filter { it.isNotBlank() }.joinToString("\n\n").trim()
+        } else {
+            var currentY = layout.columnTopY
+            layout.rowBreaks.forEachIndexed { index, (breakTop, breakBottom) ->
+                if (breakTop > currentY + 10f) {
+                    val leftBand = RectF(0f, currentY, layout.splitX, breakTop)
+                    val rightBand = RectF(layout.splitX, currentY, layout.pageWidth, breakTop)
+                    stripper.addRegion("left_$index", leftBand)
+                    stripper.addRegion("right_$index", rightBand)
+                }
+                val headerBand = RectF(0f, breakTop, layout.pageWidth, breakBottom)
+                stripper.addRegion("header_$index", headerBand)
+                currentY = breakBottom
+            }
+            if (layout.columnBottomY > currentY + 10f) {
+                val lastIdx = layout.rowBreaks.size
+                val leftBand = RectF(0f, currentY, layout.splitX, layout.columnBottomY)
+                val rightBand = RectF(layout.splitX, currentY, layout.pageWidth, layout.columnBottomY)
+                stripper.addRegion("left_$lastIdx", leftBand)
+                stripper.addRegion("right_$lastIdx", rightBand)
+            }
+
+            stripper.extractRegions(page)
+
+            fun regionText(name: String): String =
+                if (name in stripper.regions) cleanRegionText(stripper.getTextForRegion(name)) else ""
+
+            val topText = regionText("top")
+            if (topText.isNotBlank()) resultParts.add(topText)
+
+            var bandY = layout.columnTopY
+            layout.rowBreaks.forEachIndexed { index, (breakTop, breakBottom) ->
+                if (breakTop > bandY + 10f) {
+                    val l = regionText("left_$index")
+                    val r = regionText("right_$index")
+                    if (l.isNotBlank()) resultParts.add(l)
+                    if (r.isNotBlank() && !looksLikeDuplicateColumnText(l, r)) resultParts.add(r)
+                }
+                val h = regionText("header_$index")
+                if (h.isNotBlank()) resultParts.add(h)
+                bandY = breakBottom
+            }
+            if (layout.columnBottomY > bandY + 10f) {
+                val lastIdx = layout.rowBreaks.size
+                val l = regionText("left_$lastIdx")
+                val r = regionText("right_$lastIdx")
+                if (l.isNotBlank()) resultParts.add(l)
+                if (r.isNotBlank() && !looksLikeDuplicateColumnText(l, r)) resultParts.add(r)
+            }
+
+            val bottomText = regionText("bottom")
+            if (bottomText.isNotBlank()) resultParts.add(bottomText)
+
+            return resultParts.filter { it.isNotBlank() }.joinToString("\n\n").trim()
         }
-        val topText = regionText("top")
-        val leftText = regionText("left")
-        val rightText = regionText("right")
-        val bottomText = regionText("bottom")
-        val middleText = if (looksLikeDuplicateColumnText(leftText, rightText)) leftText else {
-            listOf(leftText, rightText).filter { it.isNotBlank() }.joinToString("\n\n")
-        }
-        return listOf(topText, middleText, bottomText)
-            .filter { it.isNotBlank() }
-            .joinToString("\n\n")
-            .trim()
     }
 
     private fun cleanRegionText(text: String): String {
@@ -1482,13 +1600,23 @@ object PdfTextCleaner {
             }
 
             if (output.isBlank()) {
-                output.append(line)
+                if (currentIsHeading && !line.startsWith("#")) {
+                    output.append("# ").append(line)
+                } else {
+                    output.append(line)
+                }
                 previousWasHeading = currentIsHeading
                 return@forEach
             }
 
             when {
-                currentIsHeading || currentIsNumberedItem || previousWasHeading -> {
+                currentIsHeading -> {
+                    output.append("\n\n")
+                    if (!line.startsWith("#")) {
+                        output.append("# ")
+                    }
+                }
+                previousWasHeading || currentIsNumberedItem -> {
                     output.append("\n\n")
                 }
                 else -> {
@@ -1504,6 +1632,10 @@ object PdfTextCleaner {
     private fun splitWideGappedLine(line: String): List<String> {
         val trimmed = line.trim()
         if (trimmed.isBlank()) return emptyList()
+        // If line is a chapter/section heading like "CHAPTER   III.", do NOT split wide gaps
+        if (Regex("""^(CHAPTER|Chapter|PART|Part|BOOK|Book)\s+.*""", RegexOption.IGNORE_CASE).matches(trimmed)) {
+            return listOf(trimmed.replace(Regex("""\s{2,}"""), " "))
+        }
         val parts = Regex("""\s{4,}""")
             .split(trimmed)
             .map { it.trim() }
@@ -1513,12 +1645,34 @@ object PdfTextCleaner {
 
     private fun looksLikeHeading(line: String): Boolean {
         val trimmed = line.trim()
-        if (trimmed.length > 90) return false
-        if (Regex("""^\d+(\.\d+)*\s+\S+""").containsMatchIn(trimmed)) return true
+        if (trimmed.length > 90 || trimmed.isEmpty()) return false
+        if (trimmed.startsWith("[[VERITAS_") || trimmed.contains("VERITAS_PAGE", ignoreCase = true) || trimmed.contains("veritas page", ignoreCase = true)) return false
+        if (trimmed.startsWith("#")) return true
+        if (Regex("""^(CHAPTER|Chapter|PROLOGUE|Prologue|EPILOGUE|Epilogue|INTRODUCTION|Introduction|PREFACE|Preface|PART|Part|BOOK|Book|SECTION|Section|ACT|Act|SCENE|Scene)\b.*""", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)) return true
+        if (Regex("""^\d+(\.\d+)*\s+[A-Z0-9].*""").containsMatchIn(trimmed)) return true
         val letters = trimmed.filter { it.isLetter() }
-        if (letters.length < 4) return false
-        val upperRatio = letters.count { it.isUpperCase() }.toFloat() / letters.length
-        return upperRatio > 0.75f
+        if (letters.length in 4..65) {
+            val upperRatio = letters.count { it.isUpperCase() }.toFloat() / letters.length
+            if (upperRatio >= 0.70f) return true
+        }
+        if (isTitleCasedSubheading(trimmed)) return true
+        return false
+    }
+
+    private fun isTitleCasedSubheading(trimmed: String): Boolean {
+        if (trimmed.length !in 3..55) return false
+        if (trimmed.startsWith("\"") || trimmed.startsWith("“") || trimmed.startsWith("‘") || trimmed.startsWith("—") || trimmed.startsWith("-")) return false
+        if (trimmed.endsWith(",") || trimmed.endsWith(";") || trimmed.endsWith("-") || trimmed.endsWith(":")) return false
+        if (trimmed.endsWith(".") && !Regex("""^(CHAPTER|Chapter|Part|Section)?\s*[IVXLCDM\d]+(\.[IVXLCDM\d]+)*\.$""", RegexOption.IGNORE_CASE).matches(trimmed)) {
+            return false
+        }
+        val words = trimmed.split(Regex("""\s+""")).filter { it.isNotBlank() }
+        if (words.isEmpty() || words.size > 8) return false
+        val minorWords = setOf("a", "an", "the", "and", "but", "or", "for", "nor", "on", "at", "to", "by", "with", "in", "of", "vs", "vs.", "v", "v.")
+        val significantWords = words.filter { it.lowercase(Locale.getDefault()) !in minorWords }
+        if (significantWords.isEmpty()) return false
+        val capitalizedSignificant = significantWords.count { word -> word.firstOrNull()?.isUpperCase() == true }
+        return capitalizedSignificant == significantWords.size
     }
 
     private fun looksLikeNumberedItemStart(line: String): Boolean {
@@ -1565,31 +1719,36 @@ fun String.normalizeExtractedText(): String {
 fun String.smartFormatPdfContent(): String {
     val lines = this.split('\n')
     val formatted = mutableListOf<String>()
-    var inQuoteBlock = false
-    var previousWasHeading = false
     
     lines.forEach { line ->
         val trimmed = line.trim()
-        
-        // Detect quote blocks
-        val isQuote = trimmed.startsWith("\"") || trimmed.startsWith("\u201c")
-        if (isQuote && !inQuoteBlock && formatted.isNotEmpty()) {
-            formatted.add("") // Add spacing before quote
-            inQuoteBlock = true
-        } else if (!isQuote && inQuoteBlock) {
-            inQuoteBlock = false
+        if (trimmed.isEmpty()) {
+            if (formatted.isNotEmpty() && formatted.last().isNotBlank()) {
+                formatted.add("")
+            }
+            return@forEach
         }
         
-        // Add paragraph spacing after headings
-        if (previousWasHeading && trimmed.isNotEmpty() && !trimmed.startsWith("\"") && !trimmed.startsWith("\u201c")) {
+        if (trimmed.startsWith("[[VERITAS_") || trimmed.contains("VERITAS_PAGE", ignoreCase = true) || trimmed.contains("veritas page", ignoreCase = true)) {
+            formatted.add(trimmed)
+            return@forEach
+        }
+        
+        val isExplicitHeader = trimmed.startsWith("#")
+        val isChapterOrTopic = Regex("""^(CHAPTER|Chapter|PROLOGUE|Prologue|EPILOGUE|Epilogue|INTRODUCTION|Introduction|PREFACE|Preface|PART|Part|BOOK|Book|SECTION|Section|ACT|Act|SCENE|Scene)\b.*""", RegexOption.IGNORE_CASE).matches(trimmed) ||
+            Regex("""^\d+(\.\d+)*\s+[A-Z0-9].*""").matches(trimmed) ||
+            (trimmed.length in 4..65 && trimmed.filter { it.isLetter() }.length >= 4 && trimmed.filter { it.isLetter() }.all { it.isUpperCase() }) ||
+            (trimmed.length in 3..55 && !trimmed.endsWith(".") && !trimmed.endsWith(",") && trimmed.split(Regex("""\s+""")).all { w -> w.isEmpty() || w.first().isUpperCase() || w.lowercase(Locale.getDefault()) in setOf("a", "an", "the", "and", "or", "in", "on", "of", "vs", "vs.") })
+            
+        if (isChapterOrTopic && !isExplicitHeader) {
+            if (formatted.isNotEmpty() && formatted.last().isNotBlank()) {
+                formatted.add("")
+            }
+            formatted.add("## $trimmed")
             formatted.add("")
-            previousWasHeading = false
+        } else {
+            formatted.add(line.trimEnd())
         }
-        
-        formatted.add(line.trimEnd())
-        
-        previousWasHeading = trimmed.length < 100 && 
-            (trimmed == trimmed.uppercase() || Regex("""^\d+\.\s+[A-Z]""").containsMatchIn(trimmed))
     }
     
     return formatted.joinToString("\n")
@@ -1623,6 +1782,12 @@ fun cleanDocumentTitle(fileName: String): String {
         // "1741927936_Good_Vibes" / "20260802-notes" — a long digit run up front is
         // a timestamp or export id, never part of the title.
         .replace(Regex("^\\d{6,}[_\\-\\s.]+"), "")
+        // OceanofPDF download prefixes/suffixes/tags with any wrapping slashes, brackets, or delimiters
+        .replace(Regex("""(?i)[/_(\[]?OceanofPDF(\.com)?[/_\])]?"""), "")
+        .replace(Regex("""(?i)\bOceanofPDF(\.com)?\b"""), "")
+        .replace(Regex("""(?i)\[(PDF|EPUB)\]"""), "")
+        .replace(Regex("""(?i)\((PDF|EPUB)\)"""), "")
+        .replace(Regex("""(?i)\bDownload\b"""), "")
         // "report (1)" / "report(2)" / "report - Copy" — download de-duplication.
         .replace(Regex("\\s*[_\\-]?\\(\\d+\\)$"), "")
         .replace(Regex("\\s*-\\s*Copy$", RegexOption.IGNORE_CASE), "")
@@ -1632,11 +1797,17 @@ fun cleanDocumentTitle(fileName: String): String {
     // Same for dot-separated names, but only when there are no spaces already.
     if (!title.contains(' ') && title.count { it == '.' } >= 2) title = title.replace('.', ' ')
 
-    title = title.replace(Regex("\\s{2,}"), " ").trim().trim('-', '_', '.', ' ')
+    title = title.replace(Regex("\\s{2,}"), " ")
+        .trim()
+        .trim('-', '_', '.', ' ', '/', '\\', ':', '|', '•')
 
-    // Blank here means the name was nothing but separators — there is no title to
-    // recover, so falling back to the raw string would just restore the junk.
-    return title.ifBlank { "Imported document" }
+    if (title.equals("Fetching Resource", ignoreCase = true) ||
+        title.equals("Fetching Resource...", ignoreCase = true) ||
+        title.isBlank()) {
+        return "Imported document"
+    }
+
+    return title
 }
 
 fun getDisplayName(context: Context, uri: Uri): String {

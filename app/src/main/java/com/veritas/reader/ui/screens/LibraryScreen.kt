@@ -194,6 +194,7 @@ internal enum class ImportOption {
     PASTE,
     SCAN,
     BROWSE,
+    CLASSICS,
     WRITE_NOTE
 }
 
@@ -210,6 +211,7 @@ fun LibraryScreen(
     onImportImage: () -> Unit,
     onAdvancedPdfImport: () -> Unit,
     onOpenFileBrowser: () -> Unit,
+    onOpenClassicsCatalog: () -> Unit = {},
     onOpenReadingLists: () -> Unit,
     onOpenReadingHistory: () -> Unit,
     onOpenDocument: (SavedDocument) -> Unit,
@@ -255,6 +257,7 @@ fun LibraryScreen(
     onImportFlashcards: (String, List<Flashcard>) -> Unit = { _, _ -> },
     onRenameFlashcardSet: (String, String) -> Unit = { _, _ -> },
     onDeleteFlashcardSet: (String) -> Unit = {},
+    onSaveReaderSettings: (ReaderSettings) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
@@ -820,6 +823,10 @@ fun LibraryScreen(
                                     showImportSheet = false
                                     onOpenFileBrowser()
                                 }
+                                ImportOption.CLASSICS -> {
+                                    showImportSheet = false
+                                    onOpenClassicsCatalog()
+                                }
                                 ImportOption.WRITE_NOTE -> {
                                     showImportSheet = false
                                     onWriteGeneralNote()
@@ -940,6 +947,14 @@ fun LibraryScreen(
             onOpenSettings = {
                 showHomeSidebar = false
                 onOpenSettingsHub()
+            },
+            onOpenReadingLists = {
+                showHomeSidebar = false
+                onOpenReadingLists()
+            },
+            onOpenReadingHistory = {
+                showHomeSidebar = false
+                onOpenReadingHistory()
             }
         )
     }
@@ -949,6 +964,10 @@ fun LibraryScreen(
             snapshot = uiState.readerTrackerSnapshot,
             documents = documents,
             documentReadingTimes = uiState.documentReadingTimes,
+            readerSettings = uiState.readerSettings,
+            onGoalMinutesChange = { minutes ->
+                onSaveReaderSettings(uiState.readerSettings.copy(dailyGoalMinutes = minutes))
+            },
             onDismiss = { showReadingStatsHome = false }
         )
     }
@@ -1776,6 +1795,25 @@ fun LibraryScreen(
                                                     onClick = { showImportSheet = true }
                                                 )
                                             }
+                                        }
+                                    }
+
+                                    // 5b. Explore Classic Books card
+                                    item {
+                                        Card(
+                                            modifier = Modifier.staggeredEntrance(4).fillMaxWidth().padding(top = 8.dp),
+                                            shape = VeritasPackStyle.cardShape(),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                                            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                                        ) {
+                                            HomeActionRow(
+                                                icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                                                title = "Explore Classic Books",
+                                                body = "Free public domain classics - Meditations, Art of War & more",
+                                                iconBackground = MaterialTheme.colorScheme.tertiaryContainer,
+                                                iconForeground = MaterialTheme.colorScheme.tertiary,
+                                                onClick = onOpenClassicsCatalog
+                                            )
                                         }
                                     }
 

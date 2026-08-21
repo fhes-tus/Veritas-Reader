@@ -32,7 +32,22 @@ import kotlin.math.roundToInt
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = DocumentRepository(application)
-    private val delegateUiState = MutableStateFlow(ReaderUiState())
+    private val delegateUiState = MutableStateFlow(
+        run {
+            val hasCompleted = repository.hasSeenOnboardingTutorial()
+            val questProgress = repository.loadQuestProgress()
+            val allQuestsDone = questProgress.tourDone && questProgress.importDone && questProgress.speedDone && questProgress.bookmarkDone
+            ReaderUiState(
+                hasCompletedOnboarding = hasCompleted,
+                questTourDone = questProgress.tourDone,
+                questImportDone = questProgress.importDone,
+                questSpeedDone = questProgress.speedDone,
+                questBookmarkDone = questProgress.bookmarkDone,
+                questChecklistDismissed = allQuestsDone,
+                showTutorial = !hasCompleted
+            )
+        }
+    )
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.InternalCoroutinesApi::class)
     private val _uiState = object : MutableStateFlow<ReaderUiState> by delegateUiState {
         override var value: ReaderUiState
@@ -234,6 +249,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     documentReadingTimes = documentReadingTimes,
                     showTutorial = !hasCompletedOnboarding
                 )
+            }
+        }
+        viewModelScope.launch {
+            val savedSleepTimer = repository.loadPersistedSleepTimer()
+            if (savedSleepTimer != null && (savedSleepTimer.stopAtEndOfSection || savedSleepTimer.remainingMillis() > 0L)) {
+                PlaybackStateStore.setSleepTimer(
+                    VeritasSleepTimerRequest(
+                        durationMillis = savedSleepTimer.durationMillis,
+                        action = savedSleepTimer.action,
+                        stopAtEndOfSection = savedSleepTimer.stopAtEndOfSection
+                    ),
+                    nowMillis = savedSleepTimer.endsAtMillis - savedSleepTimer.durationMillis
+                )
+                startSleepTimerTicker()
             }
         }
         viewModelScope.launch {
@@ -1399,21 +1428,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                                             }
                                         }
                                     }
-                                    if (openAfterImport) {
-                                        if (!firstChunkOpened) {
-                                            // Non-PDF path or small PDF that completed in one chunk
-                                            val saved = repository.findDocument(docId)
-                                            if (saved != null) {
-                                                openSavedDocument(saved)
-                                            } else {
-                                                _uiState.update { it.copy(isOpeningDocument = false) }
-                                            }
+                                    val saved = repository.findDocument(docId)
+                                    if (saved != null) {
+                                        if (openAfterImport || _uiState.value.activeDocument?.id == docId) {
+                                            val currentIdx = if (_uiState.value.activeDocument?.id == docId) PlaybackStateStore.currentIndex else null
+                                            openSavedDocument(saved, startIndex = currentIdx)
+                                        } else {
+                                            _uiState.update { it.copy(isOpeningDocument = false) }
                                         }
                                     } else {
                                         _uiState.update { it.copy(isOpeningDocument = false) }
                                     }
                                 }
-                                _uiState.update { it.copy(importMessage = "Successfully imported $title.") }
+                                _uiState.update { it.copy(importMessage = "Successfully imported $title.", isOpeningDocument = false) }
                             }
                             androidx.work.WorkInfo.State.FAILED -> {
                                 val error = workInfo.outputData.getString("error") ?: "Unknown error"
@@ -1473,6 +1500,59 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     _uiState.update { it.copy(importMessage = "Web article imported into Veritas.") }
                 }
             }
+        }
+    }
+
+    fun downloadClassicBook(book: com.veritas.reader.ui.screens.ClassicBookEntry) {
+        viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(importInProgress = true, importSourceName = book.title) }
+            }
+            val text = runCatching {
+                val connection = java.net.URL(book.downloadUrl).openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                connection.inputStream.bufferedReader().use { it.readText() }
+            }.getOrElse { error ->
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(importMessage = "Could not download ${book.title}: ${error.message}") }
+                }
+                null
+            }
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(importInProgress = false, importSourceName = "") }
+                if (text != null && text.isNotBlank()) {
+                    createAndOpenDocument(
+                        title = "${book.title} - ${book.author}",
+                        text = text,
+                        sourceLabel = "Classic Book"
+                    )
+                    _uiState.update {
+                        it.copy(
+                            importMessage = "Added ${book.title} to your library!",
+                            showClassicsCatalog = false
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun importDownloadedBook(file: java.io.File, customTitle: String) {
+        val cleanTitle = cleanDocumentTitle(customTitle)
+        val uri = Uri.fromFile(file)
+        importDocumentFromUri(
+            uri = uri,
+            sourceNameHint = cleanTitle,
+            customTitle = cleanTitle,
+            openAfterImport = true
+        )
+        _uiState.update {
+            it.copy(
+                showOceanOfPdfBrowser = false,
+                showClassicsCatalog = false,
+                importMessage = "Imported $cleanTitle into your library!"
+            )
         }
     }
 
@@ -1587,12 +1667,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { 
             it.copy(
                 noteTargetIndexes = indexes,
-                noteDraft = existing?.note ?: ""
+                noteDraft = existing?.note ?: "",
+                noteAudioPath = existing?.audioPath,
+                noteAudioDuration = existing?.audioDurationSeconds ?: 0
             )
         }
     }
 
-    fun saveSentenceNote() {
+    fun saveSentenceNote(audioPath: String? = uiState.value.noteAudioPath, audioDuration: Int = uiState.value.noteAudioDuration) {
         val docId = uiState.value.activeDocument?.id ?: return
         val indexes = uiState.value.noteTargetIndexes.ifEmpty {
             uiState.value.noteTargetIndex?.let(::listOf).orEmpty()
@@ -1607,7 +1689,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             
             var lastUpdated: List<ReaderAnnotation> = emptyList()
             indexes.forEach { idx ->
-                lastUpdated = repository.upsertAnnotation(docId, idx, AnnotationType.NOTE, text, selectionGroupId = groupId)
+                lastUpdated = repository.upsertAnnotation(
+                    documentId = docId,
+                    chunkIndex = idx,
+                    type = AnnotationType.NOTE,
+                    note = text,
+                    selectionGroupId = groupId,
+                    audioPath = audioPath,
+                    audioDurationSeconds = audioDuration
+                )
             }
             val allAnnotations = repository.loadAllAnnotations()
             val documentNotes = repository.loadAllDocumentNotes()
@@ -1620,7 +1710,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         annotationCount = allAnnotations.size + documentNotes.size,
                         noteTargetIndex = null,
                         noteTargetIndexes = emptyList(),
-                        noteDraft = ""
+                        noteDraft = "",
+                        noteAudioPath = null,
+                        noteAudioDuration = 0
                     )
                 }
             }
@@ -1632,22 +1724,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val indexes = uiState.value.noteTargetIndexes.ifEmpty {
             uiState.value.noteTargetIndex?.let(::listOf).orEmpty()
         }
+        val audioToDelete = uiState.value.noteAudioPath
+        if (audioToDelete != null) {
+            VoiceNoteRecorder.deleteAudioFile(audioToDelete)
+        }
         viewModelScope.launch(Dispatchers.IO) {
-            val annots = repository.loadAllAnnotations()
-            val toRemove = mutableSetOf<String>()
             indexes.forEach { idx ->
-                val target = annots.firstOrNull { it.documentId == docId && it.chunkIndex == idx && it.type == AnnotationType.NOTE }
-                if (target != null) {
-                    if (!target.selectionGroupId.isNullOrBlank()) {
-                        val groupKeys = annots.filter { it.documentId == docId && it.selectionGroupId == target.selectionGroupId }.map { it.stableKey }
-                        toRemove.addAll(groupKeys)
-                    } else {
-                        toRemove.add(target.stableKey)
-                    }
-                }
-            }
-            if (toRemove.isNotEmpty()) {
-                repository.removeAnnotations(toRemove)
+                repository.removeAnnotation(docId, idx, AnnotationType.NOTE)
             }
             val lastUpdated = repository.loadAnnotations(docId)
             val allAnnotations = repository.loadAllAnnotations()
@@ -1661,10 +1744,25 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         annotationCount = allAnnotations.size + documentNotes.size,
                         noteTargetIndex = null,
                         noteTargetIndexes = emptyList(),
-                        noteDraft = ""
+                        noteDraft = "",
+                        noteAudioPath = null,
+                        noteAudioDuration = 0
                     )
                 }
             }
+        }
+    }
+
+    fun dismissSentenceNote() {
+        VoiceNoteRecorder.stopAll()
+        _uiState.update {
+            it.copy(
+                noteTargetIndex = null,
+                noteTargetIndexes = emptyList(),
+                noteDraft = "",
+                noteAudioPath = null,
+                noteAudioDuration = 0
+            )
         }
     }
 
@@ -1689,16 +1787,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     )
                 }
             }
-        }
-    }
-
-    fun dismissSentenceNote() {
-        _uiState.update {
-            it.copy(
-                noteTargetIndex = null,
-                noteTargetIndexes = emptyList(),
-                noteDraft = ""
-            )
         }
     }
 
@@ -1906,11 +1994,41 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         runCatching { getApplication<Application>().startActivity(intent) }
     }
 
+    private var sleepTimerJob: Job? = null
+
+    private fun startSleepTimerTicker() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1000L)
+                val snapshot = PlaybackStateStore.activeSleepTimerSnapshot()
+                if (snapshot == null) break
+                if (!snapshot.stopAtEndOfSection) {
+                    val remaining = snapshot.remainingMillis()
+                    if (remaining <= 0L) {
+                        PlaybackStateStore.clearSleepTimer()
+                        repository.clearSleepTimerState()
+                        sendPlaybackIntent(getApplication(), PlaybackActions.ACTION_PAUSE)
+                        _uiState.update { it.copy(importMessage = "Sleep timer finished. Playback paused.") }
+                        break
+                    }
+                }
+            }
+        }
+    }
+
     fun setSleepTimer(request: VeritasSleepTimerRequest) {
         val durationMillis = request.durationMillis
         val action = request.action
         val stopAtEndOfSection = request.stopAtEndOfSection
         PlaybackStateStore.setSleepTimer(request, System.currentTimeMillis())
+        repository.saveSleepTimerState(
+            durationMillis = PlaybackStateStore.sleepTimerDurationMillis,
+            endsAtMillis = PlaybackStateStore.sleepTimerEndsAtMillis,
+            actionName = PlaybackStateStore.sleepTimerActionName,
+            stopAtEndOfSection = PlaybackStateStore.sleepTimerStopAtEndOfSection
+        )
+        startSleepTimerTicker()
         val intent = Intent(getApplication(), PlaybackService::class.java)
             .setAction(PlaybackActions.ACTION_SET_SLEEP_TIMER)
             .putExtra(PlaybackActions.EXTRA_SLEEP_TIMER_DURATION_MILLIS, durationMillis)
@@ -1920,7 +2038,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
         PlaybackStateStore.clearSleepTimer()
+        repository.clearSleepTimerState()
         val intent = Intent(getApplication(), PlaybackService::class.java)
             .setAction(PlaybackActions.ACTION_CANCEL_SLEEP_TIMER)
         getApplication<Application>().startService(intent)
@@ -2317,6 +2438,41 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         getApplication<Application>().startActivity(Intent.createChooser(shareIntent, "Export notes to notes app").apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK })
+    }
+
+    fun exportStudyGuidePdf() {
+        val doc = uiState.value.activeDocument ?: return
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            val sentences = ReaderTextIndex.build(doc.rawText, doc.pageCount).sentences
+            val generalNote = repository.loadDocumentNote(doc.id.orEmpty())
+            val file = StudyGuidePdfExporter.generateStudyGuidePdf(
+                context = context,
+                documentTitle = doc.title,
+                documentId = doc.id.orEmpty(),
+                annotations = uiState.value.annotations,
+                generalNote = generalNote,
+                sentences = sentences
+            )
+            if (file != null && file.exists()) {
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_SUBJECT, "Study Guide — ${doc.title}")
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                withContext(Dispatchers.Main) {
+                    context.startActivity(Intent.createChooser(shareIntent, "Export Study Guide PDF").apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    })
+                }
+            }
+        }
     }
 
     fun exportLibraryBackup(uri: Uri) {
@@ -3048,71 +3204,101 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private var downloadJob: Job? = null
 
-    private fun checkForUpdates() {
-        try {
-            // Delete old update file if it exists in the cache
-            runCatching {
-                val context = getApplication<Application>()
-                val oldFile = File(context.cacheDir, "veritas_update.apk")
-                if (oldFile.exists()) {
-                    oldFile.delete()
-                }
+    fun checkForUpdates(isManual: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update {
+                it.copy(
+                    isCheckingForUpdates = true,
+                    updateStatusMessage = if (isManual) "Checking for updates..." else it.updateStatusMessage
+                )
             }
-
-            val url = java.net.URL("https://api.github.com/repos/fhes-tus/Veritas-Reader/releases/latest")
-            val connection = url.openConnection() as java.net.HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-            connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")
-            connection.connectTimeout = 8000
-            connection.readTimeout = 8000
-            if (connection.responseCode == 200) {
-                val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = org.json.JSONObject(responseText)
-                val tagName = json.optString("tag_name", "").trim()
-                val cleanTagName = tagName.removePrefix("v").trim()
-                val localVersion = runCatching {
+            try {
+                // Delete old update file if it exists in the cache
+                runCatching {
                     val context = getApplication<Application>()
-                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                }.getOrNull() ?: "2.0.0"
-                if (isVersionNewer(localVersion, cleanTagName)) {
-                    val htmlUrl = json.optString("html_url", "https://github.com/fhes-tus/Veritas-Reader/releases")
-                    val body = json.optString("body", "")
-                    
-                    var apkUrl = ""
-                    val assets = json.optJSONArray("assets")
-                    if (assets != null) {
-                        for (i in 0 until assets.length()) {
-                            val asset = assets.optJSONObject(i)
-                            if (asset != null) {
-                                val name = asset.optString("name", "")
-                                if (name.endsWith(".apk", ignoreCase = true)) {
-                                    apkUrl = asset.optString("browser_download_url", "")
-                                    break
+                    val oldFile = File(context.cacheDir, "veritas_update.apk")
+                    if (oldFile.exists()) {
+                        oldFile.delete()
+                    }
+                }
+
+                val url = java.net.URL("https://api.github.com/repos/fhes-tus/Veritas-Reader/releases/latest")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")
+                connection.connectTimeout = 8000
+                connection.readTimeout = 8000
+                if (connection.responseCode == 200) {
+                    val responseText = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = org.json.JSONObject(responseText)
+                    val tagName = json.optString("tag_name", "").trim()
+                    val cleanTagName = tagName.removePrefix("v").trim()
+                    val localVersion = runCatching {
+                        val context = getApplication<Application>()
+                        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                    }.getOrNull() ?: "2.1.0"
+                    if (isVersionNewer(localVersion, cleanTagName)) {
+                        val htmlUrl = json.optString("html_url", "https://github.com/fhes-tus/Veritas-Reader/releases")
+                        val body = json.optString("body", "")
+                        
+                        var apkUrl = ""
+                        val assets = json.optJSONArray("assets")
+                        if (assets != null) {
+                            for (i in 0 until assets.length()) {
+                                val asset = assets.optJSONObject(i)
+                                if (asset != null) {
+                                    val name = asset.optString("name", "")
+                                    if (name.endsWith(".apk", ignoreCase = true)) {
+                                        apkUrl = asset.optString("browser_download_url", "")
+                                        break
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    runCatching {
-                        val context = getApplication<Application>()
-                        val prefs = context.getSharedPreferences("veritas_reader_library", android.content.Context.MODE_PRIVATE)
-                        prefs.edit().putString("last_downloaded_changelog", body).apply()
-                    }
+                        runCatching {
+                            val context = getApplication<Application>()
+                            val prefs = context.getSharedPreferences("veritas_reader_library", android.content.Context.MODE_PRIVATE)
+                            prefs.edit().putString("last_downloaded_changelog", body).apply()
+                        }
 
+                        _uiState.update {
+                            it.copy(
+                                isCheckingForUpdates = false,
+                                showUpdateDialog = true,
+                                updateVersionName = tagName,
+                                updateUrl = htmlUrl,
+                                updateApkUrl = apkUrl,
+                                updateChangelog = body,
+                                updateStatusMessage = "Update available: $tagName"
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isCheckingForUpdates = false,
+                                updateStatusMessage = if (isManual) "Veritas Reader is up to date (v$localVersion)" else it.updateStatusMessage
+                            )
+                        }
+                    }
+                } else {
                     _uiState.update {
                         it.copy(
-                            showUpdateDialog = true,
-                            updateVersionName = tagName,
-                            updateUrl = htmlUrl,
-                            updateApkUrl = apkUrl,
-                            updateChangelog = body
+                            isCheckingForUpdates = false,
+                            updateStatusMessage = if (isManual) "Could not check for updates" else it.updateStatusMessage
                         )
                     }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("ReaderViewModel", "Error checking for updates", e)
+                _uiState.update {
+                    it.copy(
+                        isCheckingForUpdates = false,
+                        updateStatusMessage = if (isManual) "Network error checking for updates" else it.updateStatusMessage
+                    )
+                }
             }
-        } catch (e: Exception) {
-            android.util.Log.e("ReaderViewModel", "Error checking for updates", e)
         }
     }
 

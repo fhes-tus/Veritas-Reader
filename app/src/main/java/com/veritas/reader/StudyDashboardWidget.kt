@@ -49,7 +49,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
             val borderModifier = GlanceModifier
                 .fillMaxSize()
                 .background(VeritasWidgetColors.border)
-                .cornerRadius(24.dp)
+                .cornerRadius(28.dp)
 
             Box(
                 modifier = borderModifier,
@@ -59,7 +59,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
                     modifier = GlanceModifier
                         .fillMaxSize()
                         .padding(1.dp)
-                        .cornerRadius(23.dp)
+                        .cornerRadius(27.dp)
                         .background(VeritasWidgetColors.frostedBackground)
                         .padding(12.dp)
                         .clickable(actionRunCallback<StudyDashboardClickCallback>())
@@ -83,23 +83,23 @@ class StudyDashboardWidget : GlanceAppWidget() {
                             modifier = GlanceModifier
                                 .cornerRadius(12.dp)
                                 .background(VeritasWidgetColors.cardBackground)
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "🔥 ${tracker.currentStreak}d",
+                                text = "🔥 ${tracker.currentStreak}d Streak",
                                 style = TextStyle(
-                                    fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
+                                    fontSize = if (size.width >= 240.dp) 11.sp else 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = ColorProvider(Color(0xFFFAB387))
+                                    color = VeritasWidgetColors.streakAccent
                                 )
                             )
                         }
                     }
 
-                    Spacer(modifier = GlanceModifier.height(6.dp))
+                    Spacer(modifier = GlanceModifier.height(8.dp))
 
-                    // Stats row
+                    // Stats row with elevated cards
                     Row(
                         modifier = GlanceModifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -107,7 +107,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
                         Box(
                             modifier = GlanceModifier
                                 .defaultWeight()
-                                .cornerRadius(12.dp)
+                                .cornerRadius(14.dp)
                                 .background(VeritasWidgetColors.cardBackground)
                                 .padding(8.dp)
                         ) {
@@ -115,13 +115,13 @@ class StudyDashboardWidget : GlanceAppWidget() {
                                 Text(
                                     text = "Today",
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
+                                        fontSize = if (size.width >= 240.dp) 11.sp else 9.sp,
                                         color = VeritasWidgetColors.textMuted
                                     )
                                 )
                                 Spacer(modifier = GlanceModifier.height(2.dp))
                                 Text(
-                                    text = "$todayMinutes m",
+                                    text = "$todayMinutes min",
                                     style = TextStyle(
                                         fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
                                         fontWeight = FontWeight.Bold,
@@ -136,7 +136,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
                         Box(
                             modifier = GlanceModifier
                                 .defaultWeight()
-                                .cornerRadius(12.dp)
+                                .cornerRadius(14.dp)
                                 .background(VeritasWidgetColors.cardBackground)
                                 .padding(8.dp)
                         ) {
@@ -144,7 +144,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
                                 Text(
                                     text = "Notes",
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
+                                        fontSize = if (size.width >= 240.dp) 11.sp else 9.sp,
                                         color = VeritasWidgetColors.textMuted
                                     )
                                 )
@@ -165,7 +165,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
                         Box(
                             modifier = GlanceModifier
                                 .defaultWeight()
-                                .cornerRadius(12.dp)
+                                .cornerRadius(14.dp)
                                 .background(VeritasWidgetColors.cardBackground)
                                 .padding(8.dp)
                         ) {
@@ -173,7 +173,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
                                 Text(
                                     text = "Completed",
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
+                                        fontSize = if (size.width >= 240.dp) 11.sp else 9.sp,
                                         color = VeritasWidgetColors.textMuted
                                     )
                                 )
@@ -183,14 +183,14 @@ class StudyDashboardWidget : GlanceAppWidget() {
                                     style = TextStyle(
                                         fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = VeritasWidgetColors.textPrimary
+                                        color = VeritasWidgetColors.successAccent
                                     )
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = GlanceModifier.height(6.dp))
+                    Spacer(modifier = GlanceModifier.height(8.dp))
 
                     // Goal bar
                     Column(modifier = GlanceModifier.fillMaxWidth()) {
@@ -199,15 +199,15 @@ class StudyDashboardWidget : GlanceAppWidget() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Daily Progress",
+                                text = "Daily Goal: 30 min",
                                 style = TextStyle(
-                                    fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
+                                    fontSize = if (size.width >= 240.dp) 11.sp else 10.sp,
                                     color = VeritasWidgetColors.textMuted
                                 ),
                                 modifier = GlanceModifier.defaultWeight()
                             )
                             Text(
-                                text = "$todayMinutes / 30 min",
+                                text = "${(goalProgress * 100).toInt()}%",
                                 style = TextStyle(
                                     fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
                                     fontWeight = FontWeight.Bold,
@@ -220,16 +220,16 @@ class StudyDashboardWidget : GlanceAppWidget() {
                             progress = goalProgress,
                             modifier = GlanceModifier.fillMaxWidth().height(4.dp),
                             color = VeritasWidgetColors.primaryAccent,
-                            backgroundColor = VeritasWidgetColors.cardBackground
+                            backgroundColor = VeritasWidgetColors.progressTrack
                         )
                     }
 
-                    Spacer(modifier = GlanceModifier.height(6.dp))
+                    Spacer(modifier = GlanceModifier.height(8.dp))
 
                     // Weekly usage bar chart representation
                     Column(modifier = GlanceModifier.fillMaxWidth()) {
                         Text(
-                            text = "Weekly Chart",
+                            text = "Weekly Activity",
                             style = TextStyle(
                                 fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -238,7 +238,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
                         )
                         Spacer(modifier = GlanceModifier.height(4.dp))
                         Row(
-                            modifier = GlanceModifier.fillMaxWidth().height(64.dp),
+                            modifier = GlanceModifier.fillMaxWidth().height(48.dp),
                             verticalAlignment = Alignment.Bottom
                         ) {
                             val sundayCal = java.util.Calendar.getInstance().apply {
@@ -263,7 +263,7 @@ class StudyDashboardWidget : GlanceAppWidget() {
                             weeklyUsageByDay.forEachIndexed { i, value ->
                                 val isToday = i == dayIdx
                                 val fraction = (value.toFloat() / maxVal.toFloat()).coerceIn(0f, 1f)
-                                val barHeight = (fraction * 48f).toInt().coerceAtLeast(2)
+                                val barHeight = (fraction * 36f).toInt().coerceAtLeast(4)
 
                                 Column(
                                     modifier = GlanceModifier.defaultWeight(),
@@ -271,29 +271,28 @@ class StudyDashboardWidget : GlanceAppWidget() {
                                 ) {
                                     Box(
                                         modifier = GlanceModifier
-                                            .width(12.dp)
-                                            .height(48.dp)
-                                            .cornerRadius(6.dp)
+                                            .width(14.dp)
+                                            .height(36.dp)
+                                            .cornerRadius(7.dp)
                                             .background(VeritasWidgetColors.cardBackground),
                                         contentAlignment = Alignment.BottomCenter
                                     ) {
-                                        if (value > 0L) {
-                                            Box(
-                                                modifier = GlanceModifier
-                                                    .width(12.dp)
-                                                    .height(barHeight.dp)
-                                                    .cornerRadius(6.dp)
-                                                    .background(
-                                                        if (isToday) VeritasWidgetColors.primaryAccent else VeritasWidgetColors.textMuted
-                                                    )
-                                            ) {}
-                                        }
+                                        Box(
+                                            modifier = GlanceModifier
+                                                .width(14.dp)
+                                                .height(barHeight.dp)
+                                                .cornerRadius(7.dp)
+                                                .background(
+                                                    if (isToday) VeritasWidgetColors.primaryAccent else VeritasWidgetColors.cardElevated
+                                                )
+                                        ) {}
                                     }
                                     Spacer(modifier = GlanceModifier.height(2.dp))
                                     Text(
                                         text = labels.getOrElse(i) { "" },
                                         style = TextStyle(
                                             fontSize = if (size.width >= 240.dp) 10.sp else 8.sp,
+                                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                                             color = if (isToday) VeritasWidgetColors.primaryAccent else VeritasWidgetColors.textMuted
                                         )
                                     )

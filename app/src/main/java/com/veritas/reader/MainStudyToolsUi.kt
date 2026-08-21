@@ -43,7 +43,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -1069,6 +1069,13 @@ internal fun AiAppStudyDialog(
     }
 
     val installedAiList = remember(context) { installedAiOptions(context) }
+    val defaultAiId = remember(askAiSettings, installedAiList) {
+        if (askAiSettings == null || askAiSettings.assistantId.isBlank() || askAiSettings.assistantId == "chooser") {
+            if (installedAiList.isNotEmpty()) installedAiList.first().first.id else "chooser"
+        } else {
+            askAiSettings.assistantId
+        }
+    }
     val defaultAiName = remember(askAiSettings, installedAiList) {
         if (askAiSettings == null || askAiSettings.assistantId.isBlank() || askAiSettings.assistantId == "chooser") {
             if (installedAiList.isNotEmpty()) installedAiList.first().first.label else "Share Menu"
@@ -1096,9 +1103,9 @@ internal fun AiAppStudyDialog(
             ) {
                 // Top App Bar
                 Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 2.dp,
-                    shadowElevation = 4.dp
+                    color = MaterialTheme.colorScheme.background,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp
                 ) {
                     Column(
                         modifier = Modifier
@@ -1153,13 +1160,13 @@ internal fun AiAppStudyDialog(
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
                                     Icon(
-                                        Icons.Outlined.SmartToy,
+                                        imageVector = aiAssistantIcon(defaultAiId),
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(14.dp)
+                                        modifier = Modifier.size(15.dp)
                                     )
                                     Text(
                                         defaultAiName,
@@ -1551,21 +1558,31 @@ internal fun AiAppStudyDialog(
 
                                     Card(
                                         shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(enabled = isInstalled) {
+                                                val newSettings = (askAiSettings ?: AskAiSettings()).copy(
+                                                    assistantId = option.id,
+                                                    assistantLabel = option.label,
+                                                    packageName = option.packageName
+                                                )
+                                                onUpdateAskAiSettings?.invoke(newSettings)
+                                            },
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (isCurrent)
-                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                                             else
-                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                                         ),
                                         border = BorderStroke(
-                                            1.dp,
+                                            if (isCurrent) 1.5.dp else 1.dp,
                                             if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                         )
                                     ) {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(14.dp),
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
@@ -1605,7 +1622,7 @@ internal fun AiAppStudyDialog(
                                                                     "Active Target",
                                                                     style = MaterialTheme.typography.labelSmall,
                                                                     fontWeight = FontWeight.Bold,
-                                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                                                 )
                                                             }
                                                         }
@@ -1622,24 +1639,8 @@ internal fun AiAppStudyDialog(
                                                 }
                                             }
 
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                                 if (isInstalled) {
-                                                    if (!isCurrent) {
-                                                        Button(
-                                                            onClick = {
-                                                                val newSettings = (askAiSettings ?: AskAiSettings()).copy(
-                                                                    assistantId = option.id,
-                                                                    assistantLabel = option.label,
-                                                                    packageName = option.packageName
-                                                                )
-                                                                onUpdateAskAiSettings?.invoke(newSettings)
-                                                            },
-                                                            shape = RoundedCornerShape(50),
-                                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                                        ) {
-                                                            Text("Select")
-                                                        }
-                                                    }
                                                     if (option.packageName.isNotBlank()) {
                                                         IconButton(
                                                             onClick = {
@@ -1650,18 +1651,25 @@ internal fun AiAppStudyDialog(
                                                                 } else {
                                                                     openPlayStoreForPackage(context, option.packageName)
                                                                 }
-                                                            }
+                                                            },
+                                                            modifier = Modifier.size(32.dp)
                                                         ) {
-                                                            Icon(Icons.Filled.OpenInNew, contentDescription = "Open App")
+                                                            Icon(
+                                                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                                                contentDescription = "Open App",
+                                                                modifier = Modifier.size(17.dp),
+                                                                tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
                                                         }
                                                     }
                                                 } else if (option.packageName.isNotBlank()) {
                                                     OutlinedButton(
                                                         onClick = { openPlayStoreForPackage(context, option.packageName) },
                                                         shape = RoundedCornerShape(50),
-                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                        modifier = Modifier.height(30.dp)
                                                     ) {
-                                                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(13.dp))
                                                         Spacer(Modifier.width(4.dp))
                                                         Text("Install", style = MaterialTheme.typography.labelSmall)
                                                     }
@@ -2278,11 +2286,11 @@ data class VoicePreset(
 
 fun voicePresets(): List<VoicePreset> = listOf(
     VoicePreset("Balanced", 1.0f, 1.0f, "Natural everyday audio reading with standard timing."),
-    VoicePreset("Study focus", 0.85f, 0.94f, "Deliberate pacing with grounded tone for deep comprehension."),
-    VoicePreset("Quick scan", 1.45f, 1.04f, "Fast energetic review with crisp consonant clarity."),
-    VoicePreset("Storyteller", 0.93f, 0.90f, "Warm, chest-resonant narration for fiction and novels."),
-    VoicePreset("Lecture bright", 1.10f, 1.12f, "Confident, articulate delivery for academic and business text."),
-    VoicePreset("Bedtime calm", 0.75f, 0.82f, "Slow, soothing, mellow tone for quiet night-time listening.")
+    VoicePreset("Study focus", 0.92f, 0.99f, "Deliberate pacing with grounded tone for deep comprehension."),
+    VoicePreset("Quick scan", 1.25f, 1.01f, "Fast energetic review with crisp consonant clarity."),
+    VoicePreset("Storyteller", 0.95f, 0.97f, "Warm, chest-resonant narration for fiction and novels."),
+    VoicePreset("Lecture bright", 1.10f, 1.03f, "Confident, articulate delivery for academic and business text."),
+    VoicePreset("Bedtime calm", 0.85f, 0.98f, "Slow, soothing, mellow tone for quiet night-time listening.")
 )
 
 
@@ -3643,7 +3651,7 @@ fun packPreviewSymbols(packId: String): String =
 fun themePreviewColors(themeId: String): List<Color> {
     return when (VeritasThemeCatalog.normalizeThemeId(themeId)) {
         "light" -> listOf(Color(0xFFFAF7F2), Color(0xFFC07318), Color(0xFF52695C))
-        "neon" -> listOf(Color(0xFF000000), Color(0xFF00FFFF), Color(0xFF39FF14))
+        "neon" -> listOf(Color(0xFF08090C), Color(0xFF00E5FF), Color(0xFF00E676))
         "solarized_dark" -> listOf(Color(0xFF002B36), Color(0xFF2AA198), Color(0xFFB58900))
         "tomorrow_night_blue" -> listOf(Color(0xFF002451), Color(0xFFBBDAFF), Color(0xFFFFC58F))
         "dark_high_contrast" -> listOf(Color.Black, Color.White, Color(0xFFFFD400))
@@ -3656,7 +3664,9 @@ fun themePreviewColors(themeId: String): List<Color> {
         "github_light" -> listOf(Color(0xFFFFFFFF), Color(0xFF0969DA), Color(0xFF1A7F37))
         "dracula" -> listOf(Color(0xFF282A36), Color(0xFFBD93F9), Color(0xFFFF79C6))
         "material_you" -> listOf(Color(0xFFFFFBFE), Color(0xFF6750A4), Color(0xFF7D5260))
-        "dark" -> listOf(Color(0xFF0F172A), Color(0xFFA79BFF), Color(0xFF9BD8E0))
+        "midnight_dark" -> listOf(Color(0xFF0F172A), Color(0xFFA79BFF), Color(0xFF9BD8E0))
+        "dark" -> listOf(Color(0xFF151515), Color(0xFFE5A93C), Color(0xFF81B29A))
+        "system" -> listOf(Color(0xFFFAF7F2), Color(0xFF151515), Color(0xFFC07318))
         else -> listOf(Color(0xFF151515), Color(0xFFE5A93C), Color(0xFF81B29A))
     }
 }
@@ -3745,7 +3755,7 @@ internal fun VeritasTheme(content: @Composable () -> Unit) {
     val reduceMotion = VeritasThemeState.reduceMotion
     
     val resolvedTheme = if (selectedTheme == "system") {
-        if (isSystemInDarkTheme()) "default_dark_2026" else "light"
+        if (isSystemInDarkTheme()) "dark" else "light"
     } else {
         selectedTheme
     }
@@ -3887,7 +3897,6 @@ internal fun veritasPackColorScheme(base: ColorScheme, packId: String): ColorSch
     }
 }
 
-@Composable
 internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme {
     return when (VeritasThemeCatalog.normalizeThemeId(themeId)) {
         "light" -> lightColorScheme(
@@ -3904,6 +3913,11 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             background = Color(0xFFFAF7F2),       // Warm Cream Paper
             surface = Color(0xFFFFFFFF),          // Crisp White Card
             surfaceVariant = Color(0xFFF0EAE1),   // Warm Linen Container / Chip
+            surfaceContainerLowest = Color(0xFFFFFFFF),
+            surfaceContainerLow = Color(0xFFF7F3EC),
+            surfaceContainer = Color(0xFFF2ECE3),
+            surfaceContainerHigh = Color(0xFFEBE4D9),
+            surfaceContainerHighest = Color(0xFFE3DCCE),
             onSurface = Color(0xFF1E1B18),        // Warm Espresso Charcoal Text
             onSurfaceVariant = Color(0xFF6E675E), // Warm Neutral Muted Gray
             outline = Color(0xFFD6CEC4),
@@ -3931,6 +3945,11 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             surface = Color(0xFF10141B),          // Elevated Cyber Slate
             onSurface = Color(0xFFF0F6FC),
             surfaceVariant = Color(0xFF181F29),   // Smooth Cyber Container / Chip
+            surfaceContainerLowest = Color(0xFF040507),
+            surfaceContainerLow = Color(0xFF0C0F14),
+            surfaceContainer = Color(0xFF10141B),
+            surfaceContainerHigh = Color(0xFF161C24),
+            surfaceContainerHighest = Color(0xFF1D242F),
             onSurfaceVariant = Color(0xFF8BA2B8), // Readable Neutral Cyber Gray
             outline = Color(0xFF263242),
             outlineVariant = Color(0xFF181F29)
@@ -3946,15 +3965,22 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFF2AA198),
             tertiary = Color(0xFFB58900),         // Yellow/Gold
             tertiaryContainer = Color(0xFF073642),
+            onTertiaryContainer = Color(0xFFFDF6E3),
             background = Color(0xFF002B36),
+            onBackground = Color(0xFFEEE8D5),
             surface = Color(0xFF073642),
-            surfaceVariant = Color(0xFF0A3F4E),
             onSurface = Color(0xFFEEE8D5),        // High Contrast Solarized Base3
-            onSurfaceVariant = Color(0xFF93A1A1)  // Solarized Base1
+            surfaceVariant = Color(0xFF0A3F4E),
+            surfaceContainerLowest = Color(0xFF00212B),
+            surfaceContainerLow = Color(0xFF002B36),
+            surfaceContainer = Color(0xFF073642),
+            surfaceContainerHigh = Color(0xFF0B414F),
+            surfaceContainerHighest = Color(0xFF0F4D5D),
+            onSurfaceVariant = Color(0xFF93A1A1), // Solarized Base1
+            outline = Color(0xFF586E75),
+            outlineVariant = Color(0xFF0A3F4E)
         )
 
-        // Canonical Tomorrow Night Blue palette (the previous accents were actually
-        // Material Palenight's): blue #BBDAFF, purple #EBBBFF, orange #FFC58F on #002451.
         "tomorrow_night_blue" -> darkColorScheme(
             primary = Color(0xFFBBDAFF),
             onPrimary = Color(0xFF002451),
@@ -3965,11 +3991,20 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFFEBBBFF),
             tertiary = Color(0xFFFFC58F),
             tertiaryContainer = Color(0xFF00346B),
+            onTertiaryContainer = Color(0xFFFFE5CC),
             background = Color(0xFF002451),
+            onBackground = Color(0xFFFFFFFF),
             surface = Color(0xFF002F6C),
-            surfaceVariant = Color(0xFF003C7A),
             onSurface = Color(0xFFFFFFFF),
-            onSurfaceVariant = Color(0xFFB2CCD6)
+            surfaceVariant = Color(0xFF003C7A),
+            surfaceContainerLowest = Color(0xFF001B3E),
+            surfaceContainerLow = Color(0xFF002451),
+            surfaceContainer = Color(0xFF002F6C),
+            surfaceContainerHigh = Color(0xFF00387B),
+            surfaceContainerHighest = Color(0xFF00438E),
+            onSurfaceVariant = Color(0xFFB2CCD6),
+            outline = Color(0xFF395F91),
+            outlineVariant = Color(0xFF003C7A)
         )
 
         "dark_high_contrast" -> darkColorScheme(
@@ -3982,11 +4017,20 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFFFFFFD1),
             tertiary = Color(0xFF00E5FF),
             tertiaryContainer = Color(0xFF003D44),
+            onTertiaryContainer = Color(0xFFB8F5FF),
             background = Color(0xFF000000),
+            onBackground = Color(0xFFFFFFFF),
             surface = Color(0xFF0A0A0A),
-            surfaceVariant = Color(0xFF1D1D1D),
             onSurface = Color(0xFFFFFFFF),
-            onSurfaceVariant = Color(0xFFE0E0E0)
+            surfaceVariant = Color(0xFF1D1D1D),
+            surfaceContainerLowest = Color(0xFF000000),
+            surfaceContainerLow = Color(0xFF050505),
+            surfaceContainer = Color(0xFF0A0A0A),
+            surfaceContainerHigh = Color(0xFF141414),
+            surfaceContainerHighest = Color(0xFF1D1D1D),
+            onSurfaceVariant = Color(0xFFE0E0E0),
+            outline = Color(0xFFFFFFFF),
+            outlineVariant = Color(0xFF666666)
         )
 
         "white_high_contrast" -> lightColorScheme(
@@ -3999,11 +4043,19 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFF001E2B),
             tertiary = Color(0xFF6B3A00),
             tertiaryContainer = Color(0xFFFFDDB5),
+            onTertiaryContainer = Color(0xFF2C1500),
             background = Color(0xFFFFFFFF),
             surface = Color(0xFFFFFFFF),
             surfaceVariant = Color(0xFFEFEFEF),
+            surfaceContainerLowest = Color(0xFFFFFFFF),
+            surfaceContainerLow = Color(0xFFF7F7F7),
+            surfaceContainer = Color(0xFFEFEFEF),
+            surfaceContainerHigh = Color(0xFFE5E5E5),
+            surfaceContainerHighest = Color(0xFFDADADA),
             onSurface = Color(0xFF000000),
-            onSurfaceVariant = Color(0xFF202020)
+            onSurfaceVariant = Color(0xFF202020),
+            outline = Color(0xFF000000),
+            outlineVariant = Color(0xFF333333)
         )
 
         "bw_gradient_light" -> lightColorScheme(
@@ -4016,11 +4068,19 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFF161616),
             tertiary = Color(0xFF707070),
             tertiaryContainer = Color(0xFFE0E0E0),
+            onTertiaryContainer = Color(0xFF111111),
             background = Color(0xFFFAFAFA),
             surface = Color(0xFFFFFFFF),
             surfaceVariant = Color(0xFFEDEDED),
+            surfaceContainerLowest = Color(0xFFFFFFFF),
+            surfaceContainerLow = Color(0xFFF7F7F7),
+            surfaceContainer = Color(0xFFF0F0F0),
+            surfaceContainerHigh = Color(0xFFE8E8E8),
+            surfaceContainerHighest = Color(0xFFDFDFDF),
             onSurface = Color(0xFF101010),
-            onSurfaceVariant = Color(0xFF3F3F3F)
+            onSurfaceVariant = Color(0xFF3F3F3F),
+            outline = Color(0xFFB0B0B0),
+            outlineVariant = Color(0xFFEDEDED)
         )
 
         "bw_gradient_dark" -> darkColorScheme(
@@ -4033,11 +4093,20 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFFEDEDED),
             tertiary = Color(0xFF9A9A9A),
             tertiaryContainer = Color(0xFF252525),
+            onTertiaryContainer = Color(0xFFE0E0E0),
             background = Color(0xFF050505),
+            onBackground = Color(0xFFF5F5F5),
             surface = Color(0xFF111111),
-            surfaceVariant = Color(0xFF242424),
             onSurface = Color(0xFFF5F5F5),
-            onSurfaceVariant = Color(0xFFC9C9C9)
+            surfaceVariant = Color(0xFF242424),
+            surfaceContainerLowest = Color(0xFF000000),
+            surfaceContainerLow = Color(0xFF0B0B0B),
+            surfaceContainer = Color(0xFF111111),
+            surfaceContainerHigh = Color(0xFF1A1A1A),
+            surfaceContainerHighest = Color(0xFF242424),
+            onSurfaceVariant = Color(0xFFC9C9C9),
+            outline = Color(0xFF404040),
+            outlineVariant = Color(0xFF242424)
         )
 
         "blue_high_contrast" -> darkColorScheme(
@@ -4050,11 +4119,20 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFFFFFBD0),
             tertiary = Color(0xFFFFFFFF),
             tertiaryContainer = Color(0xFF263B67),
+            onTertiaryContainer = Color(0xFFE0ECFF),
             background = Color(0xFF001B3A),
+            onBackground = Color(0xFFFFFFFF),
             surface = Color(0xFF002857),
-            surfaceVariant = Color(0xFF003B7A),
             onSurface = Color(0xFFFFFFFF),
-            onSurfaceVariant = Color(0xFFD9E9FF)
+            surfaceVariant = Color(0xFF003B7A),
+            surfaceContainerLowest = Color(0xFF00142C),
+            surfaceContainerLow = Color(0xFF001E40),
+            surfaceContainer = Color(0xFF002857),
+            surfaceContainerHigh = Color(0xFF00336E),
+            surfaceContainerHighest = Color(0xFF003F88),
+            onSurfaceVariant = Color(0xFFD9E9FF),
+            outline = Color(0xFF4B7BB0),
+            outlineVariant = Color(0xFF003B7A)
         )
 
         "one_dark_pro" -> darkColorScheme(
@@ -4067,11 +4145,20 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFF98C379),
             tertiary = Color(0xFFC678DD),
             tertiaryContainer = Color(0xFF282C34),
+            onTertiaryContainer = Color(0xFFECCBFF),
             background = Color(0xFF21252B),
+            onBackground = Color(0xFFE5E9F0),
             surface = Color(0xFF282C34),
-            surfaceVariant = Color(0xFF353B45),
             onSurface = Color(0xFFE5E9F0),        // Lighter high contrast text
-            onSurfaceVariant = Color(0xFFABB2BF)  // Secondary text
+            surfaceVariant = Color(0xFF353B45),
+            surfaceContainerLowest = Color(0xFF1A1D22),
+            surfaceContainerLow = Color(0xFF21252B),
+            surfaceContainer = Color(0xFF282C34),
+            surfaceContainerHigh = Color(0xFF2F343E),
+            surfaceContainerHighest = Color(0xFF353B45),
+            onSurfaceVariant = Color(0xFFABB2BF), // Secondary text
+            outline = Color(0xFF4B5263),
+            outlineVariant = Color(0xFF353B45)
         )
 
         "github_dark" -> darkColorScheme(
@@ -4084,11 +4171,20 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFF3FB950),
             tertiary = Color(0xFFFFA657),
             tertiaryContainer = Color(0xFF161B22),
+            onTertiaryContainer = Color(0xFFFFD1A9),
             background = Color(0xFF0D1117),
+            onBackground = Color(0xFFF0F6FC),
             surface = Color(0xFF161B22),
-            surfaceVariant = Color(0xFF21262D),
             onSurface = Color(0xFFF0F6FC),        // GitHub fg.default
-            onSurfaceVariant = Color(0xFFC9D1D9)  // GitHub fg.muted
+            surfaceVariant = Color(0xFF21262D),
+            surfaceContainerLowest = Color(0xFF090D12),
+            surfaceContainerLow = Color(0xFF11161D),
+            surfaceContainer = Color(0xFF161B22),
+            surfaceContainerHigh = Color(0xFF1C2129),
+            surfaceContainerHighest = Color(0xFF21262D),
+            onSurfaceVariant = Color(0xFFC9D1D9), // GitHub fg.muted
+            outline = Color(0xFF30363D),
+            outlineVariant = Color(0xFF21262D)
         )
 
         "github_light" -> lightColorScheme(
@@ -4101,11 +4197,19 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFF1A7F37),
             tertiary = Color(0xFF9A6700),
             tertiaryContainer = Color(0xFFF6F8FA),
+            onTertiaryContainer = Color(0xFF5C3D00),
             background = Color(0xFFFFFFFF),
             surface = Color(0xFFF6F8FA),
             surfaceVariant = Color(0xFFEAEFF4),
+            surfaceContainerLowest = Color(0xFFFFFFFF),
+            surfaceContainerLow = Color(0xFFF6F8FA),
+            surfaceContainer = Color(0xFFEFF2F5),
+            surfaceContainerHigh = Color(0xFFE6EAEF),
+            surfaceContainerHighest = Color(0xFFDDE2E8),
             onSurface = Color(0xFF24292F),
-            onSurfaceVariant = Color(0xFF57606A)
+            onSurfaceVariant = Color(0xFF57606A),
+            outline = Color(0xFFD0D7DE),
+            outlineVariant = Color(0xFFEAEFF4)
         )
 
         "dracula" -> darkColorScheme(
@@ -4118,20 +4222,26 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFF50FA7B),
             tertiary = Color(0xFFFF79C6),         // Pink
             tertiaryContainer = Color(0xFF44475A),
+            onTertiaryContainer = Color(0xFFFFB2D1),
             background = Color(0xFF282A36),
+            onBackground = Color(0xFFF8F8F2),
             surface = Color(0xFF1E1F29),
-            surfaceVariant = Color(0xFF44475A),
             onSurface = Color(0xFFF8F8F2),
-            // Dracula's comment blue (#6272A4) is authentic but ~2.9:1 on this bg;
-            // brightened one step (same hue) so captions stay readable.
-            onSurfaceVariant = Color(0xFF8E9AC9)
+            surfaceVariant = Color(0xFF44475A),
+            surfaceContainerLowest = Color(0xFF191A23),
+            surfaceContainerLow = Color(0xFF21222C),
+            surfaceContainer = Color(0xFF282A36),
+            surfaceContainerHigh = Color(0xFF343746),
+            surfaceContainerHighest = Color(0xFF44475A),
+            onSurfaceVariant = Color(0xFF8E9AC9),
+            outline = Color(0xFF6272A4),
+            outlineVariant = Color(0xFF343746)
         )
 
         "material_you" -> {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (isSystemInDarkTheme()) dynamicDarkColorScheme(context) else dynamicLightColorScheme(
-                    context
-                )
+                val isSystemDark = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                if (isSystemDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             } else {
                 lightColorScheme(
                     primary = Color(0xFF6750A4),
@@ -4152,10 +4262,7 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             }
         }
 
-        // Brand mirror of the Light theme: soft Veritas purple on slate navy, with the
-        // old ice-cyan demoted to tertiary. Distinguishes Dark from the cyan-on-black
-        // Default Dark 2026 and Neon themes.
-        "dark" -> darkColorScheme(
+        "midnight_dark" -> darkColorScheme(
             primary = Color(0xFFA79BFF),
             onPrimary = Color(0xFF221656),
             primaryContainer = Color(0xFF261D50),
@@ -4165,10 +4272,17 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             onSecondaryContainer = Color(0xFFE6EEF3),
             tertiary = Color(0xFF9BD8E0),
             tertiaryContainer = Color(0xFF164B54),
+            onTertiaryContainer = Color(0xFFB8F5FF),
             background = Color(0xFF0F172A),
+            onBackground = Color(0xFFF8FAFC),
             surface = Color(0xFF1E293B),
-            surfaceVariant = Color(0xFF334155),
             onSurface = Color(0xFFF8FAFC),
+            surfaceVariant = Color(0xFF334155),
+            surfaceContainerLowest = Color(0xFF0A0F1D),
+            surfaceContainerLow = Color(0xFF141E33),
+            surfaceContainer = Color(0xFF1E293B),
+            surfaceContainerHigh = Color(0xFF28354A),
+            surfaceContainerHighest = Color(0xFF334155),
             onSurfaceVariant = Color(0xFF94A3B8),
             outline = Color(0xFF475569),
             outlineVariant = Color(0xFF1E293B)
@@ -4192,6 +4306,11 @@ internal fun veritasColorScheme(themeId: String, context: Context): ColorScheme 
             surface = Color(0xFF1E1E1E),          // Elevated Warm Dark Card matching #151515
             onSurface = Color(0xFFF5F2EB),        // Warm Cream Off-White
             surfaceVariant = Color(0xFF282828),   // Dark Chip container
+            surfaceContainerLowest = Color(0xFF111111),
+            surfaceContainerLow = Color(0xFF181818),
+            surfaceContainer = Color(0xFF1E1E1E),
+            surfaceContainerHigh = Color(0xFF242424),
+            surfaceContainerHighest = Color(0xFF2C2C2C),
             onSurfaceVariant = Color(0xFFA8A29E), // Muted Neutral
             outline = Color(0xFF424242),
             outlineVariant = Color(0xFF2C2C2C)

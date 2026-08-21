@@ -94,6 +94,7 @@ import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Spellcheck
+import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.automirrored.filled.List
 
 import androidx.compose.ui.text.font.FontWeight
@@ -126,8 +127,10 @@ fun SettingsHubDialog(
     onOpenReadingLists: () -> Unit,
     onOpenUserManual: () -> Unit,
     onOpenStorage: () -> Unit = {},
-    onOpenAccessibility: () -> Unit = {}
+    onOpenAccessibility: () -> Unit = {},
+    onCheckForUpdates: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val documentCount = uiState.documents.size
     val hasActiveDocument = uiState.activeDocument != null
     val queueCount = uiState.queuedDocuments.size
@@ -200,6 +203,12 @@ fun SettingsHubDialog(
                         settingsFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT),
                         "Record sound file", "Render current reading into audio file",
                         Icons.Outlined.GraphicEq, onStartRecord
+                    ),
+                    SettingsRowSpec(
+                        "Background playback",
+                        if (isBatteryOptimizationIgnored(LocalContext.current)) "Battery optimization unrestricted (Optimal)" else "Tap to allow uninterrupted background playback",
+                        Icons.Outlined.PowerSettingsNew,
+                        { requestIgnoreBatteryOptimizations(context) }
                     )
                 ))
 
@@ -269,6 +278,12 @@ fun SettingsHubDialog(
                 SettingsHubSectionTitle("Help")
                 SettingsHubGroup(listOf(
                     SettingsRowSpec(
+                        "Check for updates",
+                        uiState.updateStatusMessage ?: "Check for the latest Veritas Reader version",
+                        Icons.Filled.Sync,
+                        onCheckForUpdates
+                    ),
+                    SettingsRowSpec(
                         "User manual", "Interactive guide to Veritas Reader features",
                         Icons.AutoMirrored.Outlined.HelpOutline, onOpenUserManual
                     ),
@@ -326,7 +341,11 @@ fun SettingsHubDialog(
     }
 
     if (showAboutDialog) {
-        AboutDialog(onDismiss = { showAboutDialog = false })
+        AboutDialog(
+            uiState = uiState,
+            onCheckForUpdates = onCheckForUpdates,
+            onDismiss = { showAboutDialog = false }
+        )
     }
 }
 
@@ -815,37 +834,85 @@ fun VeritasThemePicker(
     selectedThemeId: String,
     onThemeChange: (String) -> Unit
 ) {
-    // High-contrast themes are surfaced under Accessibility, not here.
-    val pickerThemes = VeritasThemeCatalog.themeOptions.filterNot {
-        it.first == "dark_high_contrast" || it.first == "white_high_contrast"
-    }
+    val normalizedSelected = VeritasThemeCatalog.normalizeThemeId(selectedThemeId)
+
+    val col1Themes = listOf(
+        "system" to "System Default",
+        "light" to "Light",
+        "github_light" to "GitHub Light",
+        "bw_gradient_light" to "B/W Gradient Light",
+        "blue_high_contrast" to "Blue High Contrast",
+        "one_dark_pro" to "One Dark Pro"
+    )
+
+    val col2Themes = listOf(
+        "dark" to "Dark",
+        "midnight_dark" to "Midnight Dark",
+        "github_dark" to "GitHub Dark",
+        "bw_gradient_dark" to "B/W Gradient Dark",
+        "dracula" to "Dracula",
+        "neon" to "Neon"
+    )
+
+    val rowCount = maxOf(col1Themes.size, col2Themes.size)
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        pickerThemes.chunked(2).forEach { rowThemes ->
+        for (i in 0 until rowCount) {
+            val item1 = col1Themes.getOrNull(i)
+            val item2 = col2Themes.getOrNull(i)
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                rowThemes.forEach { (themeId, label) ->
-                    val selected = VeritasThemeCatalog.normalizeThemeId(selectedThemeId) == themeId
-                    val previewColors = themePreviewColors(themeId)
-                    val buttonModifier = Modifier.weight(1f)
-                    if (selected) {
+                if (item1 != null) {
+                    val (id1, label1) = item1
+                    val selected1 = normalizedSelected == id1
+                    val colors1 = themePreviewColors(id1)
+                    if (selected1) {
                         Button(
-                            onClick = { onThemeChange(themeId) },
+                            onClick = { onThemeChange(id1) },
                             shape = VeritasPackStyle.chipShape(),
-                            modifier = buttonModifier
+                            modifier = Modifier.weight(1f)
                         ) {
-                            ThemeChoiceContent(label = label, previewColors = previewColors, selected = true)
+                            ThemeChoiceContent(label = label1, previewColors = colors1, selected = true)
                         }
                     } else {
                         OutlinedButton(
-                            onClick = { onThemeChange(themeId) },
+                            onClick = { onThemeChange(id1) },
                             shape = VeritasPackStyle.chipShape(),
                             border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
-                            modifier = buttonModifier
+                            modifier = Modifier.weight(1f)
                         ) {
-                            ThemeChoiceContent(label = label, previewColors = previewColors, selected = false)
+                            ThemeChoiceContent(label = label1, previewColors = colors1, selected = false)
                         }
                     }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
                 }
-                if (rowThemes.size == 1) Spacer(modifier = Modifier.weight(1f))
+
+                if (item2 != null) {
+                    val (id2, label2) = item2
+                    val selected2 = normalizedSelected == id2
+                    val colors2 = themePreviewColors(id2)
+                    if (selected2) {
+                        Button(
+                            onClick = { onThemeChange(id2) },
+                            shape = VeritasPackStyle.chipShape(),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            ThemeChoiceContent(label = label2, previewColors = colors2, selected = true)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { onThemeChange(id2) },
+                            shape = VeritasPackStyle.chipShape(),
+                            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            ThemeChoiceContent(label = label2, previewColors = colors2, selected = false)
+                        }
+                    }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }
@@ -891,9 +958,9 @@ private fun FullScreenSettingsScaffold(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
-                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Column(
                     modifier = Modifier
@@ -930,11 +997,11 @@ fun ReaderSettingsDialog(
         SettingsHubSectionTitle("Theme packs")
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = VeritasPackStyle.cardShape(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -945,11 +1012,12 @@ fun ReaderSettingsDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             "Theme pack: ${VeritasThemePackCatalog.displayName(settings.themePackId)}",
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onBackground
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "Select visual styling, fonts and accents",
+                            "UI styling, shapes, and surface finish",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -976,11 +1044,11 @@ fun ReaderSettingsDialog(
         SettingsHubSectionTitle("Colour themes")
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = VeritasPackStyle.cardShape(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -991,11 +1059,12 @@ fun ReaderSettingsDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             "Colour theme: ${VeritasThemeCatalog.displayName(settings.themeId)}",
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onBackground
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "Change color palette and page background",
+                            "Color palette and document canvas tone",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1028,11 +1097,11 @@ fun ReaderSettingsDialog(
         SettingsHubSectionTitle("Typeface")
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = VeritasPackStyle.cardShape(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
         ) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1043,11 +1112,12 @@ fun ReaderSettingsDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             "Selected Font: ${settings.uiFontId.replaceFirstChar { it.uppercase() }}",
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onBackground
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "Customize reader typography & font family",
+                            "Reader typography & font family",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1072,46 +1142,90 @@ fun ReaderSettingsDialog(
 
         // Text Sizing & Spacing Section
         SettingsHubSectionTitle("Text sizing & spacing")
-        Text(
-            "Text size: ${settings.fontSizeSp}sp",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        VeritasRoundSlider(
-            value = settings.fontSizeSp.toFloat(),
-            onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
-            valueRange = 14f..28f,
-            steps = 13
-        )
-        Text(
-            "Section text spacing: ${settings.sectionSpacingDp}dp",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        VeritasRoundSlider(
-            value = settings.sectionSpacingDp.toFloat(),
-            onValueChange = { onSpacingChange(it.toInt().coerceIn(6, 24)) },
-            valueRange = 6f..24f,
-            steps = 17
-        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Text size",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "${settings.fontSizeSp} sp",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                VeritasRoundSlider(
+                    value = settings.fontSizeSp.toFloat(),
+                    onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
+                    valueRange = 14f..28f,
+                    steps = 13
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Paragraph spacing",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        "${settings.sectionSpacingDp} dp",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                VeritasRoundSlider(
+                    value = settings.sectionSpacingDp.toFloat(),
+                    onValueChange = { onSpacingChange(it.toInt().coerceIn(6, 24)) },
+                    valueRange = 6f..24f,
+                    steps = 17
+                )
+            }
+        }
 
         // Preferences Section
         SettingsHubSectionTitle("Display preferences")
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Vibrant hero card", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Bold accent-coloured home card instead of the subtle themed one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Vibrant hero card", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Bold accent gradient on the home card", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.vibrantHero, onCheckedChange = { onToggleVibrantHero() })
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-play queue", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Automatically play next queued book", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.autoPlayQueue, onCheckedChange = { onToggleAutoPlayQueue() })
+                }
             }
-            VeritasSwitch(checked = settings.vibrantHero, onCheckedChange = { onToggleVibrantHero() })
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Auto-play queue", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Continue into the next queued item.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            VeritasSwitch(checked = settings.autoPlayQueue, onCheckedChange = { onToggleAutoPlayQueue() })
         }
     }
 }
@@ -1121,78 +1235,202 @@ fun AccessibilitySettingsDialog(
     settings: ReaderSettings,
     onDismiss: () -> Unit,
     onThemeChange: (String) -> Unit,
+    onToggleContrastTheme: (String, String?) -> Unit = { theme, _ -> onThemeChange(theme) },
     onToggleAdaptiveCover: () -> Unit,
     onToggleSectionNumbers: () -> Unit,
     onGoalMinutesChange: (Int) -> Unit,
     onToggleStreakReminder: () -> Unit,
-    onToggleReduceMotion: () -> Unit
+    onToggleReduceMotion: () -> Unit,
+    onToggleBionicReading: () -> Unit = {},
+    onToggleShakeToExtend: () -> Unit = {},
+    onToggleCollapsibleBars: () -> Unit = {}
 ) {
     FullScreenSettingsScaffold(title = "Accessibility", onBack = onDismiss) {
-        // Reading goal — opt-in. The switch off means "no goal" (minutes = 0), which
-        // hides the hero goal bar and the reminder entirely.
-        Text("Reading goal", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-        val goalOn = settings.dailyGoalMinutes > 0
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Set a daily reading goal", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Optional. Shows a progress ring on the home card.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            VeritasSwitch(
-                checked = goalOn,
-                onCheckedChange = { on -> onGoalMinutesChange(if (on) 20 else 0) }
-            )
-        }
-        if (goalOn) {
-            Text("Daily target: ${settings.dailyGoalMinutes} min", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Slider(
-                value = settings.dailyGoalMinutes.coerceIn(5, 180).toFloat(),
-                onValueChange = rememberSliderHaptics(settings.dailyGoalMinutes.coerceIn(5, 180).toFloat(), 5f..180f, 34) { onGoalMinutesChange(it.toInt().coerceIn(5, 180)) },
-                valueRange = 5f..180f,
-                steps = 34
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Streak reminder", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                    Text("Evening nudge when today's goal isn't met and a streak is at risk.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Reading focus & comprehension
+        SettingsHubSectionTitle("Focus & comprehension")
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Collapsible reader bars", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Single tap on reading canvas hides/shows top and bottom bars. Toggle off to keep bars permanently pinned.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.collapsibleReaderBars, onCheckedChange = { onToggleCollapsibleBars() })
                 }
-                VeritasSwitch(checked = settings.streakReminderEnabled, onCheckedChange = { onToggleStreakReminder() })
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Bionic reading mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Bold leading letters to guide eye fixation and speed comprehension", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.bionicReading, onCheckedChange = { onToggleBionicReading() })
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Shake to extend sleep timer", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Gently shake phone in final minute to add 10 min without unlocking", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.shakeToExtendSleepTimer, onCheckedChange = { onToggleShakeToExtend() })
+                }
             }
         }
 
-        HorizontalDivider()
-        Text("Motion & contrast", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Reduce motion", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Skip decorative animations like card entrances and pulses.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            VeritasSwitch(checked = settings.reduceMotion, onCheckedChange = { onToggleReduceMotion() })
-        }
-        Text("High-contrast theme", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { onThemeChange("dark_high_contrast") }, modifier = Modifier.weight(1f)) {
-                Text("Contrast dark")
-            }
-            OutlinedButton(onClick = { onThemeChange("white_high_contrast") }, modifier = Modifier.weight(1f)) {
-                Text("Contrast light")
+        // Reading goal
+        SettingsHubSectionTitle("Daily reading goal")
+        val goalOn = settings.dailyGoalMinutes > 0
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Set daily reading goal", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Shows daily progress ring on the home card", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(
+                        checked = goalOn,
+                        onCheckedChange = { on -> onGoalMinutesChange(if (on) 20 else 0) }
+                    )
+                }
+                if (goalOn) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Daily target", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text("${settings.dailyGoalMinutes} min", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Slider(
+                        value = settings.dailyGoalMinutes.coerceIn(5, 180).toFloat(),
+                        onValueChange = rememberSliderHaptics(settings.dailyGoalMinutes.coerceIn(5, 180).toFloat(), 5f..180f, 34) { onGoalMinutesChange(it.toInt().coerceIn(5, 180)) },
+                        valueRange = 5f..180f,
+                        steps = 34
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Streak reminder", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Evening nudge when daily goal is at risk", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        VeritasSwitch(checked = settings.streakReminderEnabled, onCheckedChange = { onToggleStreakReminder() })
+                    }
+                }
             }
         }
 
-        HorizontalDivider()
-        Text("Appearance extras", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Adaptive cover theme", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Blend active book cover colours into the selected theme.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SettingsHubSectionTitle("Motion & contrast")
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Reduce motion", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Disable decorative animations and pulses", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.reduceMotion, onCheckedChange = { onToggleReduceMotion() })
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("High-contrast quick presets", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    
+                    val isDarkContrast = settings.themeId == "dark_high_contrast"
+                    val isLightContrast = settings.themeId == "white_high_contrast"
+                    val isHighContrast = isDarkContrast || isLightContrast
+
+                    fun toggleContrast(targetThemeId: String) {
+                        if (settings.themeId == targetThemeId) {
+                            // Toggle OFF: restore previous theme before high contrast was activated
+                            val restoreTheme = settings.previousThemeId?.takeIf {
+                                it.isNotBlank() && it != "dark_high_contrast" && it != "white_high_contrast" && it != "blue_high_contrast"
+                            } ?: if (targetThemeId == "dark_high_contrast") "dark" else "light"
+                            onToggleContrastTheme(restoreTheme, null)
+                        } else {
+                            // Toggle ON: remember current theme (if not already high contrast) and switch
+                            val savedPrev = if (!isHighContrast) settings.themeId else settings.previousThemeId
+                            onToggleContrastTheme(targetThemeId, savedPrev)
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (isDarkContrast) {
+                            Button(
+                                onClick = { toggleContrast("dark_high_contrast") },
+                                modifier = Modifier.weight(1f),
+                                shape = VeritasPackStyle.chipShape()
+                            ) {
+                                Text("Contrast Dark", fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { toggleContrast("dark_high_contrast") },
+                                modifier = Modifier.weight(1f),
+                                shape = VeritasPackStyle.chipShape()
+                            ) {
+                                Text("Contrast Dark")
+                            }
+                        }
+
+                        if (isLightContrast) {
+                            Button(
+                                onClick = { toggleContrast("white_high_contrast") },
+                                modifier = Modifier.weight(1f),
+                                shape = VeritasPackStyle.chipShape()
+                            ) {
+                                Text("Contrast Light", fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { toggleContrast("white_high_contrast") },
+                                modifier = Modifier.weight(1f),
+                                shape = VeritasPackStyle.chipShape()
+                            ) {
+                                Text("Contrast Light")
+                            }
+                        }
+                    }
+                }
             }
-            VeritasSwitch(checked = settings.adaptiveCover, onCheckedChange = { onToggleAdaptiveCover() })
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Show section labels", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Useful for study, notes, and search jumps.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        SettingsHubSectionTitle("Appearance extras")
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Adaptive cover theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Blend active book cover palette into theme", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.adaptiveCover, onCheckedChange = { onToggleAdaptiveCover() })
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Show section labels", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Display indices for study and search jumps", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.showSectionNumbers, onCheckedChange = { onToggleSectionNumbers() })
+                }
             }
-            VeritasSwitch(checked = settings.showSectionNumbers, onCheckedChange = { onToggleSectionNumbers() })
         }
     }
 }
@@ -1281,7 +1519,7 @@ fun AskAiSettingsDialog(
             text = "Select Preferred AI App",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
+            color = MaterialTheme.colorScheme.onSurface
         )
 
         aiAssistantOptions.forEach { option ->
@@ -1335,7 +1573,7 @@ fun AskAiSettingsDialog(
                         text = option.label,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (selected) FontWeight.Black else FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = if (installed) "Ready to launch" else "Install from Play Store",
@@ -1365,7 +1603,7 @@ fun AskAiSettingsDialog(
             text = "Custom Prompt Template",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
+            color = MaterialTheme.colorScheme.onSurface
         )
 
         OutlinedTextField(
@@ -1379,8 +1617,8 @@ fun AskAiSettingsDialog(
                 .height(160.dp),
             shape = VeritasPackStyle.cardShape(),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = MaterialTheme.colorScheme.onBackground,
-                unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                 unfocusedBorderColor = MaterialTheme.colorScheme.outline
             ),
@@ -1530,13 +1768,15 @@ fun VoiceStudioDialog(
 
     FullScreenSettingsScaffold(title = "Voice and language", onBack = onDismiss) {
         // Active Voice Highlight Card
+        SettingsHubSectionTitle("Active voice")
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
         ) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Active Speech Voice", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                Text("CURRENT VOICE MODEL", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -1550,7 +1790,7 @@ fun VoiceStudioDialog(
                         Text(
                             voiceLanguageLabel(selectedLanguageTag, currentLocale),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                         )
                     }
                     if (selectedVoice != null || settings.displayName.isNotBlank()) {
@@ -1565,7 +1805,7 @@ fun VoiceStudioDialog(
         }
 
         // Voice Presets Gallery
-        Text("Voice Presets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+        SettingsHubSectionTitle("Voice presets")
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1596,7 +1836,7 @@ fun VoiceStudioDialog(
         HorizontalDivider()
 
         // Search & Language Controls
-        Text("Select Language & Voice", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+        SettingsHubSectionTitle("Language & voice library")
 
         OutlinedTextField(
             value = voiceSearchQuery,
@@ -1733,13 +1973,13 @@ fun VoiceStudioDialog(
                 checked = settings.showNetworkVoices,
                 onCheckedChange = onShowNetworkVoicesChange
             )
-            Text("Include online/network voices", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
+            Text("Include online/network voices", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
         }
 
         if (loadingVoices) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                Text("Loading voice models...", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground)
+                Text("Loading voice models...", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
             }
         }
 
@@ -1752,8 +1992,6 @@ fun VoiceStudioDialog(
         // Voice List Cards
         filteredLanguageVoices.forEach { voice ->
             val isCurrent = voice.name == settings.voiceName
-            // A Veritas voice the user has not downloaded yet: the Download Manager
-            // only ever fetched one voice per engine, so the rest were unreachable.
             val offlineVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
                 .firstOrNull { it.id == voice.name }
             val needsDownload = offlineVoice != null &&
@@ -1763,12 +2001,12 @@ fun VoiceStudioDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = !needsDownload) { onVoiceSelected(voice) },
-                shape = MaterialTheme.shapes.medium,
+                shape = VeritasPackStyle.cardShape(),
                 colors = CardDefaults.cardColors(
                     containerColor = if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                    else MaterialTheme.colorScheme.surfaceVariant
+                    else MaterialTheme.colorScheme.surfaceContainerLow
                 ),
-                border = if (isCurrent) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
+                border = if (isCurrent) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
@@ -1835,125 +2073,127 @@ fun VoiceStudioDialog(
         }
 
         if (VoiceManager.isVeritasEngine(settings.enginePackage)) {
-            HorizontalDivider()
-            Text("Veritas Voice Download Manager", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-            Text(
-                "Download an offline neural model package to read books with studio-quality human cadence.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            val context = LocalContext.current
-            val coroutineScope = rememberCoroutineScope()
-            val downloadStates by com.veritas.reader.tts.VoiceModelManager.downloadState.collectAsState()
-            var refreshTrigger by remember { mutableStateOf(0) }
-
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            SettingsHubSectionTitle("Veritas voice models")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = VeritasPackStyle.cardShape(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
             ) {
-                com.veritas.reader.tts.VoiceModelManager.availablePackages.forEach { pkg ->
-                    val isInstalled = remember(refreshTrigger) {
-                        com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(context, pkg.targetVoiceId)
-                    }
-                    val targetVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices.firstOrNull { it.id == pkg.targetVoiceId }
-                    val state = downloadStates[pkg.targetVoiceId] ?: com.veritas.reader.tts.DownloadState.Idle
+                val context = LocalContext.current
+                val coroutineScope = rememberCoroutineScope()
+                val downloadStates by com.veritas.reader.tts.VoiceModelManager.downloadState.collectAsState()
+                var refreshTrigger by remember { mutableStateOf(0) }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(pkg.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                pkg.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (state is com.veritas.reader.tts.DownloadState.Downloading) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                LinearProgressIndicator(
-                                    progress = { state.percent / 100f },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Text("Downloading ${state.percent}%...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            } else if (state is com.veritas.reader.tts.DownloadState.Failed) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(state.reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                            }
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Download offline neural voice packages for studio-quality human cadence.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    com.veritas.reader.tts.VoiceModelManager.availablePackages.forEach { pkg ->
+                        val isInstalled = remember(refreshTrigger) {
+                            com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(context, pkg.targetVoiceId)
                         }
+                        val targetVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices.firstOrNull { it.id == pkg.targetVoiceId }
+                        val state = downloadStates[pkg.targetVoiceId] ?: com.veritas.reader.tts.DownloadState.Idle
 
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        if (isInstalled) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Icon(Icons.Filled.CheckCircle, contentDescription = "Installed", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                Text("Installed", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                IconButton(onClick = {
-                                    com.veritas.reader.tts.VoiceModelManager.deleteVoice(context, pkg.targetVoiceId)
-                                    refreshTrigger++
-                                    onRefreshEngines()
-                                    onLoadVoices()
-                                }) {
-                                    Icon(Icons.Outlined.Delete, contentDescription = "Delete voice model", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(pkg.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    pkg.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (state is com.veritas.reader.tts.DownloadState.Downloading) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = { state.percent / 100f },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Text("Downloading ${state.percent}%...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                } else if (state is com.veritas.reader.tts.DownloadState.Failed) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(state.reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                                 }
                             }
-                        } else if (state is com.veritas.reader.tts.DownloadState.Downloading) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        } else {
-                            Button(
-                                onClick = {
-                                    if (targetVoice != null) {
-                                        coroutineScope.launch {
-                                            val ok = com.veritas.reader.tts.VoiceModelManager.downloadVoice(context, targetVoice)
-                                            if (ok) {
-                                                refreshTrigger++
-                                                onRefreshEngines()
-                                                onLoadVoices()
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            if (isInstalled) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(Icons.Filled.CheckCircle, contentDescription = "Installed", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                    Text("Installed", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                    IconButton(onClick = {
+                                        com.veritas.reader.tts.VoiceModelManager.deleteVoice(context, pkg.targetVoiceId)
+                                        refreshTrigger++
+                                        onRefreshEngines()
+                                        onLoadVoices()
+                                    }) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete voice model", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                            } else if (state is com.veritas.reader.tts.DownloadState.Downloading) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            } else {
+                                Button(
+                                    onClick = {
+                                        if (targetVoice != null) {
+                                            coroutineScope.launch {
+                                                val ok = com.veritas.reader.tts.VoiceModelManager.downloadVoice(context, targetVoice)
+                                                if (ok) {
+                                                    refreshTrigger++
+                                                    onRefreshEngines()
+                                                    onLoadVoices()
+                                                }
                                             }
                                         }
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                                Text("Download Voice", style = MaterialTheme.typography.labelLarge)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                                ) {
+                                    Text("Download", style = MaterialTheme.typography.labelMedium)
+                                }
                             }
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                 }
             }
         }
 
-
-
         // Quick Navigation Studio Shortcuts
-        Text("Narration Shortcuts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+        SettingsHubSectionTitle("Narration shortcuts")
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 onClick = onOpenNarrationStudio,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("🎭 Narration Studio", color = MaterialTheme.colorScheme.onSurface)
+                Text("Narration Studio", color = MaterialTheme.colorScheme.onSurface)
             }
             OutlinedButton(
                 onClick = onOpenSpeechEdits,
                 modifier = Modifier.weight(1f)
             ) {
-                Text("🔤 Speech Edits", color = MaterialTheme.colorScheme.onSurface)
+                Text("Speech Edits", color = MaterialTheme.colorScheme.onSurface)
             }
         }
 
         Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-            Text("USE SELECTED VOICE")
+            Text("Use Selected Voice")
         }
         OutlinedButton(onClick = onAddLanguageVoice, modifier = Modifier.fillMaxWidth()) {
-            Text("ADD A LANGUAGE/VOICE", color = MaterialTheme.colorScheme.onSurface)
+            Text("Add Language / Voice", color = MaterialTheme.colorScheme.onSurface)
         }
         OutlinedButton(onClick = onOpenSystemTtsSettings, modifier = Modifier.fillMaxWidth()) {
-            Text("SYSTEM TTS SETTINGS", color = MaterialTheme.colorScheme.onSurface)
+            Text("System TTS Settings", color = MaterialTheme.colorScheme.onSurface)
         }
     }
 }
@@ -1998,8 +2238,9 @@ fun NarrationStudioDialog(
     FullScreenSettingsScaffold(title = "Narration studio", onBack = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2024,48 +2265,63 @@ fun NarrationStudioDialog(
         }
 
         SettingsHubSectionTitle("Dialogue detection")
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Enable narration mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Enable custom voices & speech delivery for dialogue.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            VeritasSwitch(checked = settings.enabled, onCheckedChange = { onSettingsChange(settings.copy(enabled = it)) })
-        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = VeritasPackStyle.cardShape(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Enable narration mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Custom character voices & pacing for dialogue", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.enabled, onCheckedChange = { onSettingsChange(settings.copy(enabled = it)) })
+                }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Detect dialogue quotes", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Auto-detect quotes, dash dialogue, and speaker tags.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            VeritasSwitch(
-                checked = settings.dialogueDetection,
-                onCheckedChange = { onSettingsChange(settings.copy(dialogueDetection = it)) },
-                enabled = settings.enabled
-            )
-        }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Show dialogue indicators", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Highlight dialogue sentences with visual badges in the reader.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            VeritasSwitch(
-                checked = settings.showDialogueBadges,
-                onCheckedChange = { onSettingsChange(settings.copy(showDialogueBadges = it)) },
-                enabled = settings.enabled
-            )
-        }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Detect dialogue quotes", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Auto-detect quotes, dash dialogue, and speech tags", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(
+                        checked = settings.dialogueDetection,
+                        onCheckedChange = { onSettingsChange(settings.copy(dialogueDetection = it)) },
+                        enabled = settings.enabled
+                    )
+                }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Full-cast multi-voice mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
-                Text("Assign distinct voices and pitch per character.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Show dialogue indicators", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Display badges for spoken dialogue in reader", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(
+                        checked = settings.showDialogueBadges,
+                        onCheckedChange = { onSettingsChange(settings.copy(showDialogueBadges = it)) },
+                        enabled = settings.enabled
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Full-cast multi-voice mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Assign unique voice models per character", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(
+                        checked = settings.fullCastEnabled,
+                        onCheckedChange = { onSettingsChange(settings.copy(fullCastEnabled = it)) },
+                        enabled = settings.enabled
+                    )
+                }
             }
-            VeritasSwitch(
-                checked = settings.fullCastEnabled,
-                onCheckedChange = { onSettingsChange(settings.copy(fullCastEnabled = it)) },
-                enabled = settings.enabled
-            )
         }
 
         SettingsHubSectionTitle("Character voice profiles")
@@ -2118,9 +2374,9 @@ fun NarrationStudioDialog(
         settings.characterProfiles.forEach { char ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = VeritasPackStyle.cardShape(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2176,7 +2432,7 @@ fun NarrationStudioDialog(
                             onClick = { voiceMenuExpanded = true },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = settings.enabled,
-                            shape = RoundedCornerShape(12.dp)
+                            shape = VeritasPackStyle.chipShape()
                         ) {
                             Text(currentVoiceLabel!!, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -2205,14 +2461,67 @@ fun NarrationStudioDialog(
                         }
                     }
 
-                    Text("Pitch multiplier: ${"%.2f".format(char.pitchMultiplier)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val archetypes = listOf(
+                            Triple("🎙️ Natural", 1.00f, 1.00f),
+                            Triple("📖 Deep/Warm", 0.85f, 0.95f),
+                            Triple("💬 Bright/High", 1.20f, 1.05f),
+                            Triple("🎓 Scholar", 0.90f, 0.90f)
+                        )
+                        archetypes.forEach { (label, p, r) ->
+                            FilterChip(
+                                selected = (kotlin.math.abs(char.pitchMultiplier - p) < 0.025f && kotlin.math.abs(char.rateMultiplier - r) < 0.025f),
+                                onClick = {
+                                    val updated = settings.characterProfiles.map {
+                                        if (it.id == char.id) it.copy(pitchMultiplier = p, rateMultiplier = r) else it
+                                    }
+                                    onSettingsChange(settings.copy(characterProfiles = updated))
+                                },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                enabled = settings.enabled,
+                                shape = VeritasPackStyle.chipShape()
+                            )
+                        }
+                    }
+
+                    val pitchOffsetPercent = ((char.pitchMultiplier - 1.0f) * 100).toInt()
+                    val pitchLabel = when {
+                        char.pitchMultiplier >= 1.15f -> "Bright / Crisp High"
+                        char.pitchMultiplier > 1.03f -> "Slightly High"
+                        char.pitchMultiplier <= 0.85f -> "Rich Deep / Bass"
+                        char.pitchMultiplier < 0.97f -> "Warm Deep"
+                        else -> "Natural / Normal"
+                    }
+                    Text("Pitch Tone: ${"%.2f".format(char.pitchMultiplier)}x ($pitchLabel)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     VeritasRoundSlider(
                         value = char.pitchMultiplier,
                         onValueChange = { newP ->
                             val updated = settings.characterProfiles.map { if (it.id == char.id) it.copy(pitchMultiplier = newP) else it }
                             onSettingsChange(settings.copy(characterProfiles = updated))
                         },
-                        valueRange = 0.70f..1.40f,
+                        valueRange = 0.70f..1.35f,
+                        enabled = settings.enabled
+                    )
+
+                    val rateOffsetPercent = ((char.rateMultiplier - 1.0f) * 100).toInt()
+                    val rateLabel = when {
+                        rateOffsetPercent > 0 -> "+$rateOffsetPercent% faster"
+                        rateOffsetPercent < 0 -> "$rateOffsetPercent% slower"
+                        else -> "Standard pacing"
+                    }
+                    Text("Speech Pace: ${"%.2f".format(char.rateMultiplier)}x ($rateLabel)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    VeritasRoundSlider(
+                        value = char.rateMultiplier,
+                        onValueChange = { newR ->
+                            val updated = settings.characterProfiles.map { if (it.id == char.id) it.copy(rateMultiplier = newR) else it }
+                            onSettingsChange(settings.copy(characterProfiles = updated))
+                        },
+                        valueRange = 0.85f..1.20f,
                         enabled = settings.enabled
                     )
                 }
@@ -2233,9 +2542,9 @@ fun NarrationStudioDialog(
         SettingsHubSectionTitle("Preview classification & spoken audio")
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = VeritasPackStyle.cardShape(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
         ) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(sample.take(260), maxLines = 5, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
@@ -2540,6 +2849,28 @@ private fun openEmail(context: Context, email: String, subject: String = "") {
     }
 }
 
+private fun isBatteryOptimizationIgnored(context: Context): Boolean {
+    val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager ?: return true
+    return pm.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+private fun requestIgnoreBatteryOptimizations(context: Context) {
+    runCatching {
+        val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        context.startActivity(intent)
+    }.recoverCatching {
+        val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        context.startActivity(intent)
+    }.recoverCatching {
+        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        context.startActivity(intent)
+    }
+}
+
 val IconGithub: ImageVector
     get() = ImageVector.Builder(
         name = "Github",
@@ -2764,7 +3095,7 @@ private fun AboutOptionRow(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -2824,7 +3155,11 @@ fun OpenSourceLicensesDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
-fun AboutDialog(onDismiss: () -> Unit) {
+fun AboutDialog(
+    uiState: ReaderUiState? = null,
+    onCheckForUpdates: () -> Unit = {},
+    onDismiss: () -> Unit
+) {
     val context = LocalContext.current
     var showLicensesDialog by remember { mutableStateOf(false) }
 
@@ -2862,18 +3197,64 @@ fun AboutDialog(onDismiss: () -> Unit) {
                     )
                 }
 
+                val appVersionText = remember(context) {
+                    try {
+                        val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                        val vName = pInfo.versionName ?: "2.1.0"
+                        val vCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            pInfo.longVersionCode
+                        } else {
+                            @Suppress("DEPRECATION")
+                            pInfo.versionCode.toLong()
+                        }
+                        "Version $vName (Build $vCode)"
+                    } catch (_: Exception) {
+                        "Version 2.1.0"
+                    }
+                }
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
                         text = "Veritas Reader",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Version 1.0.0 (Build 20260802)",
+                        text = appVersionText,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    OutlinedButton(
+                        onClick = onCheckForUpdates,
+                        enabled = uiState?.isCheckingForUpdates != true,
+                        shape = VeritasPackStyle.chipShape(),
+                        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        if (uiState?.isCheckingForUpdates == true) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Checking...", style = MaterialTheme.typography.labelMedium)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.Sync,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = uiState?.updateStatusMessage ?: "Check for updates",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
                 }
             }
 

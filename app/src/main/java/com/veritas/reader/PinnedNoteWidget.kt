@@ -46,7 +46,7 @@ class PinnedNoteWidget : GlanceAppWidget() {
             val borderModifier = GlanceModifier
                 .fillMaxSize()
                 .background(VeritasWidgetColors.border)
-                .cornerRadius(24.dp)
+                .cornerRadius(28.dp)
 
             if (pinnedNote == null) {
                 Box(
@@ -57,15 +57,15 @@ class PinnedNoteWidget : GlanceAppWidget() {
                         modifier = GlanceModifier
                             .fillMaxSize()
                             .padding(1.dp)
-                            .cornerRadius(23.dp)
+                            .cornerRadius(27.dp)
                             .background(VeritasWidgetColors.frostedBackground)
                             .clickable(actionRunCallback<LaunchAppActionCallback>()),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No pinned notes yet",
+                            text = "No pinned notes yet • Tap to create",
                             style = TextStyle(
-                                fontSize = if (size.width >= 240.dp) 15.sp else 13.sp,
+                                fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
                                 color = VeritasWidgetColors.textMuted
                             )
                         )
@@ -83,7 +83,7 @@ class PinnedNoteWidget : GlanceAppWidget() {
                         modifier = GlanceModifier
                             .fillMaxSize()
                             .padding(1.dp)
-                            .cornerRadius(23.dp)
+                            .cornerRadius(27.dp)
                             .background(VeritasWidgetColors.frostedBackground)
                             .padding(12.dp)
                             .clickable(actionRunCallback<NoteClickCallback>(clickParams)),
@@ -93,165 +93,155 @@ class PinnedNoteWidget : GlanceAppWidget() {
                             modifier = GlanceModifier.fillMaxSize(),
                             verticalAlignment = Alignment.Top
                         ) {
-                            // Title Bar
+                            // Header Row: Category Badge + Pin
                             Row(
                                 modifier = GlanceModifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = pinnedNote.title.ifBlank { "Untitled Note" },
-                                    style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 16.sp else 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = VeritasWidgetColors.textPrimary
-                                    ),
-                                    maxLines = 1,
-                                    modifier = GlanceModifier.defaultWeight()
-                                )
-                                Spacer(modifier = GlanceModifier.width(6.dp))
-                                Text(
-                                    text = "📌",
-                                    style = TextStyle(fontSize = if (size.width >= 240.dp) 14.sp else 12.sp)
-                                )
-                            }
-
-                            Spacer(modifier = GlanceModifier.height(6.dp))
-
-                            // Content / Checklist preview
-                            Column(
-                                modifier = GlanceModifier.defaultWeight().fillMaxWidth()
-                            ) {
-                                if (pinnedNote.isChecklist) {
-                                    val lines = pinnedNote.content.split("\n").filter { it.isNotBlank() }
-                                    val limit = if (isExpanded) 5 else 3
-                                    lines.take(limit).forEachIndexed { index, line ->
-                                        val isChecked = line.startsWith("[x]")
-                                        val text = line.removePrefix("[ ] ").removePrefix("[x] ").removePrefix("[ ]").removePrefix("[x]")
-                                        val toggleParams = actionParametersOf(
-                                            ToggleChecklistItemCallback.NoteIdKey to pinnedNote.id,
-                                            ToggleChecklistItemCallback.ItemIndexKey to index
-                                        )
-                                        Row(
-                                            modifier = GlanceModifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 1.dp)
-                                                .clickable(actionRunCallback<ToggleChecklistItemCallback>(toggleParams)),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Image(
-                                                provider = ImageProvider(
-                                                    if (isChecked) R.drawable.ic_widget_checklist else R.drawable.ic_widget_checkbox_outline
-                                                ),
-                                                contentDescription = if (isChecked) "Checked" else "Unchecked",
-                                                modifier = GlanceModifier.size(16.dp),
-                                                colorFilter = ColorFilter.tint(
-                                                    if (isChecked) VeritasWidgetColors.primaryAccent else VeritasWidgetColors.textMuted
-                                                )
-                                            )
-                                            Spacer(modifier = GlanceModifier.width(8.dp))
-                                            Text(
-                                                text = text,
-                                                style = TextStyle(
-                                                    fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
-                                                    color = if (isChecked) VeritasWidgetColors.textMuted else VeritasWidgetColors.textPrimary
-                                                ),
-                                                maxLines = 1
-                                            )
-                                        }
-                                    }
-                                    if (lines.size > limit) {
-                                        Spacer(modifier = GlanceModifier.height(2.dp))
-                                        Text(
-                                            text = "+ ${lines.size - limit} more items",
-                                            style = TextStyle(fontSize = if (size.width >= 240.dp) 12.sp else 10.sp, color = VeritasWidgetColors.textMuted)
-                                        )
-                                    }
-                                } else {
+                                Box(
+                                    modifier = GlanceModifier
+                                        .cornerRadius(8.dp)
+                                        .background(VeritasWidgetColors.cardBackground)
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                ) {
                                     Text(
-                                        text = pinnedNote.content.ifBlank { "(Empty)" },
+                                        text = if (pinnedNote.isChecklist) "✅ Checklist" else "📌 Pinned Note",
                                         style = TextStyle(
-                                            fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
-                                            color = VeritasWidgetColors.textMuted
-                                        ),
-                                        maxLines = if (isExpanded) 6 else 3
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = VeritasWidgetColors.primaryAccent
+                                        )
+                                    )
+                                }
+                                
+                                Spacer(modifier = GlanceModifier.defaultWeight())
+                                
+                                Box(
+                                    modifier = GlanceModifier
+                                        .cornerRadius(12.dp)
+                                        .background(VeritasWidgetColors.playButtonAccent)
+                                        .clickable(actionRunCallback<QuickCaptureActionCallback>(newNoteParams))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "+ New",
+                                        style = TextStyle(
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = VeritasWidgetColors.playIconColor
+                                        )
                                     )
                                 }
                             }
 
                             Spacer(modifier = GlanceModifier.height(6.dp))
 
-                            // Bottom Bar
-                            if (isExpanded) {
-                                Row(
-                                    modifier = GlanceModifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        modifier = GlanceModifier.defaultWeight(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        QuickActionIcon(
-                                            iconRes = R.drawable.ic_widget_checklist,
-                                            action = MainActivity.ACTION_NEW_CHECKLIST_NOTE
-                                        )
-                                        Spacer(modifier = GlanceModifier.width(8.dp))
-                                        QuickActionIcon(
-                                            iconRes = R.drawable.ic_widget_voice,
-                                            action = MainActivity.ACTION_VOICE_NOTE
-                                        )
-                                        Spacer(modifier = GlanceModifier.width(8.dp))
-                                        QuickActionIcon(
-                                            iconRes = R.drawable.ic_widget_reminder,
-                                            action = MainActivity.ACTION_NEW_REMINDER_NOTE
-                                        )
-                                        Spacer(modifier = GlanceModifier.width(8.dp))
-                                        QuickActionIcon(
-                                            iconRes = R.drawable.ic_widget_camera,
-                                            action = MainActivity.ACTION_NEW_IMAGE_NOTE
-                                        )
-                                    }
+                            Text(
+                                text = pinnedNote.title.ifBlank { "Untitled Note" },
+                                style = TextStyle(
+                                    fontSize = if (size.width >= 240.dp) 15.sp else 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = VeritasWidgetColors.textPrimary
+                                ),
+                                maxLines = 1
+                            )
 
-                                    Box(
-                                        modifier = GlanceModifier
-                                            .size(32.dp)
-                                            .cornerRadius(16.dp)
-                                            .background(VeritasWidgetColors.playButtonAccent)
-                                            .clickable(actionRunCallback<QuickCaptureActionCallback>(newNoteParams)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "+",
-                                            style = TextStyle(
-                                                fontSize = if (size.width >= 240.dp) 20.sp else 18.sp, 
-                                                fontWeight = FontWeight.Bold, 
-                                                color = VeritasWidgetColors.playIconColor
+                            Spacer(modifier = GlanceModifier.height(4.dp))
+
+                            // Content / Checklist preview
+                            Box(
+                                modifier = GlanceModifier
+                                    .fillMaxWidth()
+                                    .defaultWeight()
+                                    .cornerRadius(14.dp)
+                                    .background(VeritasWidgetColors.cardBackground)
+                                    .padding(8.dp)
+                            ) {
+                                if (pinnedNote.isChecklist) {
+                                    val lines = pinnedNote.content.split("\n").filter { it.isNotBlank() }
+                                    val limit = if (isExpanded) 5 else 3
+                                    Column(modifier = GlanceModifier.fillMaxSize()) {
+                                        lines.take(limit).forEachIndexed { index, line ->
+                                            val isChecked = line.startsWith("[x]")
+                                            val text = line.removePrefix("[ ] ").removePrefix("[x] ").removePrefix("[ ]").removePrefix("[x]")
+                                            val toggleParams = actionParametersOf(
+                                                ToggleChecklistItemCallback.NoteIdKey to pinnedNote.id,
+                                                ToggleChecklistItemCallback.ItemIndexKey to index
                                             )
-                                        )
+                                            Row(
+                                                modifier = GlanceModifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 1.dp)
+                                                    .clickable(actionRunCallback<ToggleChecklistItemCallback>(toggleParams)),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Image(
+                                                    provider = ImageProvider(
+                                                        if (isChecked) R.drawable.ic_widget_checklist else R.drawable.ic_widget_checkbox_outline
+                                                    ),
+                                                    contentDescription = if (isChecked) "Checked" else "Unchecked",
+                                                    modifier = GlanceModifier.size(16.dp),
+                                                    colorFilter = ColorFilter.tint(
+                                                        if (isChecked) VeritasWidgetColors.primaryAccent else VeritasWidgetColors.textMuted
+                                                    )
+                                                )
+                                                Spacer(modifier = GlanceModifier.width(6.dp))
+                                                Text(
+                                                    text = text,
+                                                    style = TextStyle(
+                                                        fontSize = if (size.width >= 240.dp) 13.sp else 11.sp,
+                                                        color = if (isChecked) VeritasWidgetColors.textMuted else VeritasWidgetColors.textPrimary
+                                                    ),
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                        if (lines.size > limit) {
+                                            Spacer(modifier = GlanceModifier.height(2.dp))
+                                            Text(
+                                                text = "+ ${lines.size - limit} more items",
+                                                style = TextStyle(fontSize = 10.sp, color = VeritasWidgetColors.textMuted)
+                                            )
+                                        }
                                     }
+                                } else {
+                                    Text(
+                                        text = pinnedNote.content.ifBlank { "(Empty note)" },
+                                        style = TextStyle(
+                                            fontSize = if (size.width >= 240.dp) 13.sp else 11.sp,
+                                            color = VeritasWidgetColors.textPrimary
+                                        ),
+                                        maxLines = if (isExpanded) 5 else 3
+                                    )
                                 }
-                            } else {
+                            }
+
+                            if (isExpanded) {
+                                Spacer(modifier = GlanceModifier.height(6.dp))
                                 Row(
                                     modifier = GlanceModifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Spacer(modifier = GlanceModifier.defaultWeight())
-                                    Box(
-                                        modifier = GlanceModifier
-                                            .size(32.dp)
-                                            .cornerRadius(16.dp)
-                                            .background(VeritasWidgetColors.playButtonAccent)
-                                            .clickable(actionRunCallback<QuickCaptureActionCallback>(newNoteParams)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "+",
-                                            style = TextStyle(
-                                                fontSize = if (size.width >= 240.dp) 20.sp else 18.sp, 
-                                                fontWeight = FontWeight.Bold, 
-                                                color = VeritasWidgetColors.playIconColor
-                                            )
-                                        )
-                                    }
+                                    QuickActionIcon(
+                                        iconRes = R.drawable.ic_widget_checklist,
+                                        action = MainActivity.ACTION_NEW_CHECKLIST_NOTE
+                                    )
+                                    Spacer(modifier = GlanceModifier.width(8.dp))
+                                    QuickActionIcon(
+                                        iconRes = R.drawable.ic_widget_voice,
+                                        action = MainActivity.ACTION_VOICE_NOTE
+                                    )
+                                    Spacer(modifier = GlanceModifier.width(8.dp))
+                                    QuickActionIcon(
+                                        iconRes = R.drawable.ic_widget_reminder,
+                                        action = MainActivity.ACTION_NEW_REMINDER_NOTE
+                                    )
+                                    Spacer(modifier = GlanceModifier.width(8.dp))
+                                    QuickActionIcon(
+                                        iconRes = R.drawable.ic_widget_camera,
+                                        action = MainActivity.ACTION_NEW_IMAGE_NOTE
+                                    )
                                 }
                             }
                         }

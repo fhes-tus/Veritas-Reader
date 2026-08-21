@@ -127,9 +127,9 @@ val VoiceAuditionPresets = listOf(
         id = "speed",
         title = "Speed Reader",
         description = "Accelerated pace tuned for high-speed information capture.",
-        iconEmoji = "⚡",
-        speed = 1.35f,
-        pitch = 1.05f,
+        iconEmoji = "⏩",
+        speed = 1.28f,
+        pitch = 1.01f,
         sampleText = "Absorb articles, papers, and research in half the time without missing key details."
     ),
     VoiceAuditionPreset(
@@ -137,8 +137,8 @@ val VoiceAuditionPresets = listOf(
         title = "Calm & Reflective",
         description = "Relaxed, soothing cadence for thoughtful literature and bedtime reading.",
         iconEmoji = "☕",
-        speed = 0.9f,
-        pitch = 0.95f,
+        speed = 0.90f,
+        pitch = 0.98f,
         sampleText = "Take a breath, slow down, and immerse yourself in the beauty of the written word."
     ),
     VoiceAuditionPreset(
@@ -146,8 +146,8 @@ val VoiceAuditionPresets = listOf(
         title = "Expressive Drama",
         description = "Dynamic pitch and pacing for dialogue and narrative depth.",
         iconEmoji = "🎭",
-        speed = 1.05f,
-        pitch = 1.12f,
+        speed = 1.02f,
+        pitch = 1.04f,
         sampleText = "Stories come alive when every character and nuance finds its true voice."
     )
 )

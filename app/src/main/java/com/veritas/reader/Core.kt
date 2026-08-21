@@ -353,7 +353,9 @@ data class ReaderAnnotation(
     val createdAt: Long,
     val updatedAt: Long,
     val highlightColor: String? = null,
-    val selectionGroupId: String? = null
+    val selectionGroupId: String? = null,
+    val audioPath: String? = null,
+    val audioDurationSeconds: Int = 0
 ) {
     val sentenceIndex: Int
         get() = chunkIndex
@@ -370,6 +372,8 @@ data class ReaderAnnotation(
         .put("updatedAt", updatedAt)
         .put("highlightColor", highlightColor)
         .put("selectionGroupId", selectionGroupId)
+        .put("audioPath", audioPath)
+        .put("audioDurationSeconds", audioDurationSeconds)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderAnnotation? {
@@ -384,7 +388,9 @@ data class ReaderAnnotation(
                 createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                 updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
                 highlightColor = if (obj.has("highlightColor")) obj.optString("highlightColor") else null,
-                selectionGroupId = if (obj.has("selectionGroupId")) obj.optString("selectionGroupId") else null
+                selectionGroupId = if (obj.has("selectionGroupId")) obj.optString("selectionGroupId") else null,
+                audioPath = if (obj.has("audioPath") && !obj.isNull("audioPath")) obj.optString("audioPath").ifBlank { null } else null,
+                audioDurationSeconds = obj.optInt("audioDurationSeconds", 0)
             )
         }
     }
@@ -531,28 +537,32 @@ object VeritasThemeCatalog {
 
     val themeOptions: List<Pair<String, String>> = listOf(
         "system" to "System Default",
-        "dark" to "Dark",
         "light" to "Light",
-        "neon" to "Neon",
-        "default_dark_2026" to "Default Dark 2026",
-        "dark_high_contrast" to "Dark High Contrast",
-        "white_high_contrast" to "White High Contrast",
+        "dark" to "Dark",
+        "github_light" to "GitHub Light",
+        "github_dark" to "GitHub Dark",
         "bw_gradient_light" to "B/W Gradient Light",
         "bw_gradient_dark" to "B/W Gradient Dark",
         "blue_high_contrast" to "Blue High Contrast",
+        "midnight_dark" to "Midnight Dark",
         "one_dark_pro" to "One Dark Pro",
-        "github_dark" to "GitHub Dark",
-        "github_light" to "GitHub Light",
-        "dracula" to "Dracula"
+        "dracula" to "Dracula",
+        "neon" to "Neon",
+        "dark_high_contrast" to "Dark High Contrast",
+        "white_high_contrast" to "White High Contrast"
     )
 
     fun normalizeThemeId(id: String): String {
-        return themeOptions.firstOrNull { it.first == id }?.first ?: DEFAULT_ID
+        val mapped = when (id) {
+            "default_dark_2026" -> "dark"
+            else -> id
+        }
+        return themeOptions.firstOrNull { it.first == mapped }?.first ?: DEFAULT_ID
     }
 
     fun displayName(id: String): String {
         val normalized = normalizeThemeId(id)
-        return themeOptions.firstOrNull { it.first == normalized }?.second ?: "Default Dark 2026"
+        return themeOptions.firstOrNull { it.first == normalized }?.second ?: "Dark"
     }
 }
 
@@ -562,6 +572,7 @@ data class ReaderSettings(
     val showSectionNumbers: Boolean = true,
     val autoPlayQueue: Boolean = true,
     val themeId: String = VeritasThemeCatalog.DEFAULT_ID,
+    val previousThemeId: String? = null,
     val themePackId: String = "veritas_media",
     val adaptiveCover: Boolean = false,
     // false = subtle container-tone hero card (theme-matched); true = the original
@@ -578,7 +589,13 @@ data class ReaderSettings(
     val reduceMotion: Boolean = false,
     // Typeface for the whole app, chrome and reading text alike. "system" keeps the
     // platform default; see VeritasUiFont.
-    val uiFontId: String = "system"
+    val uiFontId: String = "system",
+    // Accessibility / Focus: bold initial word letters to guide eye fixation
+    val bionicReading: Boolean = false,
+    // Shake phone in final 60s of sleep timer to extend by 10 minutes
+    val shakeToExtendSleepTimer: Boolean = true,
+    // Accessibility / Reader: toggle whether tapping canvas collapses top & bottom bars
+    val collapsibleReaderBars: Boolean = true
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("fontSizeSp", fontSizeSp)
@@ -586,6 +603,7 @@ data class ReaderSettings(
         .put("showSectionNumbers", showSectionNumbers)
         .put("autoPlayQueue", autoPlayQueue)
         .put("themeId", themeId)
+        .put("previousThemeId", previousThemeId)
         .put("themePackId", themePackId)
         .put("adaptiveCover", adaptiveCover)
         .put("vibrantHero", vibrantHero)
@@ -594,6 +612,9 @@ data class ReaderSettings(
         .put("streakReminderEnabled", streakReminderEnabled)
         .put("reduceMotion", reduceMotion)
         .put("uiFontId", uiFontId)
+        .put("bionicReading", bionicReading)
+        .put("shakeToExtendSleepTimer", shakeToExtendSleepTimer)
+        .put("collapsibleReaderBars", collapsibleReaderBars)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderSettings {
@@ -606,6 +627,7 @@ data class ReaderSettings(
                 showSectionNumbers = obj.optBoolean("showSectionNumbers", true),
                 autoPlayQueue = obj.optBoolean("autoPlayQueue", true),
                 themeId = VeritasThemeCatalog.normalizeThemeId(migratedTheme),
+                previousThemeId = obj.optString("previousThemeId").takeIf { it.isNotBlank() },
                 themePackId = VeritasThemePackCatalog.normalizePackId(migratedPack),
                 adaptiveCover = obj.optBoolean("adaptiveCover", false),
                 vibrantHero = obj.optBoolean("vibrantHero", false),
@@ -613,7 +635,10 @@ data class ReaderSettings(
                 dailyGoalMinutes = obj.optInt("dailyGoalMinutes", 0).coerceIn(0, 180),
                 streakReminderEnabled = obj.optBoolean("streakReminderEnabled", false),
                 reduceMotion = obj.optBoolean("reduceMotion", false),
-                uiFontId = obj.optString("uiFontId", "system")
+                uiFontId = obj.optString("uiFontId", "system"),
+                bionicReading = obj.optBoolean("bionicReading", false),
+                shakeToExtendSleepTimer = obj.optBoolean("shakeToExtendSleepTimer", true),
+                collapsibleReaderBars = obj.optBoolean("collapsibleReaderBars", true)
             )
         }
     }
@@ -696,13 +721,13 @@ data class NarrationSettings(
     val dialogueDetection: Boolean = true,
     val narratorRateMultiplier: Float = 1.0f,
     val narratorPitchMultiplier: Float = 1.0f,
-    val dialogueRateMultiplier: Float = 1.03f,
-    val dialoguePitchMultiplier: Float = 1.08f,
+    val dialogueRateMultiplier: Float = 1.02f,
+    val dialoguePitchMultiplier: Float = 1.03f,
     val showDialogueBadges: Boolean = true,
     val fullCastEnabled: Boolean = true,
     val characterProfiles: List<BookCharacter> = listOf(
         BookCharacter(id = "narrator", name = "Narrator", genderLabel = "Neutral", pitchMultiplier = 1.0f, rateMultiplier = 1.0f),
-        BookCharacter(id = "dialogue", name = "Dialogue (Default)", genderLabel = "Female", pitchMultiplier = 1.08f, rateMultiplier = 1.03f)
+        BookCharacter(id = "dialogue", name = "Dialogue (Default)", genderLabel = "Female", pitchMultiplier = 1.03f, rateMultiplier = 1.02f)
     )
 ) {
     fun toJson(): JSONObject {
@@ -731,15 +756,15 @@ data class NarrationSettings(
             }
             if (list.isEmpty()) {
                 list.add(BookCharacter(id = "narrator", name = "Narrator", genderLabel = "Neutral", pitchMultiplier = 1.0f, rateMultiplier = 1.0f))
-                list.add(BookCharacter(id = "dialogue", name = "Dialogue (Default)", genderLabel = "Female", pitchMultiplier = 1.08f, rateMultiplier = 1.03f))
+                list.add(BookCharacter(id = "dialogue", name = "Dialogue (Default)", genderLabel = "Female", pitchMultiplier = 1.03f, rateMultiplier = 1.02f))
             }
             return NarrationSettings(
                 enabled = obj.optBoolean("enabled", false),
                 dialogueDetection = obj.optBoolean("dialogueDetection", true),
-                narratorRateMultiplier = obj.optDouble("narratorRateMultiplier", 1.0).toFloat().coerceIn(0.75f, 1.25f),
-                narratorPitchMultiplier = obj.optDouble("narratorPitchMultiplier", 1.0).toFloat().coerceIn(0.80f, 1.25f),
-                dialogueRateMultiplier = obj.optDouble("dialogueRateMultiplier", 1.03).toFloat().coerceIn(0.75f, 1.25f),
-                dialoguePitchMultiplier = obj.optDouble("dialoguePitchMultiplier", 1.08).toFloat().coerceIn(0.80f, 1.25f),
+                narratorRateMultiplier = obj.optDouble("narratorRateMultiplier", 1.0).toFloat().coerceIn(0.80f, 1.20f),
+                narratorPitchMultiplier = obj.optDouble("narratorPitchMultiplier", 1.0).toFloat().coerceIn(0.92f, 1.08f),
+                dialogueRateMultiplier = obj.optDouble("dialogueRateMultiplier", 1.02).toFloat().coerceIn(0.80f, 1.20f),
+                dialoguePitchMultiplier = obj.optDouble("dialoguePitchMultiplier", 1.03).toFloat().coerceIn(0.92f, 1.08f),
                 showDialogueBadges = obj.optBoolean("showDialogueBadges", true),
                 fullCastEnabled = obj.optBoolean("fullCastEnabled", true),
                 characterProfiles = list
@@ -855,7 +880,7 @@ object NarrationAnalyzer {
     fun effectivePitch(basePitch: Float, settings: NarrationSettings, text: String): Float {
         if (!settings.enabled) return basePitch
         val char = getActiveCharacter(text, settings)
-        return (basePitch * char.pitchMultiplier).coerceIn(0.7f, 1.4f)
+        return (basePitch * char.pitchMultiplier).coerceIn(0.60f, 1.50f)
     }
 }
 
@@ -2642,7 +2667,9 @@ class DocumentRepository(context: Context) {
         type: AnnotationType,
         note: String = "",
         highlightColor: String? = null,
-        selectionGroupId: String? = null
+        selectionGroupId: String? = null,
+        audioPath: String? = null,
+        audioDurationSeconds: Int = 0
     ): List<ReaderAnnotation> {
         val now = System.currentTimeMillis()
         val existing = loadAllAnnotations().toMutableList()
@@ -2653,7 +2680,9 @@ class DocumentRepository(context: Context) {
                 note = note,
                 updatedAt = now,
                 highlightColor = highlightColor ?: old.highlightColor,
-                selectionGroupId = selectionGroupId ?: old.selectionGroupId
+                selectionGroupId = selectionGroupId ?: old.selectionGroupId,
+                audioPath = audioPath ?: old.audioPath,
+                audioDurationSeconds = if (audioDurationSeconds > 0) audioDurationSeconds else old.audioDurationSeconds
             )
         } else {
             existing.add(
@@ -2665,7 +2694,9 @@ class DocumentRepository(context: Context) {
                     createdAt = now,
                     updatedAt = now,
                     highlightColor = highlightColor,
-                    selectionGroupId = selectionGroupId
+                    selectionGroupId = selectionGroupId,
+                    audioPath = audioPath,
+                    audioDurationSeconds = audioDurationSeconds
                 )
             )
         }

@@ -24,6 +24,12 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Share
 
+enum class PaperToneMode {
+    ACTIVE_THEME,
+    DARK,
+    NATURAL_WHITE
+}
+
 fun progressFraction(document: SavedDocument): Float {
     return if (document.chunkCount <= 0) {
         0f

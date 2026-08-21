@@ -27,7 +27,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sync
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.ui.graphics.asImageBitmap
@@ -197,11 +199,15 @@ internal fun SentenceNoteDialog(
     document: ReaderDocument,
     sentenceIndexes: List<Int>,
     noteDraft: String,
+    audioPath: String? = null,
+    audioDuration: Int = 0,
     onNoteChange: (String) -> Unit,
+    onAudioChange: (String?, Int) -> Unit = { _, _ -> },
     onSave: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val indexes = sentenceIndexes
         .filter { it in document.chunks.indices }
         .distinct()
@@ -213,8 +219,25 @@ internal fun SentenceNoteDialog(
     }
     val wordCount = noteDraft.trim().split(Regex("\\s+")).count { it.isNotBlank() }
 
+    var currentAudioPath by remember { mutableStateOf(audioPath) }
+    var currentAudioDuration by remember { mutableIntStateOf(audioDuration) }
+    val recordingState by VoiceNoteRecorder.recordingState.collectAsState()
+
+    var permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val docId = document.id ?: "doc"
+            val targetIdx = indexes.firstOrNull() ?: 0
+            VoiceNoteRecorder.startRecording(context, docId, targetIdx)
+        }
+    }
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            VoiceNoteRecorder.stopAll()
+            onDismiss()
+        },
         title = { Text(title) },
         text = {
             Column(
@@ -234,11 +257,11 @@ internal fun SentenceNoteDialog(
                     onValueChange = onNoteChange,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp),
+                        .height(150.dp),
                     label = { Text("Sentence note") },
                     placeholder = { Text("Write the note to attach to this sentence") },
-                    minLines = 6,
-                    maxLines = 10,
+                    minLines = 4,
+                    maxLines = 8,
                     shape = RoundedCornerShape(16.dp)
                 )
                 Text(
@@ -246,6 +269,112 @@ internal fun SentenceNoteDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                // Voice Memo Recording & Playback Row
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        when (recordingState) {
+                            VoiceRecordingState.RECORDING -> {
+                                Text(
+                                    "🔴 Recording voice memo...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = {
+                                        val result = VoiceNoteRecorder.stopRecording()
+                                        if (result != null) {
+                                            currentAudioPath = result.first
+                                            currentAudioDuration = result.second
+                                            onAudioChange(result.first, result.second)
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Text("Stop")
+                                }
+                            }
+                            VoiceRecordingState.PLAYING -> {
+                                Text(
+                                    "▶️ Playing voice memo (${currentAudioDuration}s)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedButton(onClick = { VoiceNoteRecorder.stopPlayback() }) {
+                                    Text("Stop")
+                                }
+                            }
+                            VoiceRecordingState.IDLE -> {
+                                if (currentAudioPath != null) {
+                                    Text(
+                                        "🎙️ Voice memo (${currentAudioDuration}s)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            currentAudioPath?.let { path ->
+                                                VoiceNoteRecorder.playAudio(path)
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            currentAudioPath?.let { path ->
+                                                VoiceNoteRecorder.deleteAudioFile(path)
+                                            }
+                                            currentAudioPath = null
+                                            currentAudioDuration = 0
+                                            onAudioChange(null, 0)
+                                        }
+                                    ) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete voice memo", tint = MaterialTheme.colorScheme.error)
+                                    }
+                                } else {
+                                    Text(
+                                        "Spoken audio memo",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    OutlinedButton(
+                                        onClick = {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                                                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                                            ) {
+                                                permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                            } else {
+                                                val docId = document.id ?: "doc"
+                                                val targetIdx = indexes.firstOrNull() ?: 0
+                                                VoiceNoteRecorder.startRecording(context, docId, targetIdx)
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Icon(Icons.Outlined.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Record")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 indexes.take(5).forEach { index ->
                     val excerpt =
                         document.chunks.getOrNull(index).orEmpty().replace(Regex("\\s+"), " ")
@@ -268,12 +397,37 @@ internal fun SentenceNoteDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onSave, enabled = noteDraft.trim().isNotBlank(), shape = RoundedCornerShape(50)) { Text("Save") }
+            Button(
+                onClick = {
+                    VoiceNoteRecorder.stopAll()
+                    onSave()
+                },
+                enabled = noteDraft.trim().isNotBlank() || currentAudioPath != null,
+                shape = RoundedCornerShape(50)
+            ) {
+                Text("Save")
+            }
         },
         dismissButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onDelete, shape = RoundedCornerShape(50)) { Text("Delete") }
-                TextButton(onClick = onDismiss, shape = RoundedCornerShape(50)) { Text("Cancel") }
+                OutlinedButton(
+                    onClick = {
+                        VoiceNoteRecorder.stopAll()
+                        onDelete()
+                    },
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text("Delete")
+                }
+                TextButton(
+                    onClick = {
+                        VoiceNoteRecorder.stopAll()
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text("Cancel")
+                }
             }
         }
     )

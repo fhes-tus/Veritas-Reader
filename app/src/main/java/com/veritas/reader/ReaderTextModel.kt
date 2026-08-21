@@ -1,5 +1,6 @@
 package com.veritas.reader
 
+import java.util.Locale
 import kotlin.math.ceil
 
 data class ReaderPageRange(
@@ -86,7 +87,8 @@ object ReaderPagePartPlanner {
 }
 
 object ReaderTextIndex {
-    private val pageMarkerRegex = Regex("""^\[\[VERITAS_PAGE:(\d+)]]$""")
+    private val pageMarkerRegex = Regex("""(?i)^\s*#?\s*\[\[?\{?VERITAS[_\s]PAGE:?\s*(\d+)\}?]\]?\s*$""")
+    private val inlineMarkerRegex = Regex("""(?i)#?\s*\[\[?\{?VERITAS[_\s]PAGE:?\s*\d+\}?]\]?""")
     private val sentenceEndMarks = setOf('.', '!', '?')
     private val abbreviations = setOf(
         "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "v", "vs", "etc", "e.g", "i.e",
@@ -100,6 +102,7 @@ object ReaderTextIndex {
     fun stripInternalMarkers(text: String): String {
         return text.replace('\r', '\n')
             .lineSequence()
+            .map { line -> line.replace(inlineMarkerRegex, "").trimEnd() }
             .filterNot { pageMarkerRegex.matches(it.trim()) }
             .joinToString("\n")
             .replace(Regex("\n{3,}"), "\n\n")
@@ -127,13 +130,13 @@ object ReaderTextIndex {
         } else {
             sentences
         }
-        val pageCount = pages.maxOfOrNull { it.pageNumber }?.coerceAtLeast(storedPageCount) ?: storedPageCount.coerceAtLeast(1)
-        val partRanges = ReaderPagePartPlanner.plan(pageCount.coerceAtLeast(estimatePageCount(cleanText)))
+        val pageCount = (fallbackSentences.maxOfOrNull { it.pageNumber } ?: 1).coerceAtLeast(storedPageCount).coerceAtLeast(1)
+        val partRanges = ReaderPagePartPlanner.plan(pageCount)
         val parts = buildParts(fallbackSentences, partRanges)
         return ReaderTextModel(
             sentences = fallbackSentences,
             parts = parts,
-            pageCount = partRanges.lastOrNull()?.endPage ?: pageCount,
+            pageCount = pageCount,
             cleanText = cleanText
         )
     }
@@ -202,11 +205,17 @@ object ReaderTextIndex {
         }
 
         normalized.lineSequence().forEach { line ->
-            val marker = pageMarkerRegex.matchEntire(line.trim())
+            val trimmed = line.trim()
+            val marker = pageMarkerRegex.matchEntire(trimmed)
             if (marker != null) {
                 flush()
                 sawMarker = true
                 currentPage = marker.groupValues[1].toIntOrNull()?.coerceAtLeast(1) ?: currentPage
+            } else if (trimmed.contains("VERITAS_PAGE", ignoreCase = true) || trimmed.contains("veritas page", ignoreCase = true)) {
+                val cleaned = trimmed.replace(inlineMarkerRegex, "").trim()
+                if (cleaned.isNotBlank()) {
+                    buffer.append(cleaned).append('\n')
+                }
             } else {
                 buffer.append(line).append('\n')
             }
@@ -280,10 +289,19 @@ object ReaderTextIndex {
         currentSentence: ReaderSentence
     ): String {
         val normalized = rawSeparator.replace('\r', '\n')
+        val currText = currentSentence.text.trim()
+        val prevText = previousSentence?.text?.trim().orEmpty()
+        val isHeading = currText.startsWith("#") || prevText.startsWith("#") || isTitleCasedSubheading(currText) || isTitleCasedSubheading(prevText)
+        val isBulletOrList = currText.startsWith("- ") || currText.startsWith("* ") || currText.startsWith("• ") || Regex("""^\d+[.)]\s+""").containsMatchIn(currText)
+        val isDialogueStart = (currText.startsWith("\"") || currText.startsWith("“") || currText.startsWith("—") || currText.startsWith("–")) && (prevText.endsWith("\"") || prevText.endsWith("”") || prevText.endsWith(".") || prevText.endsWith("!") || prevText.endsWith("?"))
+
         return when {
+            isHeading -> "\n\n"
             previousSentence != null && previousSentence.pageNumber != currentSentence.pageNumber -> "\n\n"
+            isBulletOrList -> "\n\n"
+            isDialogueStart && normalized.contains('\n') -> "\n\n"
             normalized.count { it == '\n' } >= 2 -> "\n\n"
-            normalized.contains('\n') -> "\n"
+            normalized.contains('\n') -> "\n\n"
             normalized.contains('\t') -> " "
             normalized.isNotBlank() -> " "
             else -> " "
@@ -378,10 +396,37 @@ object ReaderTextIndex {
         return true
     }
 
+    private fun isTitleCasedSubheading(line: String): Boolean {
+        val trimmed = line.trim()
+        if (trimmed.length !in 3..55) return false
+        if (trimmed.startsWith("\"") || trimmed.startsWith("“") || trimmed.startsWith("‘") || trimmed.startsWith("—") || trimmed.startsWith("-")) return false
+        if (trimmed.endsWith(",") || trimmed.endsWith(";") || trimmed.endsWith("-") || trimmed.endsWith(":")) return false
+        if (trimmed.endsWith(".") && !Regex("""^(CHAPTER|Chapter|Part|Section)?\s*[IVXLCDM\d]+(\.[IVXLCDM\d]+)*\.$""", RegexOption.IGNORE_CASE).matches(trimmed)) {
+            return false
+        }
+        val words = trimmed.split(Regex("""\s+""")).filter { it.isNotBlank() }
+        if (words.isEmpty() || words.size > 8) return false
+        val minorWords = setOf("a", "an", "the", "and", "but", "or", "for", "nor", "on", "at", "to", "by", "with", "in", "of", "vs", "vs.", "v", "v.")
+        val significantWords = words.filter { it.lowercase(Locale.getDefault()) !in minorWords }
+        if (significantWords.isEmpty()) return false
+        val capitalizedSignificant = significantWords.count { word -> word.firstOrNull()?.isUpperCase() == true }
+        return capitalizedSignificant == significantWords.size
+    }
+
     private fun isLineBoundary(text: String, newlineIndex: Int): Boolean {
         val previous = text.lastNonWhitespaceBefore(newlineIndex) ?: return false
         val next = text.firstNonWhitespaceAfter(newlineIndex) ?: return false
+        
+        val prevLine = text.substring(0, newlineIndex).substringAfterLast('\n').trim()
+        val nextLine = text.substring(newlineIndex + 1).substringBefore('\n').trim()
+        
+        if (prevLine.startsWith("#") || nextLine.startsWith("#")) return true
+        if (isTitleCasedSubheading(prevLine) || isTitleCasedSubheading(nextLine)) return true
+        if (Regex("""^(CHAPTER|Chapter|PROLOGUE|Prologue|EPILOGUE|Epilogue|INTRODUCTION|Introduction|PREFACE|Preface|PART|Part|BOOK|Book|SECTION|Section)\b.*""", RegexOption.IGNORE_CASE).matches(prevLine)) return true
+        if (Regex("""^(CHAPTER|Chapter|PROLOGUE|Prologue|EPILOGUE|Epilogue|INTRODUCTION|Introduction|PART|Part|BOOK|Book|SECTION|Section)\b.*""", RegexOption.IGNORE_CASE).matches(nextLine)) return true
+        
         if (text.getOrNull(newlineIndex + 1) == '\n') return true
+        if (newlineIndex > 0 && text.getOrNull(newlineIndex - 1) == '\n') return true
         if (previous == '-') return false
         if (previous in listOf('.', '!', '?', ':', ';')) return true
         return next.isUpperCase() || next.isDigit() || next in "\"'`(["
