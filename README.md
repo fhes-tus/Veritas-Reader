@@ -16,9 +16,9 @@ Choose the APK package suitable for your device from the [Releases](https://gith
 
 | Package | Size | Target Devices | Description |
 | :--- | :--- | :--- | :--- |
-| **`Veritas_Reader_v2.1.0_arm64.apk`** | **~72 MB** | **64-bit ARM** *(Recommended)* | Optimized build for ~99% of modern Android devices (Snapdragon, MediaTek, Tensor, Exynos). |
-| **`Veritas_Reader_v2.1.0_universal.apk`** | **~93 MB** | **All Devices** | Universal package containing all native binary architectures. |
-| **`Veritas_Reader_v2.1.0_armeabi-v7a.apk`** | **~63 MB** | **32-bit ARM** | Lightweight package for legacy 32-bit Android phones and tablets. |
+| **`Veritas_Reader_v2.1.0_arm64.apk`** | **~54 MB** | **64-bit ARM** *(Recommended)* | Optimized build for ~99% of modern Android devices (Snapdragon, MediaTek, Tensor, Exynos). |
+| **`Veritas_Reader_v2.1.0_universal.apk`** | **~75 MB** | **All Devices** | Universal package containing all native binary architectures. |
+| **`Veritas_Reader_v2.1.0_armeabi-v7a.apk`** | **~45 MB** | **32-bit ARM** | Lightweight package for legacy 32-bit Android phones and tablets. |
 
 ---
 

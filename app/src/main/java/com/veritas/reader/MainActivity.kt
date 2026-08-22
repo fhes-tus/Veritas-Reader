@@ -378,7 +378,6 @@ class MainActivity : ComponentActivity() {
         // device's TTS engine isn't Google's, which degrades highlighting/voice quality.
         CrashReporter.install(this)
         CrashReporter.offerPendingReport(this)
-        com.veritas.reader.audio.AmbientSoundManager.init(this)
         maybeShowTtsEngineHint()
         maybeShowBatteryOptimizationHint()
         // Weekly data-only safety-net backup (worker checks the setting itself).

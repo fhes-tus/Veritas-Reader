@@ -118,7 +118,6 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         repository = DocumentRepository(applicationContext)
-        com.veritas.reader.audio.AmbientSoundManager.init(this)
         PlaybackStateStore.queueCount = repository.loadQueueDocuments().size
         createNotificationChannel()
         setupMediaSession()

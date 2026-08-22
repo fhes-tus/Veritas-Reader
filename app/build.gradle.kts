@@ -80,6 +80,16 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+
+    packaging {
+        resources {
+            // PDFBox pulls Bouncy Castle in for PDF certificate and encryption handling.
+            // That drags along the post-quantum Picnic parameter tables — lowmcL5 alone is
+            // 749 KB of .properties data — which nothing on the PDF path ever reads. R8
+            // cannot strip them because they are jar resources, not classes.
+            excludes += setOf("org/bouncycastle/pqc/**")
+        }
+    }
 }
 
 kotlin {

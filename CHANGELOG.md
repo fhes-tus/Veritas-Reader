@@ -8,7 +8,6 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ### Added
 *   **Comprehensive Multi-Format Document Parsers:** Native offline parsing and text extraction for Microsoft Word (`.docx`), EPUB e-books (`.epub` 2 & 3 with chapter hierarchies), and legacy PowerPoint presentations (`.ppt`).
-*   **Ambient Soundscapes & Focus Audio:** Multi-track background sound generator (Breeze, Campfire, Rain, Lo-Fi, Brown Noise) that blends seamlessly with foreground TTS speech.
 *   **RSVP Speed Reading Engine:** High-performance Rapid Serial Visual Presentation mode with customizable WPM (100–1000 WPM), dynamic punctuation pauses, and optimal recognition point (ORP) centering.
 *   **Smart Resume Catch-Up:** Intelligent contextual re-orientation dialog summarizing preceding context when returning to a document after a hiatus.
 *   **Study Guide PDF Exporter:** Instant generation of beautifully formatted PDF study guides compiling document highlights, tags, vocabulary notes, and annotations.
@@ -30,6 +29,10 @@ All notable changes to the Veritas Reader application will be documented in this
 *   **Look-Ahead Window Bounds:** The pre-buffer window could be computed with negative indices while reading a text selection, wasting synthesis passes on positions that do not exist in the document.
 *   **Stale Version Fallbacks:** The update checker and the Settings "About" panel fell back to a hardcoded version string that had to be edited by hand each release. Both now read `BuildConfig.VERSION_NAME`.
 *   **Unused Room Dependency:** Removed the declared-but-unreferenced `androidx.room:room-ktx` dependency and its ProGuard keep rules; persistence is entirely SharedPreferences and JSON.
+
+### Removed
+*   **Ambient Soundscapes:** Removed the ambient sound engine and its five bundled loop recordings. The feature had no reachable entry point in the interface, and the uncompressed WAV loops accounted for 23% of the release APK.
+*   **Bouncy Castle Post-Quantum Tables:** Excluded the unused Picnic post-quantum signature parameter resources pulled in transitively by PDFBox's certificate handling.
 
 ---
 
