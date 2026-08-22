@@ -4,6 +4,38 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ---
 
+## [2.2.0] - 2026-08-22
+
+### Added
+*   **Device-Wide File Discovery:** A MediaStore-backed index now finds compatible documents anywhere on shared storage in a single query, across every mounted volume including SD cards and USB OTG, with a deeper filesystem sweep behind it for files the media index does not cover.
+*   **File Deletion from the Browser:** Long-press selection now offers deletion for one file or many, with a confirmation that names the files and states plainly that this removes them from phone storage rather than from Veritas alone.
+*   **Delete Previews:** The confirmation shows a downsampled thumbnail and folder path for each image, since two photos can look alike and the path is often what identifies the right one.
+*   **Broader Format Recognition:** Legacy PowerPoint (`.ppt`), macro-enabled Office documents (`.pptm`, `.docm`), `.xhtml`, HEIC/HEIF/AVIF photos, and a fuller plain-text set (`.log`, `.json`, `.xml`, `.yaml`, `.srt`, `.vtt`, and others) are now recognised by the browser, the system picker, and the launcher's "Open with" list.
+*   **Idle Chrome Collapse:** The original-document view retires its toolbar and player bars after five seconds without a touch, and restores them on a tap.
+
+### Changed
+*   **Exact Page and Sentence Mapping:** Synchronisation between the reading position and the original-document view no longer scales reading progress across the page count. Both directions resolve through the document model, so the page shown is the page the sentence is actually on.
+*   **Unified EPUB and DOCX Extraction:** Reading text for these formats is now produced by the same parsers the original view renders, so page markers and displayed pages derive from a single parse and cannot drift apart.
+*   **Document Loading Split by Scope:** Parsing is performed once per document rather than repeated on every page turn, with page rendering and slide-image extraction handled separately.
+*   **Rotation Preserves State:** Rotating no longer rebuilds the reader, so the current page, bar visibility, zoom, and view rotation survive the change.
+*   **DOCX Table Reading:** Table cells are separated when read aloud instead of being run together into a single compound word.
+
+### Fixed
+*   **Neural Speech Engine Crash:** Stopping, seeking, or switching voice could free the speech engine while it was still generating audio, terminating the app from inside its native layer where the in-app crash reporter cannot observe it. Teardown now waits for generation to finish.
+*   **Slide, Chapter and Page Highlighting:** The original-document view highlighted only the first line of every slide, chapter or page regardless of what was being spoken, and drifted onto the wrong page the further into a document playback ran.
+*   **Original View Opening Page:** Switching to the original document opened on page 1 instead of the page being read.
+*   **Page Swiping During Playback:** Swiping pages in the extracted-text view could hijack narration, and a page change arriving mid-scroll was discarded and never retried.
+*   **Blank Pages:** Pages with no text of their own no longer move the reading position to a different page's sentence.
+*   **Continue Reading From Here:** Selecting a sentence in the original view now begins from that sentence on that page, rather than restarting the document when no match was found.
+*   **Sideways Pages After Rotating:** The rotate controls applied a page rotation on top of the screen rotation.
+*   **Unrecoverable Full Screen:** Hiding the bars removed the only control that could bring them back on the PDF view; tapping the page now restores them.
+*   **Slide Images Disappearing:** Embedded PPTX images were rebuilt on every page turn and vanished between slides.
+
+### Removed
+*   **Duplicate Document Parsing:** The separate EPUB and DOCX parsing paths inside the extractor have been retired in favour of the shared parsers, removing the possibility of the two views disagreeing.
+
+---
+
 ## [2.1.0] - 2026-08-21
 
 ### Added

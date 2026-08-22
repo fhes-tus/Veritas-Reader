@@ -1,6 +1,6 @@
 # Known Limitations
 
-This document outlines the technical boundaries, platform constraints, and design limitations for **Veritas Reader Android v2.1.0**.
+This document outlines the technical boundaries, platform constraints, and design limitations for **Veritas Reader Android v2.2.0**.
 
 ---
 
@@ -47,7 +47,7 @@ This document outlines the technical boundaries, platform constraints, and desig
 ---
 
 ## 🧪 Testing & Verification Status
-*   **Unit Tests:** 150 JVM unit tests pass on this release, run with:
+*   **Unit Tests:** 167 JVM unit tests pass on this release, run with:
     ```powershell
     .\gradlew.bat :app:testDebugUnitTest
     ```
