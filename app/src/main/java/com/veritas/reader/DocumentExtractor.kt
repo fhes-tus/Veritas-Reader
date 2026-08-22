@@ -427,10 +427,10 @@ object DocumentExtractor {
         val extracted = when (sourceLabel) {
             "OCR" -> extractImageOcr(context, uri)
             "PDF" -> extractPdf(context, uri, pdfOptions, foregroundBudgetMillis)
-            "DOCX" -> ExtractionBody(extractDocx(readAllBytes(context, uri)))
+            "DOCX" -> extractDocx(readAllBytes(context, uri))
             "PPTX" -> extractPptx(readAllBytes(context, uri), pptxOptions, foregroundBudgetMillis)
             "PPT" -> PptLegacyExtractor.extract(readAllBytes(context, uri))
-            "EPUB" -> ExtractionBody(extractEpub(readAllBytes(context, uri)))
+            "EPUB" -> extractEpub(readAllBytes(context, uri))
             else -> extractPlainText(context, uri, textOptions, isHtmlish(displayName) || mimeType.contains("html"))
         }
 
@@ -806,18 +806,40 @@ object DocumentExtractor {
         }
     }
 
-    private fun extractDocx(bytes: ByteArray): String {
-        var documentXml: String? = null
-        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                if (!entry.isDirectory && entry.name == "word/document.xml") {
-                    documentXml = zip.readBytes().toString(Charsets.UTF_8)
-                    break
-                }
+    /**
+     * DOCX text comes from [DocxDocumentParser] rather than a second XML walk of its own.
+     * The original-document view already renders that parser's pages, so deriving the
+     * reading text from the same parse is what makes a page marker mean the same page in
+     * both views. Word stores no page boundaries in document.xml — the parser synthesises
+     * them by block weight — so these numbers are arbitrary but, crucially, identical on
+     * both sides.
+     */
+    internal fun extractDocx(bytes: ByteArray): ExtractionBody {
+        val parsed = DocxDocumentParser.parse(bytes, "")
+        val output = StringBuilder()
+        parsed.pages.forEach { page ->
+            val rendered = page.blocks.mapNotNull(::docxBlockToText).joinToString("\n\n").trim()
+            if (rendered.isNotBlank()) {
+                if (output.isNotBlank()) output.append("\n\n")
+                output.append(ReaderTextIndex.pageMarker(page.pageNumber)).append('\n')
+                output.append(rendered)
             }
         }
-        return documentXml?.let { xmlBodyToText(it) }.orEmpty()
+        return ExtractionBody(output.toString(), pageCount = parsed.totalPages)
+    }
+
+    private fun docxBlockToText(block: DocxBlock): String? = when (block) {
+        is DocxBlock.Heading -> block.text.takeIf { it.isNotBlank() }
+        is DocxBlock.Paragraph -> block.text.takeIf { it.isNotBlank() }
+        is DocxBlock.Bullet -> block.text.takeIf { it.isNotBlank() }
+        // Cells are joined with a comma rather than run together: the previous XML walk
+        // emitted them with no separator at all, which the speech engine read as one
+        // long compound word.
+        is DocxBlock.Table -> block.rows
+            .map { row -> row.filter { it.isNotBlank() }.joinToString(", ") }
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+            .takeIf { it.isNotBlank() }
     }
 
     private suspend fun extractPptx(
@@ -903,145 +925,34 @@ object DocumentExtractor {
         )
     }
 
-    private fun extractEpub(bytes: ByteArray): String {
-        val entries = linkedMapOf<String, String>()
-        ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                if (!entry.isDirectory) {
-                    val normalizedName = entry.name.trimStart('/')
-                    val lower = normalizedName.lowercase(Locale.getDefault())
-                    val shouldRead = lower == "meta-inf/container.xml" ||
-                        lower.endsWith(".opf") || lower.endsWith(".xhtml") ||
-                        lower.endsWith(".html") || lower.endsWith(".htm")
-                    if (shouldRead) {
-                        entries[normalizedName] = zip.readBytes().toString(Charsets.UTF_8)
-                    }
-                }
-            }
-        }
-
-        val containerXml = entries.entries.firstOrNull { it.key.equals("META-INF/container.xml", ignoreCase = true) }?.value
-        val opfPath = containerXml?.let { findContainerRootFile(it) }
-        val opfXml = opfPath?.let { path -> entries[path] ?: entries.entries.firstOrNull { it.key.equals(path, ignoreCase = true) }?.value }
-
-        val orderedContentPaths = if (opfPath != null && opfXml != null) {
-            spineContentPaths(opfPath, opfXml)
-        } else {
-            entries.keys.filter { isHtmlish(it) }.sorted()
-        }
-
+    /**
+     * EPUB text comes from [EpubDocumentParser] rather than a second spine walk of its own,
+     * so a `[[VERITAS_PAGE:n]]` marker refers to the same chapter the original-document view
+     * is showing. The parser numbers chapters contiguously from 1 and only counts chapters
+     * that actually produced paragraphs, so marker numbers and chapter indices cannot drift.
+     */
+    internal fun extractEpub(bytes: ByteArray): ExtractionBody {
+        val book = EpubDocumentParser.parse(bytes, "")
         val output = StringBuilder()
-        for (path in orderedContentPaths) {
-            val content = entries[path] ?: entries.entries.firstOrNull { it.key.equals(path, ignoreCase = true) }?.value ?: continue
-            val text = htmlishToText(content)
-            if (text.isNotBlank()) {
+        book.chapters.forEach { chapter ->
+            // extractChapterContent already drops the title from the paragraph list, so
+            // leading with it here restores the heading exactly once.
+            val body = buildList {
+                if (chapter.title.isNotBlank()) add(chapter.title)
+                addAll(chapter.paragraphs)
+            }.joinToString("\n\n").trim()
+            if (body.isNotBlank()) {
                 if (output.isNotBlank()) output.append("\n\n")
-                output.append(text)
+                output.append(ReaderTextIndex.pageMarker(chapter.number)).append('\n')
+                output.append(body)
             }
         }
-
-        if (output.isBlank()) {
-            entries.filterKeys { isHtmlish(it) }.toSortedMap().values.forEach { html ->
-                val text = htmlishToText(html)
-                if (text.isNotBlank()) {
-                    if (output.isNotBlank()) output.append("\n\n")
-                    output.append(text)
-                }
-            }
-        }
-
-        return output.toString()
-    }
-
-    private fun findContainerRootFile(containerXml: String): String? {
-        val match = Regex("""full-path\s*=\s*[\"']([^\"']+)[\"']""", RegexOption.IGNORE_CASE).find(containerXml)
-        return match?.groupValues?.getOrNull(1)?.trimStart('/')
-    }
-
-    private fun spineContentPaths(opfPath: String, opfXml: String): List<String> {
-        val baseDir = opfPath.substringBeforeLast('/', missingDelimiterValue = "")
-        val manifest = mutableMapOf<String, String>()
-        Regex("""<item\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(opfXml).forEach { item ->
-            val attrs = parseAttributes(item.value)
-            val id = attrs["id"].orEmpty()
-            val href = attrs["href"].orEmpty()
-            val mediaType = attrs["media-type"].orEmpty().lowercase(Locale.getDefault())
-            val looksReadable = mediaType.contains("xhtml") || mediaType.contains("html") || isHtmlish(href)
-            if (id.isNotBlank() && href.isNotBlank() && looksReadable) {
-                manifest[id] = resolveZipPath(baseDir, href)
-            }
-        }
-
-        val ordered = mutableListOf<String>()
-        Regex("""<itemref\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(opfXml).forEach { itemref ->
-            val attrs = parseAttributes(itemref.value)
-            val idref = attrs["idref"].orEmpty()
-            manifest[idref]?.let { ordered.add(it) }
-        }
-        return ordered.ifEmpty { manifest.values.toList() }
-    }
-
-    private fun parseAttributes(tag: String): Map<String, String> {
-        val attrs = mutableMapOf<String, String>()
-        Regex("""([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*[\"']([^\"']*)[\"']""").findAll(tag).forEach { match ->
-            attrs[match.groupValues[1].lowercase(Locale.getDefault())] = match.groupValues[2]
-        }
-        return attrs
-    }
-
-    private fun resolveZipPath(baseDir: String, href: String): String {
-        val decoded = runCatching { URLDecoder.decode(href, "UTF-8") }.getOrDefault(href)
-            .substringBefore('#')
-            .trimStart('/')
-        if (baseDir.isBlank()) return decoded
-        return "$baseDir/$decoded".replace("//", "/")
+        return ExtractionBody(output.toString(), pageCount = book.totalChapters)
     }
 
     private fun isHtmlish(path: String): Boolean {
         val lower = path.lowercase(Locale.getDefault())
         return lower.endsWith(".xhtml") || lower.endsWith(".html") || lower.endsWith(".htm")
-    }
-
-    private fun xmlBodyToText(xml: String): String {
-        val parser = Xml.newPullParser()
-        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
-        parser.setInput(StringReader(xml))
-        val output = StringBuilder()
-        var event = parser.eventType
-        var inInstrText = false
-        while (event != XmlPullParser.END_DOCUMENT) {
-            val name = parser.name.orEmpty().substringAfter(':').lowercase(Locale.getDefault())
-            when (event) {
-                XmlPullParser.START_TAG -> {
-                    if (name == "instrtext") {
-                        inInstrText = true
-                    } else if (!inInstrText) {
-                        when (name) {
-                            "tab" -> output.append('\t')
-                            "br" -> output.append('\n')
-                        }
-                    }
-                }
-                XmlPullParser.TEXT -> {
-                    if (!inInstrText) {
-                        output.append(parser.text.orEmpty())
-                    }
-                }
-                XmlPullParser.END_TAG -> {
-                    if (name == "instrtext") {
-                        inInstrText = false
-                    } else if (!inInstrText) {
-                        when (name) {
-                            "p", "tr", "h1", "h2", "h3", "h4", "h5", "h6" -> output.append("\n\n")
-                            "tc", "td", "th" -> output.append('\t')
-                        }
-                    }
-                }
-            }
-            event = parser.next()
-        }
-        return output.toString()
     }
 
     private fun htmlishToText(html: String): String {

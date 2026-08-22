@@ -152,11 +152,46 @@ class VeritasAudioBuffer(
 
     private suspend fun synthesizeAndCache(index: Int, text: String): ShortArray? = synthesisMutex.withLock {
         pcmCache[index]?.let { return@withLock it }
-        val pcm = engine.synthesize(text)?.takeIf { it.isNotEmpty() }
+        if (!beginSynthesis()) return@withLock null
+        val pcm = try {
+            engine.synthesize(text)?.takeIf { it.isNotEmpty() }
+        } finally {
+            endSynthesis()
+        }
         if (pcm != null) {
             pcmCache[index] = pcm
         }
         pcm
+    }
+
+    // engine.synthesize() is a blocking call into sherpa-onnx, and coroutine cancellation
+    // cannot interrupt native code. Freeing the engine while a generate() is still reading
+    // it is a use-after-free that lands as SIGSEGV inside OfflineTts_generateImpl, on the
+    // Dispatchers.Default thread, below the level the app's crash reporter can observe.
+    // So shutdown only marks intent; whichever side finishes last performs the free —
+    // the same bargain acquireTrack/releaseWriter strike for the AudioTrack.
+    private val engineLock = Any()
+    private var synthesisInFlight = 0
+    private var engineShutdownRequested = false
+
+    private fun beginSynthesis(): Boolean = synchronized(engineLock) {
+        if (engineShutdownRequested) return@synchronized false
+        synthesisInFlight++
+        true
+    }
+
+    private fun endSynthesis() = synchronized(engineLock) {
+        synthesisInFlight--
+        if (engineShutdownRequested && synthesisInFlight == 0) {
+            runCatching { engine.shutdown() }
+        }
+    }
+
+    private fun requestEngineShutdown() = synchronized(engineLock) {
+        engineShutdownRequested = true
+        if (synthesisInFlight == 0) {
+            runCatching { engine.shutdown() }
+        }
     }
 
     /** Sample rate the live [audioTrack] was built for; -1 when there is no track. */
@@ -243,7 +278,7 @@ class VeritasAudioBuffer(
     fun shutdown() {
         stopPlayback(release = true)
         scope.cancel()
-        engine.shutdown()
+        requestEngineShutdown()
     }
 
     private fun stopPlayback(release: Boolean) {

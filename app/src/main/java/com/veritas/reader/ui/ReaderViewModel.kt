@@ -2757,6 +2757,44 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         refreshFileBrowser()
     }
 
+    /**
+     * Removes files from the device, then re-lists so they stop appearing.
+     *
+     * Two kinds of entry reach here. The recursive walk yields file:// URIs, which All Files
+     * access can unlink directly. The MediaStore index yields content:// URIs, which are
+     * deleted through the resolver so the index is updated too — unlinking those by path
+     * alone would leave a stale row pointing at nothing.
+     */
+    fun deleteBrowserFiles(files: List<VeritasBrowserFile>) {
+        if (files.isEmpty()) return
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            var deleted = 0
+            val failures = mutableListOf<String>()
+            withContext(Dispatchers.IO) {
+                files.forEach { entry ->
+                    val ok = runCatching {
+                        if (entry.uri.scheme == "file") {
+                            val target = entry.uri.path?.let { java.io.File(it) }
+                            target != null && target.exists() && target.delete()
+                        } else {
+                            context.contentResolver.delete(entry.uri, null, null) > 0
+                        }
+                    }.getOrDefault(false)
+                    if (ok) deleted++ else failures.add(entry.name)
+                }
+            }
+            val summary = when {
+                failures.isEmpty() && deleted == 1 -> "Deleted 1 file."
+                failures.isEmpty() -> "Deleted $deleted files."
+                deleted == 0 -> "Could not delete ${failures.size} file(s). Android may be protecting them."
+                else -> "Deleted $deleted, could not delete ${failures.size}."
+            }
+            _uiState.update { it.copy(importMessage = summary) }
+            refreshFileBrowser()
+        }
+    }
+
     fun refreshFileBrowser() {
         scanJob?.cancel()
         refreshFileBrowserAccessState()

@@ -63,6 +63,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -81,6 +82,12 @@
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/epub+zip" />
                 <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <!-- Slide decks: parsers for both shipped in 2.1.0, but without these lines the
+                     launcher never offered Veritas as a way to open them. Only formats with
+                     a real parser belong here — claiming one we cannot read means the user
+                     picks Veritas and gets an error. -->
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+                <data android:mimeType="application/vnd.ms-powerpoint" />
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="image/*" />
             </intent-filter>

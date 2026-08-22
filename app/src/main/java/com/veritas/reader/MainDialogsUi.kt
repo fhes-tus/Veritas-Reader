@@ -61,6 +61,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -433,6 +437,83 @@ internal fun SentenceNoteDialog(
     )
 }
 
+/**
+ * Small thumbnail for an image entry, decoded off the main thread and downsampled hard —
+ * these are only ever drawn at 56dp, and a delete confirmation may show several at once.
+ * Returns null for anything that is not a decodable image, so callers fall back to the name.
+ */
+@Composable
+private fun rememberFileThumbnail(file: VeritasBrowserFile): Bitmap? {
+    val context = LocalContext.current
+    var thumb by remember(file.uri) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(file.uri) {
+        if (file.type != VeritasBrowserTab.OCR) return@LaunchedEffect
+        thumb = withContext(Dispatchers.IO) {
+            runCatching {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(file.uri)?.use {
+                    BitmapFactory.decodeStream(it, null, bounds)
+                }
+                var sample = 1
+                while (bounds.outWidth / sample > 256 || bounds.outHeight / sample > 256) sample *= 2
+                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                context.contentResolver.openInputStream(file.uri)?.use {
+                    BitmapFactory.decodeStream(it, null, opts)
+                }
+            }.getOrNull()
+        }
+    }
+    return thumb
+}
+
+/** One doomed file: its picture when we have one, otherwise its name and folder. */
+@Composable
+private fun DeletePreviewRow(file: VeritasBrowserFile) {
+    val thumb = rememberFileThumbnail(file)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center
+        ) {
+            val bmp = thumb
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                val (icon, tint, _) = getFileColorAndIcon(file)
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                file.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                file.relativePath.ifBlank { file.rootLabel },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 @Composable
 internal fun FileBrowserDialog(
     roots: List<VeritasBrowserRoot>,
@@ -453,10 +534,73 @@ internal fun FileBrowserDialog(
     onEnterDirectory: (VeritasBrowserFile) -> Unit,
     onRemoveAllAccess: () -> Unit,
     onImportFile: (VeritasBrowserFile) -> Unit,
-    onImportMultipleFiles: (List<VeritasBrowserFile>, Boolean) -> Unit
+    onImportMultipleFiles: (List<VeritasBrowserFile>, Boolean) -> Unit,
+    onDeleteFiles: (List<VeritasBrowserFile>) -> Unit = {}
 ) {
     val selectedFiles = remember { mutableStateListOf<VeritasBrowserFile>() }
+    // Deleting reaches the user's own storage and cannot be undone, so nothing is removed
+    // until this is confirmed with the files named.
+    var pendingDelete by remember { mutableStateOf<List<VeritasBrowserFile>>(emptyList()) }
     
+    if (pendingDelete.isNotEmpty()) {
+        val doomed = pendingDelete
+        AlertDialog(
+            onDismissRequest = { pendingDelete = emptyList() },
+            icon = {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(
+                    if (doomed.size == 1) "Delete this file?" else "Delete ${doomed.size} files?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "This removes the file from your phone's storage, not just from Veritas. It cannot be undone.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = 260.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        doomed.take(5).forEach { file -> DeletePreviewRow(file) }
+                    }
+                    if (doomed.size > 5) {
+                        Text(
+                            "and ${doomed.size - 5} more",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteFiles(doomed)
+                        selectedFiles.clear()
+                        pendingDelete = emptyList()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = emptyList() }) { Text("Cancel") }
+            }
+        )
+    }
+
     LaunchedEffect(location) {
         selectedFiles.clear()
     }
@@ -580,6 +724,19 @@ internal fun FileBrowserDialog(
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            IconButton(
+                                onClick = { pendingDelete = selectedFiles.toList() }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Delete,
+                                    contentDescription = if (selectedFiles.size == 1) {
+                                        "Delete file"
+                                    } else {
+                                        "Delete ${selectedFiles.size} files"
+                                    },
+                                    tint = MaterialTheme.colorScheme.error
                                 )
                             }
                             Button(

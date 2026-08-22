@@ -8,7 +8,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.content.ContentUris
 import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.view.KeyEvent
@@ -794,7 +796,7 @@ object VeritasFileBrowserScanner {
             )
         }
         val entries = when {
-            activeLocation.filePath != null -> listFileDirectory(activeLocation, diagnostics)
+            activeLocation.filePath != null -> listFileDirectory(context, activeLocation, diagnostics)
             activeLocation.rootUri != null && activeLocation.documentId != null -> {
                 val root = roots.firstOrNull { it.uri == activeLocation.rootUri }
                 if (root == null) {
@@ -815,14 +817,106 @@ object VeritasFileBrowserScanner {
         return VeritasFileBrowserScanResult(entries, activeLocation, diagnostics)
     }
 
+    /**
+     * Every readable storage volume, not just the built-in one. getExternalFilesDirs reports
+     * one entry per mounted volume, including SD cards and USB OTG; four parents up from the
+     * app-private directory is the volume root, which All Files access can read. The browser
+     * previously clamped everything to primary storage, so a document on an SD card could not
+     * be reached at all.
+     */
+    private fun storageVolumeRoots(context: Context): List<File> {
+        val roots = LinkedHashSet<File>()
+        runCatching { Environment.getExternalStorageDirectory() }.getOrNull()?.let { roots.add(it) }
+        runCatching {
+            context.getExternalFilesDirs(null).filterNotNull().forEach { dir ->
+                var candidate: File? = dir
+                repeat(4) { candidate = candidate?.parentFile }
+                candidate?.takeIf { it.exists() && it.isDirectory && it.canRead() }?.let { roots.add(it) }
+            }
+        }
+        return roots.toList()
+    }
+
+    /**
+     * Every compatible file on the device in one pass, wherever it lives.
+     *
+     * Folder-by-folder walking only finds what the user thinks to look for — a document in
+     * Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents is six levels down and
+     * effectively invisible. MediaStore already indexes all of shared storage, across every
+     * volume, so one query reaches everything a recursive walk would, in a fraction of the
+     * time. Rows whose extension we cannot parse are dropped rather than listed as unopenable.
+     */
+    private fun queryDeviceWideFiles(
+        context: Context,
+        diagnostics: MutableList<String>
+    ): List<VeritasBrowserFile> {
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.DATE_MODIFIED,
+            MediaStore.Files.FileColumns.RELATIVE_PATH
+        )
+        val results = mutableListOf<VeritasBrowserFile>()
+        val seen = HashSet<String>()
+        // Every mounted volume, not just the built-in one.
+        val volumes = runCatching { MediaStore.getExternalVolumeNames(context) }
+            .getOrDefault(setOf(MediaStore.VOLUME_EXTERNAL))
+            .ifEmpty { setOf(MediaStore.VOLUME_EXTERNAL) }
+        volumes.forEach { volume ->
+            val uri = runCatching { MediaStore.Files.getContentUri(volume) }.getOrNull() ?: return@forEach
+            runCatching {
+                context.contentResolver.query(
+                    uri, projection, null, null,
+                    "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                    val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+                    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+                    val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+                    val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.RELATIVE_PATH)
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(nameCol) ?: continue
+                        val mime = cursor.getString(mimeCol).orEmpty()
+                        val type = fileTypeFor(name, mime) ?: continue
+                        val relative = cursor.getString(pathCol).orEmpty().trimEnd('/')
+                        if (!seen.add("$relative/$name")) continue
+                        results.add(
+                            VeritasBrowserFile(
+                                uri = ContentUris.withAppendedId(uri, cursor.getLong(idCol)),
+                                name = name,
+                                mimeType = mime.ifBlank { mimeTypeForFileName(name) },
+                                sizeBytes = cursor.getLong(sizeCol),
+                                // MediaStore stores seconds; the rest of the browser uses millis.
+                                modifiedAt = cursor.getLong(dateCol) * 1000L,
+                                rootLabel = "On this phone",
+                                relativePath = relative,
+                                type = type,
+                                isDirectory = false,
+                                isSupported = true
+                            )
+                        )
+                    }
+                }
+            }.onFailure { e ->
+                diagnostics.add("Could not index $volume: ${e.message ?: "unavailable"}.")
+            }
+        }
+        return results
+    }
+
     private fun listFileDirectory(
+        context: Context,
         location: VeritasBrowserLocation,
         diagnostics: MutableList<String>
     ): List<VeritasBrowserFile> {
         val storageRoot = Environment.getExternalStorageDirectory()
+        val volumeRoots = storageVolumeRoots(context)
         val current = location.filePath?.let(::File) ?: storageRoot
         val safeCurrent =
-            if (current.absolutePath.startsWith(storageRoot.absolutePath)) current else storageRoot
+            if (volumeRoots.any { current.absolutePath.startsWith(it.absolutePath) }) current else storageRoot
         if (!safeCurrent.exists()) {
             diagnostics.add("${location.label} no longer exists.")
             return emptyList()
@@ -835,12 +929,15 @@ object VeritasFileBrowserScanner {
         if (children.isEmpty() && safeCurrent.isDirectory && !safeCurrent.canRead()) {
             diagnostics.add("Android protects this folder. Shared storage can be browsed, but private system/app folders may remain unavailable.")
         }
+        val atVolumeRoot = volumeRoots.any { it.absolutePath == safeCurrent.absolutePath }
         val currentEntries = children.sortedWith(compareBy<File> { !it.isDirectory }.thenBy {
             it.name.lowercase(Locale.getDefault())
         })
             .mapNotNull { child ->
                 val nameLower = child.name.lowercase(Locale.US)
-                if (child.name.startsWith(".") || child.name == "..") return@mapNotNull null
+                // Dot-prefixed entries were skipped wholesale, which hid documents parked in
+                // folders like .Documents or app caches. Only the navigation aliases are dropped.
+                if (child.name == "." || child.name == "..") return@mapNotNull null
                 if (!child.isDirectory) {
                     val isBinaryOrSystem = nameLower.endsWith(".bin") ||
                             nameLower.endsWith(".apk") ||
@@ -896,10 +993,15 @@ object VeritasFileBrowserScanner {
                     )
                 }
             }
-        if (safeCurrent.absolutePath == storageRoot.absolutePath) {
-            val documentEntries = collectSupportedDocumentFiles(
-                storageRoot = storageRoot,
-                current = storageRoot,
+        if (atVolumeRoot) {
+            // MediaStore first: it already indexes every volume with no depth limit, so it
+            // reaches things the walk below cannot, and does it in one query. The walk still
+            // runs afterwards to pick up anything the index misses (.nomedia folders, files
+            // written without notifying the media scanner).
+            val indexed = queryDeviceWideFiles(context, diagnostics)
+            val documentEntries = indexed + collectSupportedDocumentFiles(
+                storageRoot = safeCurrent,
+                current = safeCurrent,
                 diagnostics = diagnostics
             )
             return (documentEntries + currentEntries)
@@ -916,7 +1018,7 @@ object VeritasFileBrowserScanner {
         depth: Int = 0,
         results: MutableList<VeritasBrowserFile> = mutableListOf()
     ): List<VeritasBrowserFile> {
-        if (depth > 6 || results.size >= 300 || shouldSkipRecursiveDirectory(
+        if (depth > MAX_SCAN_DEPTH || results.size >= MAX_SCAN_RESULTS || shouldSkipRecursiveDirectory(
                 current,
                 storageRoot
             )
@@ -926,12 +1028,12 @@ object VeritasFileBrowserScanner {
             emptyList()
         }
         children.forEach { child ->
-            if (results.size >= 300) return@forEach
+            if (results.size >= MAX_SCAN_RESULTS) return@forEach
             if (child.isDirectory) {
                 collectSupportedDocumentFiles(storageRoot, child, diagnostics, depth + 1, results)
             } else {
                 val type = fileTypeFor(child.name, "")
-                if (type != null && type != VeritasBrowserTab.OCR) {
+                if (type != null) {
                     val relativePath =
                         child.relativeToOrSelf(storageRoot).path.replace(File.separatorChar, '/')
                     results.add(
@@ -957,10 +1059,12 @@ object VeritasFileBrowserScanner {
         val relative = folder.relativeToOrSelf(storageRoot).path.replace(File.separatorChar, '/')
             .lowercase(Locale.getDefault())
         if (relative.isBlank() || relative == ".") return false
+        // android/data and android/obb are unreadable on Android 11+ whatever permission we
+        // hold, so descending them only wastes time. Everything else — including hidden
+        // folders and Android/media, where messaging apps keep received documents — is fair game.
         return relative.startsWith("android/data") ||
                 relative.startsWith("android/obb") ||
-                relative.contains("/cache") ||
-                folder.name.startsWith(".")
+                relative.contains("/cache")
     }
 
     private fun listSafDirectory(
@@ -1066,21 +1170,29 @@ object VeritasFileBrowserScanner {
     private fun fileTypeFor(name: String, mimeType: String): VeritasBrowserTab? {
         val lowerName = name.lowercase(Locale.getDefault())
         val lowerMime = mimeType.lowercase(Locale.getDefault())
+        fun named(vararg suffixes: String) = suffixes.any { lowerName.endsWith(it) }
         return when {
-            lowerMime.contains("pdf") || lowerName.endsWith(".pdf") -> VeritasBrowserTab.PDF
-            lowerMime.contains("wordprocessingml") || lowerName.endsWith(".docx") -> VeritasBrowserTab.DOC
-            lowerMime.contains("presentationml") || lowerName.endsWith(".pptx") -> VeritasBrowserTab.SLIDES
-            lowerMime.contains("epub") || lowerName.endsWith(".epub") -> VeritasBrowserTab.BOOKS
-            lowerMime.contains("html") || lowerName.endsWith(".html") || lowerName.endsWith(".htm") -> VeritasBrowserTab.HTML
-            lowerMime.startsWith("text/") || lowerName.endsWith(".txt") || lowerName.endsWith(".md") || lowerName.endsWith(
-                ".csv"
-            ) -> VeritasBrowserTab.TXT
+            lowerMime.contains("pdf") || named(".pdf") -> VeritasBrowserTab.PDF
+            // .docm is the macro-enabled variant of the same OOXML package the parser reads.
+            lowerMime.contains("wordprocessingml") || named(".docx", ".docm") -> VeritasBrowserTab.DOC
+            // .ppt shipped a parser in 2.1.0 (PptLegacyExtractor) but was never listed here,
+            // so the browser hid every legacy deck on the device.
+            lowerMime.contains("presentationml") ||
+                lowerMime.contains("ms-powerpoint") ||
+                named(".pptx", ".pptm", ".ppt") -> VeritasBrowserTab.SLIDES
+            lowerMime.contains("epub") || named(".epub") -> VeritasBrowserTab.BOOKS
+            lowerMime.contains("html") || named(".html", ".htm", ".xhtml") -> VeritasBrowserTab.HTML
+            // Anything the plain-text fallback can read. Phones are full of .log and .json
+            // that were previously greyed out for no reason.
+            lowerMime.startsWith("text/") ||
+                named(".txt", ".text", ".md", ".markdown", ".csv", ".tsv", ".log",
+                      ".json", ".xml", ".yml", ".yaml", ".rst", ".srt", ".vtt") -> VeritasBrowserTab.TXT
 
-            lowerMime.startsWith("image/") || lowerName.endsWith(".png") || lowerName.endsWith(".jpg") || lowerName.endsWith(
-                ".jpeg"
-            ) || lowerName.endsWith(".webp") || lowerName.endsWith(".bmp") || lowerName.endsWith(".tif") || lowerName.endsWith(
-                ".tiff"
-            ) -> VeritasBrowserTab.OCR
+            // HEIC/HEIF is the default camera format on modern Samsung and iPhone handsets;
+            // omitting it hid most of the photos on the device from OCR import.
+            lowerMime.startsWith("image/") ||
+                named(".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff",
+                      ".heic", ".heif", ".avif", ".gif") -> VeritasBrowserTab.OCR
 
             else -> null
         }
@@ -1092,12 +1204,27 @@ object VeritasFileBrowserScanner {
             lowerName.endsWith(".pdf") -> "application/pdf"
             lowerName.endsWith(".docx") -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             lowerName.endsWith(".pptx") -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            lowerName.endsWith(".pptm") -> "application/vnd.ms-powerpoint.presentation.macroEnabled.12"
+            lowerName.endsWith(".ppt") -> "application/vnd.ms-powerpoint"
+            lowerName.endsWith(".docm") -> "application/vnd.ms-word.document.macroEnabled.12"
             lowerName.endsWith(".epub") -> "application/epub+zip"
+            lowerName.endsWith(".xhtml") -> "application/xhtml+xml"
             lowerName.endsWith(".html") || lowerName.endsWith(".htm") -> "text/html"
-            lowerName.endsWith(".txt") || lowerName.endsWith(".md") || lowerName.endsWith(".csv") -> "text/plain"
+            lowerName.endsWith(".txt") || lowerName.endsWith(".text") || lowerName.endsWith(".md") ||
+                lowerName.endsWith(".markdown") || lowerName.endsWith(".csv") || lowerName.endsWith(".tsv") ||
+                lowerName.endsWith(".log") || lowerName.endsWith(".json") || lowerName.endsWith(".xml") ||
+                lowerName.endsWith(".yml") || lowerName.endsWith(".yaml") || lowerName.endsWith(".rst") ||
+                lowerName.endsWith(".srt") || lowerName.endsWith(".vtt") -> "text/plain"
             lowerName.endsWith(".png") -> "image/png"
             lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") -> "image/jpeg"
             lowerName.endsWith(".webp") -> "image/webp"
+            // Reported as octet-stream before, which the OCR import path skipped as non-image.
+            lowerName.endsWith(".heic") -> "image/heic"
+            lowerName.endsWith(".heif") -> "image/heif"
+            lowerName.endsWith(".avif") -> "image/avif"
+            lowerName.endsWith(".gif") -> "image/gif"
+            lowerName.endsWith(".bmp") -> "image/bmp"
+            lowerName.endsWith(".tif") || lowerName.endsWith(".tiff") -> "image/tiff"
             else -> "application/octet-stream"
         }
     }
@@ -1131,6 +1258,11 @@ object VeritasFileBrowserScanner {
     }
 }
 
+/** Walk stops at ten levels. Android/media/<app>/<app>/Media/<folder>/Sent is seven, so
+ *  messaging-app documents are comfortably inside it. */
+private const val MAX_SCAN_DEPTH = 10
+private const val MAX_SCAN_RESULTS = 2000
+
 internal fun readableImportMimeTypes(): Array<String> = arrayOf(
     "text/plain",
     "text/*",
@@ -1138,7 +1270,13 @@ internal fun readableImportMimeTypes(): Array<String> = arrayOf(
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    // Legacy decks: PptLegacyExtractor reads these, but without the type here the system
+    // picker greyed every .ppt out.
+    "application/vnd.ms-powerpoint",
+    "application/vnd.ms-powerpoint.presentation.macroEnabled.12",
+    "application/vnd.ms-word.document.macroEnabled.12",
     "application/epub+zip",
+    "application/xhtml+xml",
     "application/octet-stream",
     "image/*"
 )
@@ -1527,15 +1665,26 @@ internal fun VeritasReaderApp(
                     uiState.documents.firstOrNull { it.id == activeId }
                 }
                 if (uiState.showCanvasView && activeMetadata != null) {
+                    // Same cache key ReaderScreen uses, so both views read one parse of the
+                    // document rather than each deriving pages their own way.
+                    val readerModel = remember(
+                        activeDocument.rawText,
+                        activeDocument.pageCount,
+                        activeDocument.chunks.size
+                    ) {
+                        ReaderTextModelCache.get(
+                            activeDocument.id,
+                            activeDocument.rawText,
+                            activeDocument.pageCount
+                        )
+                    }
+                    val activeSentence = readerModel.sentences
+                        .getOrNull(PlaybackStateStore.currentIndex)
                     ActualDocumentView(
                         document = activeMetadata,
                         repository = documentRepository,
-                        readingProgress = if (activeDocument.chunks.size <= 1) {
-                            0f
-                        } else {
-                            PlaybackStateStore.currentIndex.toFloat() / activeDocument.chunks.lastIndex.toFloat()
-                                .coerceAtLeast(1f)
-                        },
+                        activeSentencePage = activeSentence?.pageNumber ?: 0,
+                        activeSentenceText = activeSentence?.text.orEmpty(),
                         isPlaying = PlaybackStateStore.isPlaying,
                         statusMessage = PlaybackStateStore.statusMessage,
                         queueCount = PlaybackStateStore.queueCount,
@@ -1559,18 +1708,21 @@ internal fun VeritasReaderApp(
                                 false
                             )
                         },
-                        onPageChanged = { pageIndex, pageCount ->
+                        onPageChanged = { pageIndex, _ ->
                             // Eyes don't move the voice: while TTS is playing, browsing pages
                             // in Original view must never jump playback (moveTo notifies the
                             // service mid-utterance and it re-reads from the viewed page).
                             if (!PlaybackStateStore.isPlaying) {
-                                val lastSentenceIndex = activeDocument.chunks.lastIndex.coerceAtLeast(0)
-                                val pageDenominator = (pageCount - 1).coerceAtLeast(1)
-                                val targetIndex =
-                                    ((pageIndex.toFloat() / pageDenominator.toFloat()) * lastSentenceIndex)
-                                        .roundToInt()
-                                        .coerceIn(0, lastSentenceIndex)
-                                viewModel.moveTo(targetIndex, autoPlay = false)
+                                // Interpolating page position onto sentence position assumed an
+                                // even spread and landed pages away on real documents. Ask the
+                                // model which sentence actually starts this page; pages with no
+                                // sentences of their own leave playback where it is.
+                                val targetPageNumber = pageIndex + 1
+                                val targetIndex = readerModel.sentences
+                                    .indexOfFirst { it.pageNumber == targetPageNumber }
+                                if (targetIndex >= 0) {
+                                    viewModel.moveTo(targetIndex, autoPlay = false)
+                                }
                             }
                         },
                         onOpenExternal = {
@@ -1613,36 +1765,27 @@ internal fun VeritasReaderApp(
                                 )
                             )
                         },
-                        onReadFromSentence = { selectedText ->
+                        onReadFromSentence = { selectedText, selectionPage ->
                             val cleanText = selectedText.trim()
                             if (cleanText.isNotBlank()) {
-                                fun normalize(s: String) = s.lowercase().replace(Regex("[^a-z0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
-                                val normQuery = normalize(cleanText)
-                                val queryWords = normQuery.split(' ').filter { it.length >= 3 }
-
-                                var bestIndex = -1
-                                var bestScore = 0
-
-                                activeDocument.chunks.forEachIndexed { index, chunk ->
-                                    val normChunk = normalize(chunk)
-                                    if (normChunk.contains(normQuery) || (normQuery.length >= 12 && normChunk.contains(normQuery.take(30)))) {
-                                        bestIndex = index
-                                        bestScore = 10000
-                                        return@forEachIndexed
-                                    }
-                                    if (queryWords.isNotEmpty()) {
-                                        val matchedWords = queryWords.count { normChunk.contains(it) }
-                                        if (matchedWords > bestScore && matchedWords >= maxOf(1, queryWords.size / 2)) {
-                                            bestScore = matchedWords
-                                            bestIndex = index
-                                        }
-                                    }
-                                }
-
-                                if (bestIndex >= 0) {
-                                    viewModel.moveTo(bestIndex, autoPlay = true, forcePlaybackStart = true)
-                                } else {
-                                    viewModel.moveTo(0, autoPlay = true, forcePlaybackStart = true)
+                                // This used to score every chunk in the document by word overlap
+                                // with no notion of which page the tap came from, so a phrase that
+                                // recurs anywhere earlier won, and a miss fell back to sentence 0 —
+                                // "continue from here" would start the book over. PdfSelectionLocator
+                                // searches the tapped page first, widens to its neighbours, and only
+                                // then considers the whole document.
+                                val match = PdfSelectionLocator.findMatch(
+                                    selectedText = cleanText,
+                                    model = readerModel,
+                                    currentPage = selectionPage,
+                                    preferredSentenceIndex = PlaybackStateStore.currentIndex
+                                )
+                                val targetIndex = match?.chunkIndex
+                                    ?: readerModel.sentences
+                                        .indexOfFirst { it.pageNumber == selectionPage }
+                                        .takeIf { it >= 0 }
+                                if (targetIndex != null) {
+                                    viewModel.moveTo(targetIndex, autoPlay = true, forcePlaybackStart = true)
                                 }
                             }
                         },
@@ -2633,7 +2776,8 @@ internal fun VeritasReaderApp(
                 },
                 onImportMultipleFiles = { files, queue ->
                     viewModel.importMultipleDocuments(files.map { it.uri }, queue)
-                }
+                },
+                onDeleteFiles = { files -> viewModel.deleteBrowserFiles(files) }
             )
         }
 

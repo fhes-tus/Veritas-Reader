@@ -158,6 +158,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -221,6 +222,7 @@ import com.veritas.reader.capWords
 import com.veritas.reader.installedPackageForOption
 import com.veritas.reader.openPlayStoreForPackage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.veritas.reader.ui.OnboardingController
 import com.veritas.reader.ui.rememberSliderHaptics
@@ -461,12 +463,30 @@ fun ReaderScreen(
             .coerceIn(0, (pageItems.size - 1).coerceAtLeast(0))
     ) { pageItems.size.coerceAtLeast(1) }
 
+    // The swipe listener below is keyed on pagerState alone, whose identity never changes,
+    // so it launches once and keeps whatever it captured on that first pass forever. Reading
+    // playback state through these instead means it always sees the live values rather than
+    // the ones from when the reader opened.
+    val latestIsPlaying = rememberUpdatedState(isPlaying)
+    val latestCurrentIndex = rememberUpdatedState(currentIndex)
+    val latestPageItems = rememberUpdatedState(pageItems)
+    val latestSentences = rememberUpdatedState(readerModel.sentences)
+
     // Page sync: whether playing TTS or user jumps to a section/sentence via outline/bookmarks/slider
-    LaunchedEffect(currentPageNumber) {
+    LaunchedEffect(currentPageNumber, pageItems.size) {
         val targetPage = (pageItems.indexOfFirst { it.pageNumber == currentPageNumber }.takeIf { it >= 0 } ?: (currentPageNumber - 1))
             .coerceIn(0, (pageItems.size - 1).coerceAtLeast(0))
-        if (pagerState.currentPage != targetPage && !pagerState.isScrollInProgress) {
-            if (isPlaying) {
+        // A sync landing mid-scroll used to be dropped outright, and because this effect only
+        // re-runs when the page number changes it never caught up — narration would carry on
+        // reading a page the pager was no longer showing. Wait the scroll out instead: at 380ms
+        // per page animation, consecutive short sentences cross boundaries faster than the
+        // previous flip settles.
+        if (pagerState.isScrollInProgress) {
+            androidx.compose.runtime.snapshotFlow { pagerState.isScrollInProgress }
+                .first { !it }
+        }
+        if (pagerState.currentPage != targetPage) {
+            if (latestIsPlaying.value) {
                 pagerState.animateScrollToPage(
                     page = targetPage,
                     animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)
@@ -482,9 +502,16 @@ fun ReaderScreen(
         androidx.compose.runtime.snapshotFlow { pagerState.settledPage }
             .collect { pageIdx ->
                 if (!pagerState.isScrollInProgress) {
-                    val targetPageItem = pageItems.getOrNull(pageIdx)
-                    if (targetPageItem != null && !isPlaying) {
-                        val currentSentencePage = readerModel.sentences.getOrNull(currentIndex)?.pageNumber ?: 1
+                    val targetPageItem = latestPageItems.value.getOrNull(pageIdx)
+                    // Pages with no sentences of their own (image-only or genuinely blank) still
+                    // get a pager entry so they stay swipeable, but their sentence range is
+                    // zero-width and holds the *next* page's first index. Moving the reader there
+                    // would land it on a different page, and the sync effect above would then
+                    // immediately flip away from the blank page the user just swiped to.
+                    val hasOwnSentences = targetPageItem != null && targetPageItem.sentenceRanges.isNotEmpty()
+                    if (targetPageItem != null && hasOwnSentences && !latestIsPlaying.value) {
+                        val currentSentencePage =
+                            latestSentences.value.getOrNull(latestCurrentIndex.value)?.pageNumber ?: 1
                         if (currentSentencePage != targetPageItem.pageNumber) {
                             onSentenceClick(targetPageItem.sentenceStartIndex)
                         }

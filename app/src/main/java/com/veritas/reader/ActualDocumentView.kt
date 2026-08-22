@@ -126,7 +126,10 @@ import com.veritas.reader.ui.screens.monitorReadingActivity
 internal fun ActualDocumentView(
     document: SavedDocument,
     repository: DocumentRepository,
-    readingProgress: Float,
+    /** 1-based page the active sentence sits on; 0 when it is not known yet. */
+    activeSentencePage: Int,
+    /** Text of the sentence being spoken, used to highlight the matching line. */
+    activeSentenceText: String,
     isPlaying: Boolean,
     statusMessage: String,
     queueCount: Int,
@@ -147,14 +150,19 @@ internal fun ActualDocumentView(
     voices: List<TtsVoiceOption>,
     voiceSettings: VoiceSettings,
     onVoiceSelected: (TtsVoiceOption) -> Unit,
-    onReadFromSentence: ((String) -> Unit)? = null,
+    /** Selected text plus the 1-based page it was selected on, so the match can be scoped. */
+    onReadFromSentence: ((String, Int) -> Unit)? = null,
     onClose: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val original = repository.originalUri(document)
-    var pageIndex by remember(document.id) { mutableIntStateOf(0) }
+    // Opening Original view used to discard where the reader actually was and start at
+    // page 1. Seed from the active sentence's own page instead.
+    var pageIndex by remember(document.id) {
+        mutableIntStateOf((activeSentencePage - 1).coerceAtLeast(0))
+    }
     var pageCount by remember(document.id) { mutableIntStateOf(1) }
     var bitmap by remember(document.id) { mutableStateOf<Bitmap?>(null) }
     var message by remember(document.id) { mutableStateOf<String?>(null) }
@@ -172,6 +180,31 @@ internal fun ActualDocumentView(
     var jumpPageInput by remember { mutableStateOf("") }
     var interactionTrigger by remember { mutableStateOf(0L) }
     KeepScreenAwake(enabled = true, interactionTrigger = interactionTrigger)
+
+    // Bars retire on their own after a quiet spell so the page owns the screen while reading.
+    // Keyed on interactionTrigger, which monitorReadingActivity bumps on any touch, so each
+    // touch restarts this countdown rather than stacking another one behind it. Tapping the
+    // page brings them back. Held open while a menu, dialog or text selection is up: those are
+    // all driven from the bars, and collapsing underneath them would strand the user again.
+    LaunchedEffect(
+        interactionTrigger,
+        topBarVisible,
+        bottomBarVisible,
+        showMenu,
+        showJumpToPageDialog,
+        showDocInfoDialog,
+        selectedCanvasText
+    ) {
+        val overlayOpen = showMenu ||
+            showJumpToPageDialog ||
+            showDocInfoDialog ||
+            selectedCanvasText != null
+        if ((topBarVisible || bottomBarVisible) && !overlayOpen) {
+            kotlinx.coroutines.delay(BARS_AUTO_HIDE_MS)
+            topBarVisible = false
+            bottomBarVisible = false
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -270,14 +303,101 @@ internal fun ActualDocumentView(
     var epubBook by remember { mutableStateOf<EpubBook?>(null) }
     var docxDoc by remember { mutableStateOf<DocxDocument?>(null) }
 
-    LaunchedEffect(original?.toString(), pageIndex) {
-        bitmap = null
+    // Parsing belongs to the document, not the page. This all used to live in the page-keyed
+    // effect below, so every swipe re-read the whole file from disk and re-parsed the entire
+    // deck, book or document. For slides it rebuilt the embedded images too, which is exactly
+    // why they blinked away and back on each turn.
+    LaunchedEffect(original?.toString()) {
         message = null
         if (original == null) {
             message = "No stored original is available for this reading. Re-import the file to enable Original View."
             return@LaunchedEffect
         }
+        if (isPresentation) {
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
+                        ?: throw IllegalStateException("Could not read presentation file")
+                    if (PptLegacyExtractor.isPptFile(bytes)) {
+                        val body = PptLegacyExtractor.extract(bytes)
+                        val lines = body.text.lines()
+                        val slides = mutableListOf<PptxSlideContent>()
+                        var currentSlideNum = 1
+                        var currentLines = mutableListOf<String>()
+                        for (line in lines) {
+                            if (line.startsWith("[[VERITAS_PAGE:")) {
+                                if (currentLines.isNotEmpty()) {
+                                    val title = currentLines.firstOrNull().orEmpty()
+                                    val content = currentLines.drop(1)
+                                    slides.add(PptxSlideContent(currentSlideNum, listOf(title), content, emptyList(), emptyList()))
+                                    currentSlideNum++
+                                    currentLines = mutableListOf()
+                                }
+                            } else if (line.isNotBlank()) {
+                                currentLines.add(line)
+                            }
+                        }
+                        if (currentLines.isNotEmpty()) {
+                            val title = currentLines.firstOrNull().orEmpty()
+                            val content = currentLines.drop(1)
+                            slides.add(PptxSlideContent(currentSlideNum, listOf(title), content, emptyList(), emptyList()))
+                        }
+                        val finalSlides = if (slides.isNotEmpty()) slides else listOf(PptxSlideContent(1, listOf(document.title), lines.filter { it.isNotBlank() }, emptyList(), emptyList()))
+                        PptxDeck(slides = finalSlides, slideCount = finalSlides.size)
+                    } else {
+                        PptxExtractor.parseDeck(bytes, includeSpeakerNotes = true)
+                    }
+                }
+            }
+            loaded.onSuccess { deck ->
+                pptxDeck = deck
+                pageCount = deck.slideCount.coerceAtLeast(1)
+                if (pageIndex > pageCount - 1) pageIndex = pageCount - 1
+            }.onFailure { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                message = "Could not load presentation slides: ${e.message ?: "unknown error"}"
+            }
+        } else if (isEpub) {
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
+                        ?: throw IllegalStateException("Could not read EPUB file")
+                    EpubDocumentParser.parse(bytes, document.title)
+                }
+            }
+            loaded.onSuccess { book ->
+                epubBook = book
+                pageCount = book.totalChapters.coerceAtLeast(1)
+                if (pageIndex > pageCount - 1) pageIndex = pageCount - 1
+            }.onFailure { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                message = "Could not parse EPUB book: ${e.message ?: "unknown error"}"
+            }
+        } else if (isDocx) {
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
+                        ?: throw IllegalStateException("Could not read DOCX file")
+                    DocxDocumentParser.parse(bytes, document.title)
+                }
+            }
+            loaded.onSuccess { doc ->
+                docxDoc = doc
+                pageCount = doc.totalPages.coerceAtLeast(1)
+                if (pageIndex > pageCount - 1) pageIndex = pageCount - 1
+            }.onFailure { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                message = "Could not parse Word document: ${e.message ?: "unknown error"}"
+            }
+        } else if (!isPdf && !isImage) {
+            message = "This file type is preserved as an original document, but Veritas cannot render it in-app yet. Use Open original from the menu."
+        }
+    }
 
+    // Page-scoped work only: the rendered PDF page or the decoded image.
+    LaunchedEffect(original?.toString(), pageIndex) {
+        if (original == null) return@LaunchedEffect
+        if (isPdf || isImage) bitmap = null
         if (isPdf) {
             val rendered = withContext(Dispatchers.IO) {
                 runCatching {
@@ -322,98 +442,36 @@ internal fun ActualDocumentView(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 message = "Could not open this image: ${e.message ?: "unknown error"}"
             }
-        } else if (isPresentation) {
-            val loaded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("Could not read presentation file")
-                    if (PptLegacyExtractor.isPptFile(bytes)) {
-                        val body = PptLegacyExtractor.extract(bytes)
-                        val lines = body.text.lines()
-                        val slides = mutableListOf<PptxSlideContent>()
-                        var currentSlideNum = 1
-                        var currentLines = mutableListOf<String>()
-                        for (line in lines) {
-                            if (line.startsWith("[[VERITAS_PAGE:")) {
-                                if (currentLines.isNotEmpty()) {
-                                    val title = currentLines.firstOrNull().orEmpty()
-                                    val content = currentLines.drop(1)
-                                    slides.add(PptxSlideContent(currentSlideNum, listOf(title), content, emptyList(), emptyList()))
-                                    currentSlideNum++
-                                    currentLines = mutableListOf()
-                                }
-                            } else if (line.isNotBlank()) {
-                                currentLines.add(line)
-                            }
-                        }
-                        if (currentLines.isNotEmpty()) {
-                            val title = currentLines.firstOrNull().orEmpty()
-                            val content = currentLines.drop(1)
-                            slides.add(PptxSlideContent(currentSlideNum, listOf(title), content, emptyList(), emptyList()))
-                        }
-                        val finalSlides = if (slides.isNotEmpty()) slides else listOf(PptxSlideContent(1, listOf(document.title), lines.filter { it.isNotBlank() }, emptyList(), emptyList()))
-                        PptxDeck(slides = finalSlides, slideCount = finalSlides.size) to emptyList<Bitmap>()
-                    } else {
-                        val deck = PptxExtractor.parseDeck(bytes, includeSpeakerNotes = true)
-                        val currentSlide = deck.slides.getOrNull(pageIndex.coerceIn(0, (deck.slideCount - 1).coerceAtLeast(0)))
-                        val images = currentSlide?.let { slide ->
-                            PptxExtractor.extractSlideImages(bytes, slide).mapNotNull { imgBytes ->
-                                BitmapFactory.decodeByteArray(imgBytes, 0, imgBytes.size)
-                            }
-                        }.orEmpty()
-                        deck to images
-                    }
-                }
-            }
-            loaded.onSuccess { (deck, images) ->
-                pptxDeck = deck
-                currentSlideImages = images
-                pageCount = deck.slideCount.coerceAtLeast(1)
-                if (pageIndex > pageCount - 1) pageIndex = pageCount - 1
-            }.onFailure { e ->
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                message = "Could not load presentation slides: ${e.message ?: "unknown error"}"
-            }
-        } else if (isEpub) {
-            val loaded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("Could not read EPUB file")
-                    EpubDocumentParser.parse(bytes, document.title)
-                }
-            }
-            loaded.onSuccess { book ->
-                epubBook = book
-                pageCount = book.totalChapters.coerceAtLeast(1)
-                if (pageIndex > pageCount - 1) pageIndex = pageCount - 1
-            }.onFailure { e ->
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                message = "Could not parse EPUB book: ${e.message ?: "unknown error"}"
-            }
-        } else if (isDocx) {
-            val loaded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("Could not read DOCX file")
-                    DocxDocumentParser.parse(bytes, document.title)
-                }
-            }
-            loaded.onSuccess { doc ->
-                docxDoc = doc
-                pageCount = doc.totalPages.coerceAtLeast(1)
-                if (pageIndex > pageCount - 1) pageIndex = pageCount - 1
-            }.onFailure { e ->
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                message = "Could not parse Word document: ${e.message ?: "unknown error"}"
-            }
-        } else {
-            message = "This file type is preserved as an original document, but Veritas cannot render it in-app yet. Use Open original from the menu."
         }
     }
 
-    LaunchedEffect(readingProgress, pageCount) {
-        if ((isPdf || isPresentation || isEpub || isDocx) && pageCount > 1) {
-            val syncedPage = (readingProgress.coerceIn(0f, 1f) * (pageCount - 1)).roundToInt().coerceIn(0, pageCount - 1)
+    // Slide images are page work and are re-read per slide rather than held for the whole
+    // deck, which would pin every bitmap in memory at once. Cleared first so the previous
+    // slide's pictures never sit underneath the new one while this loads.
+    LaunchedEffect(original?.toString(), pageIndex, pptxDeck) {
+        if (original == null || !isPresentation) return@LaunchedEffect
+        currentSlideImages = emptyList()
+        val deck = pptxDeck ?: return@LaunchedEffect
+        val slide = deck.slides.getOrNull(pageIndex.coerceIn(0, (deck.slideCount - 1).coerceAtLeast(0)))
+            ?: return@LaunchedEffect
+        val images = withContext(Dispatchers.IO) {
+            runCatching {
+                val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
+                    ?: return@runCatching emptyList<Bitmap>()
+                PptxExtractor.extractSlideImages(bytes, slide).mapNotNull { imgBytes ->
+                    BitmapFactory.decodeByteArray(imgBytes, 0, imgBytes.size)
+                }
+            }.getOrDefault(emptyList())
+        }
+        currentSlideImages = images
+    }
+
+    LaunchedEffect(activeSentencePage, pageCount) {
+        // Sentences are not spread evenly across pages, so scaling reading progress by page
+        // count drifted further the longer the document ran. The sentence carries its own
+        // page number; use it.
+        if ((isPdf || isPresentation || isEpub || isDocx) && pageCount > 1 && activeSentencePage > 0) {
+            val syncedPage = (activeSentencePage - 1).coerceIn(0, pageCount - 1)
             if (syncedPage != pageIndex) {
                 pageTurnDirection = if (syncedPage > pageIndex) 1 else -1
                 pageIndex = syncedPage
@@ -647,6 +705,15 @@ internal fun ActualDocumentView(
                                     } else if (dragTotalX > 40f) {
                                         selectPage(pageIndex - 1)
                                     }
+                                } else if (absX < 12f && absY < 12f) {
+                                    // Tapping the page is the only way back to the bars on this
+                                    // path. Full Screen Mode is toggled from the overflow menu,
+                                    // which lives in the top bar it hides, and landscape starts
+                                    // with both bars hidden — so without this the PDF view can
+                                    // be left with no reachable control at all. The slide, EPUB
+                                    // and DOCX canvases already have their own tap toggle.
+                                    topBarVisible = !topBarVisible
+                                    bottomBarVisible = !bottomBarVisible
                                 }
                             }
                         }
@@ -681,7 +748,8 @@ internal fun ActualDocumentView(
                                 },
                                 onSelectText = { selectedCanvasText = it },
                                 isPlaying = isPlaying,
-                                readingProgress = readingProgress,
+                                activeSentencePage = activeSentencePage,
+                                activeSentenceText = activeSentenceText,
                                 paperToneMode = paperToneMode,
                                 rotationDegrees = rotationDegrees,
                                 isLandscape = isLandscape,
@@ -712,7 +780,8 @@ internal fun ActualDocumentView(
                                 },
                                 onSelectText = { selectedCanvasText = it },
                                 isPlaying = isPlaying,
-                                readingProgress = readingProgress,
+                                activeSentencePage = activeSentencePage,
+                                activeSentenceText = activeSentenceText,
                                 paperToneMode = paperToneMode,
                                 rotationDegrees = rotationDegrees,
                                 isLandscape = isLandscape,
@@ -743,7 +812,8 @@ internal fun ActualDocumentView(
                                 },
                                 onSelectText = { selectedCanvasText = it },
                                 isPlaying = isPlaying,
-                                readingProgress = readingProgress,
+                                activeSentencePage = activeSentencePage,
+                                activeSentenceText = activeSentenceText,
                                 paperToneMode = paperToneMode,
                                 rotationDegrees = rotationDegrees,
                                 isLandscape = isLandscape,
@@ -972,7 +1042,10 @@ internal fun ActualDocumentView(
                                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                             }
                         }
-                        rotationDegrees = (rotationDegrees + 90) % 360
+                        // Only the window turns. Rotating the canvas as well double-counted:
+                        // the activity used to be destroyed on the orientation change, which
+                        // reset this back to 0 and hid the second rotation. Now that the view
+                        // survives the change, both applied and the page rendered sideways.
                         zoomScale = 1f
                         zoomOffset = Offset.Zero
                     },
@@ -1077,7 +1150,6 @@ internal fun ActualDocumentView(
                                 Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             },
                             onClick = {
-                                rotationDegrees = (rotationDegrees + 90) % 360
                                 val activity = context as? android.app.Activity
                                 activity?.let { act ->
                                     act.requestedOrientation = if (isLandscape) {
@@ -1415,7 +1487,7 @@ internal fun ActualDocumentView(
                             onClick = {
                                 val textToRead = selectedCanvasText.orEmpty()
                                 selectedCanvasText = null
-                                onReadFromSentence?.invoke(textToRead)
+                                onReadFromSentence?.invoke(textToRead, pageIndex + 1)
                             },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
@@ -1910,7 +1982,8 @@ private fun PresentationSlideCanvas(
     onToggleBars: () -> Unit,
     onSelectText: ((String) -> Unit)? = null,
     isPlaying: Boolean = false,
-    readingProgress: Float = 0f,
+    activeSentencePage: Int = 0,
+    activeSentenceText: String = "",
     paperToneMode: PaperToneMode = PaperToneMode.ACTIVE_THEME,
     rotationDegrees: Int = 0,
     isLandscape: Boolean = false,
@@ -2030,7 +2103,9 @@ private fun PresentationSlideCanvas(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     slide.contentLines.forEachIndexed { lineIdx, line ->
-                        val isHighlighted = isPlaying && (slide.number == (readingProgress * slideCount).toInt() + 1) && (lineIdx == 0 || slide.contentLines.size == 1)
+                        val isHighlighted = isPlaying &&
+                            slide.number == activeSentencePage &&
+                            ActiveSentenceMatcher.matches(line, activeSentenceText)
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2124,7 +2199,8 @@ private fun EpubBookCanvas(
     onToggleBars: () -> Unit,
     onSelectText: ((String) -> Unit)? = null,
     isPlaying: Boolean = false,
-    readingProgress: Float = 0f,
+    activeSentencePage: Int = 0,
+    activeSentenceText: String = "",
     paperToneMode: PaperToneMode = PaperToneMode.ACTIVE_THEME,
     rotationDegrees: Int = 0,
     isLandscape: Boolean = false,
@@ -2225,7 +2301,9 @@ private fun EpubBookCanvas(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     chapter.paragraphs.forEachIndexed { paraIdx, para ->
-                        val isHighlighted = isPlaying && (chapter.number == (readingProgress * chapterCount).toInt() + 1) && (paraIdx == 0)
+                        val isHighlighted = isPlaying &&
+                            chapter.number == activeSentencePage &&
+                            ActiveSentenceMatcher.matches(para, activeSentenceText)
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -2273,7 +2351,8 @@ private fun DocxDocumentCanvas(
     onToggleBars: () -> Unit,
     onSelectText: ((String) -> Unit)? = null,
     isPlaying: Boolean = false,
-    readingProgress: Float = 0f,
+    activeSentencePage: Int = 0,
+    activeSentenceText: String = "",
     paperToneMode: PaperToneMode = PaperToneMode.ACTIVE_THEME,
     rotationDegrees: Int = 0,
     isLandscape: Boolean = false,
@@ -2354,7 +2433,9 @@ private fun DocxDocumentCanvas(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     page.blocks.forEachIndexed { blockIdx, block ->
-                        val isHighlighted = isPlaying && (page.pageNumber == (readingProgress * pageCount).toInt() + 1) && (blockIdx == 0)
+                        val isHighlighted = isPlaying &&
+                            page.pageNumber == activeSentencePage &&
+                            ActiveSentenceMatcher.matches(docxBlockPlainText(block), activeSentenceText)
                         when (block) {
                             is DocxBlock.Heading -> {
                                 Row(
@@ -2518,3 +2599,58 @@ private fun CanvasControlButton(
 private const val MIN_CANVAS_ZOOM = 0.75f
 private const val MAX_CANVAS_ZOOM = 5.0f
 private const val CANVAS_ZOOM_STEP = 0.25f
+
+/**
+ * Decides whether a rendered line in the original-document view is the one currently being
+ * spoken. The two sides do not agree on granularity: the reader speaks sentences, while the
+ * canvases render slide bullets, EPUB paragraphs, and DOCX blocks, so a line can hold several
+ * sentences or a sentence can span several lines. Containment in either direction covers both,
+ * and the length floor stops a short line like "Introduction" from matching every sentence that
+ * happens to contain the word.
+ */
+internal object ActiveSentenceMatcher {
+    /** A sentence short enough to be a stray fragment is not worth matching a whole line on. */
+    private const val MIN_SENTENCE_LENGTH = 12
+
+    /**
+     * When the spoken sentence is the longer side, the rendered line is only a fragment of it,
+     * and a one- or two-word fragment matches far too much: a "Introduction" heading would
+     * light up for every sentence that happens to contain the word. Require the fragment to
+     * carry real content instead.
+     */
+    private const val MIN_FRAGMENT_WORDS = 4
+
+    fun normalize(value: String): String =
+        value.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+
+    fun matches(line: String, activeSentence: String): Boolean {
+        if (line.isBlank() || activeSentence.isBlank()) return false
+        val normalizedLine = normalize(line)
+        val normalizedSentence = normalize(activeSentence)
+        if (normalizedLine.isBlank() || normalizedSentence.isBlank()) return false
+        if (normalizedLine == normalizedSentence) return true
+
+        // The line holds several sentences and one of them is being spoken.
+        if (normalizedSentence.length >= MIN_SENTENCE_LENGTH &&
+            normalizedLine.contains(normalizedSentence)
+        ) return true
+
+        // The sentence wrapped across several rendered lines and this is one of them.
+        if (normalizedSentence.contains(normalizedLine) &&
+            normalizedLine.split(' ').count { it.isNotBlank() } >= MIN_FRAGMENT_WORDS
+        ) return true
+
+        return false
+    }
+}
+
+/** Flattens a DOCX block to the plain text the extractor would have spoken for it. */
+internal fun docxBlockPlainText(block: DocxBlock): String = when (block) {
+    is DocxBlock.Heading -> block.text
+    is DocxBlock.Paragraph -> block.text
+    is DocxBlock.Bullet -> block.text
+    is DocxBlock.Table -> block.rows.joinToString(" ") { row -> row.joinToString(" ") }
+}
+
+/** Quiet time before the reader's chrome collapses on its own. */
+private const val BARS_AUTO_HIDE_MS = 5_000L
