@@ -15,7 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -206,7 +207,7 @@ fun UserManualDialog(
                 chapters = listOf(
                     ManualChapter(
                         title = "Reader Screen & Page Swiping",
-                        icon = Icons.Outlined.Article,
+                        icon = Icons.AutoMirrored.Outlined.Article,
                         subtitle = "Reflowed layout and smooth page navigation",
                         content = "Open any book in Text Mode to view clean, reflowed paragraphs with fluid horizontal swipe transitions. Text matches your theme colors, font size and section spacing adjust dynamically, and tapping any sentence starts audio playback.",
                         ctaText = "Select Text Tip",
@@ -693,7 +694,7 @@ fun SectionCard(
                             color = MaterialTheme.colorScheme.primaryContainer,
                             shape = VeritasPackStyle.compactShape()
                         )
-                        .then(if (cardBorder != null) Modifier.border(cardBorder, VeritasPackStyle.compactShape()) else Modifier),
+                        .then(Modifier.border(cardBorder, VeritasPackStyle.compactShape())),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -890,7 +891,7 @@ fun ChapterCard(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Icon(
-                                imageVector = Icons.Default.ArrowForward,
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp)
                             )

@@ -19,11 +19,6 @@
 -dontwarn com.google.mlkit.**
 -dontwarn com.google.android.gms.internal.mlkit_**
 
-# 5. Room Persistence Rules
-# Required if you are using Room for document storage
--keep class * extends androidx.room.RoomDatabase
--dontwarn androidx.room.paging.**
-
 # 6. Keep specific model classes used in serialization/reflection
 # These are passed into WorkManager Data or used in UI state serialization
 -keep class com.veritas.reader.PdfImportOptions { *; }

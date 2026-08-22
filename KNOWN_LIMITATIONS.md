@@ -47,8 +47,11 @@ This document outlines the technical boundaries, platform constraints, and desig
 ---
 
 ## 🧪 Testing & Verification Status
-*   **Unit & Instrumentation Tests:** Basic unit test coverage (covering state transitions, formatting rules, and habit calculations) compiles successfully using:
+*   **Unit Tests:** 150 JVM unit tests pass on this release, run with:
     ```powershell
     .\gradlew.bat :app:testDebugUnitTest
     ```
-*   **Device-Level QA:** Manual device validation across targeted API levels is highly recommended prior to distribution to verify hardware text-to-speech synthesis quirks.
+*   **What That Covers:** The suite is deliberately pure-logic — document parsers (PDF, DOCX, EPUB, PPT/PPTX), text sanitization and rich-text formatting, OCR fuzzy matching, reading-habit and streak math, version comparison, sleep-timer state, widget progress, and the playback look-ahead window and slide cadence. These run without a device.
+*   **What It Does Not Cover:** There is no automated coverage of the Compose UI, `ReaderViewModel`, or `PlaybackService` beyond a single smoke instrumentation test that asserts the Library tab renders. Screen wiring, navigation, and service lifecycle are verified by hand.
+*   **Release vs. Debug Builds:** Debug builds skip R8 and resource shrinking, so they are not representative of what ships. Release APKs must be installed and exercised directly — an obfuscation or keep-rule gap will not appear in a debug run, and it will not appear at build time either.
+*   **Device-Level QA:** Manual device validation across targeted API levels is strongly recommended prior to distribution, including at least one low-RAM or 32-bit (`armeabi-v7a`) device. Native crashes inside the Sherpa-ONNX audio layer terminate the process below the JVM and are not captured by the in-app crash reporter.

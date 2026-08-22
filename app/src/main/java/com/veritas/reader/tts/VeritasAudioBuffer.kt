@@ -24,7 +24,26 @@ class VeritasAudioBuffer(
     private val synthesisMutex = Mutex()
 
     private var audioTrack: AudioTrack? = null
+
+    // Read by the playback wait loop on Dispatchers.IO and written by flush() on the
+    // service's main thread. Without @Volatile that read can be hoisted out of the loop
+    // and the stop never observed, leaving a cancelled sentence spinning to its timeout.
+    @Volatile
     private var isPlaying = false
+
+    // AudioTrack teardown races the writer. flush() and shutdown() arrive on the main
+    // thread (pause, stop, seek, voice change, onDestroy) while playSentencePcm may be
+    // parked inside a blocking write(). Releasing the track out from under that write is
+    // an IllegalStateException at best and a native abort at worst, and cancelling the
+    // coroutine cannot help: write() is a blocking call, not a suspension point.
+    //
+    // So teardown never releases a track a writer still holds. pause() + flush() are safe
+    // to call concurrently with write() and make it return promptly; the writer then does
+    // the release itself on its way out. trackLock is only held for this bookkeeping,
+    // never across a write, so the main thread cannot stall behind playback.
+    private val trackLock = Any()
+    private var writersInFlight = 0
+    private var releaseRequested = false
 
     // Only one look-ahead pass may be in flight. speakChunk calls prebufferAhead for
     // every sentence, which used to stack a fresh coroutine each time: four jobs were
@@ -46,10 +65,7 @@ class VeritasAudioBuffer(
     ) {
         prebufferJob?.cancel()
         prebufferJob = scope.launch {
-            // The current sentence may be resumed from a character offset, so it must be
-            // synthesized by playSentencePcm using that exact text. Only cache future text.
-            val startIndex = (currentIndex + 1).coerceAtMost(chunkCount)
-            val targetEnd = (startIndex + windowSize).coerceAtMost(chunkCount)
+            val (startIndex, targetEnd) = prebufferWindow(chunkCount, currentIndex, windowSize)
             // This is a sliding window. Seeking could otherwise leave PCM from every
             // abandoned position retained in memory for the rest of the service lifetime.
             pcmCache.keys.removeIf { it !in startIndex until targetEnd }
@@ -70,9 +86,7 @@ class VeritasAudioBuffer(
     fun playSentencePcm(index: Int, text: String, onComplete: (success: Boolean) -> Unit) {
         scope.launch(Dispatchers.IO) {
             isPlaying = true
-            val requestedAt = System.currentTimeMillis()
             var pcm = pcmCache[index]
-            val cacheHit = pcm != null
             if (pcm == null) {
                 // kotlinx Mutex is FIFO-fair, so the sentence being waited on would
                 // otherwise sit behind every look-ahead item already queued — measured
@@ -85,86 +99,59 @@ class VeritasAudioBuffer(
                 }
             }
 
-            if (pcm != null && pcm.isNotEmpty()) {
-                val sampleRate = engine.sampleRate
-                val minBufferSize = AudioTrack.getMinBufferSize(
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                )
+            if (pcm == null || pcm.isEmpty()) {
+                Log.w(TAG, "No audio generated for sentence $index")
+                withContext(Dispatchers.Main) { onComplete(false) }
+                return@launch
+            }
 
-                // The track is long-lived, but its sample rate is fixed at construction.
-                // Switching voice (Kokoro 24kHz <-> Piper 22.05kHz) without rebuilding
-                // it played every sample at the wrong rate — audible as a gritty,
-                // slightly-off-pitch rasp rather than an obvious failure.
-                if (audioTrack != null && trackSampleRate != sampleRate) {
-                    Log.i(TAG, "Sample rate changed $trackSampleRate -> $sampleRate; rebuilding AudioTrack")
-                    runCatching { audioTrack?.stop() }
-                    audioTrack?.release()
-                    audioTrack = null
-                }
+            val sampleRate = engine.sampleRate
+            val track = acquireTrack(sampleRate)
+            if (track == null) {
+                // shutdown() ran while this sentence was still being synthesized.
+                withContext(Dispatchers.Main) { onComplete(false) }
+                return@launch
+            }
 
-                if (audioTrack == null) {
-                    trackSampleRate = sampleRate
-                    audioTrack = AudioTrack.Builder()
-                        .setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                                .build()
-                        )
-                        .setAudioFormat(
-                            AudioFormat.Builder()
-                                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                                .setSampleRate(sampleRate)
-                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                                .build()
-                        )
-                        // Sized from the sample rate (about half a second) rather than
-                        // from the first sentence's length, which is arbitrary.
-                        .setBufferSizeInBytes(minBufferSize.coerceAtLeast(sampleRate))
-                        .setTransferMode(AudioTrack.MODE_STREAM)
-                        .build()
-                }
-
-                val track = audioTrack
-                if (track != null && track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+            val played = try {
+                if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
                     track.play()
                 }
                 // write() is blocking in MODE_STREAM: it returns once the data is
                 // queued, not once it has been heard. Sleeping for the clip's full
                 // duration on top of that added a gap at every sentence boundary, so
                 // wait on the head position actually reaching the end instead.
-                val startHead = track?.playbackHeadPosition ?: 0
-                track?.write(pcm, 0, pcm.size)
+                val startHead = track.playbackHeadPosition
+                track.write(pcm, 0, pcm.size)
                 pcmCache.remove(index)
 
-                if (track != null) {
-                    val target = startHead.toLong() + pcm.size
-                    val timeoutAt = System.currentTimeMillis() +
-                        (pcm.size.toDouble() / sampleRate * 1000).toLong() + 1_000L
-                    while (isPlaying &&
-                        track.playbackHeadPosition.toLong() < target &&
-                        System.currentTimeMillis() < timeoutAt
-                    ) {
-                        delay(15)
-                    }
+                val target = startHead.toLong() + pcm.size
+                val timeoutAt = System.currentTimeMillis() +
+                    (pcm.size.toDouble() / sampleRate * 1000).toLong() + 1_000L
+                while (isPlaying &&
+                    track.playbackHeadPosition.toLong() < target &&
+                    System.currentTimeMillis() < timeoutAt
+                ) {
+                    delay(15)
                 }
-                withContext(Dispatchers.Main) {
-                    onComplete(true)
-                }
-            } else {
-                Log.w(TAG, "No audio generated for sentence $index")
-                withContext(Dispatchers.Main) {
-                    onComplete(false)
-                }
+                true
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (t: Throwable) {
+                // The track can still die between acquire and write on paths this
+                // bookkeeping does not cover (engine death, audio focus loss).
+                Log.w(TAG, "Playback of sentence $index failed", t)
+                false
+            } finally {
+                releaseWriter()
             }
+
+            withContext(Dispatchers.Main) { onComplete(played) }
         }
     }
 
     private suspend fun synthesizeAndCache(index: Int, text: String): ShortArray? = synthesisMutex.withLock {
         pcmCache[index]?.let { return@withLock it }
-        val startedAt = System.currentTimeMillis()
         val pcm = engine.synthesize(text)?.takeIf { it.isNotEmpty() }
         if (pcm != null) {
             pcmCache[index] = pcm
@@ -175,24 +162,125 @@ class VeritasAudioBuffer(
     /** Sample rate the live [audioTrack] was built for; -1 when there is no track. */
     private var trackSampleRate: Int = -1
 
+    /**
+     * Hands out the shared track and registers the caller as a writer so teardown knows
+     * not to release underneath it. Returns null once [shutdown] has run.
+     */
+    private fun acquireTrack(sampleRate: Int): AudioTrack? = synchronized(trackLock) {
+        if (releaseRequested) return@synchronized null
+
+        // The track is long-lived, but its sample rate is fixed at construction.
+        // Switching voice (Kokoro 24kHz <-> Piper 22.05kHz) without rebuilding
+        // it played every sample at the wrong rate — audible as a gritty,
+        // slightly-off-pitch rasp rather than an obvious failure.
+        if (audioTrack != null && trackSampleRate != sampleRate && writersInFlight == 0) {
+            Log.i(TAG, "Sample rate changed $trackSampleRate -> $sampleRate; rebuilding AudioTrack")
+            disposeTrackLocked()
+        }
+
+        if (audioTrack == null) {
+            val minBufferSize = AudioTrack.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+            trackSampleRate = sampleRate
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                // Sized from the sample rate (about half a second) rather than
+                // from the first sentence's length, which is arbitrary.
+                .setBufferSizeInBytes(minBufferSize.coerceAtLeast(sampleRate))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        }
+
+        writersInFlight++
+        audioTrack
+    }
+
+    private fun releaseWriter() = synchronized(trackLock) {
+        writersInFlight--
+        if (releaseRequested && writersInFlight == 0) {
+            disposeTrackLocked()
+        }
+    }
+
+    private fun disposeTrackLocked() {
+        audioTrack?.let { track ->
+            runCatching { track.stop() }
+            runCatching { track.release() }
+        }
+        audioTrack = null
+        trackSampleRate = -1
+    }
+
+    /**
+     * Stops the current sentence and drops the look-ahead window, keeping the track alive
+     * for the next one. Safe to call while a sentence is mid-write.
+     */
     fun flush() {
+        stopPlayback(release = false)
+    }
+
+    /**
+     * Permanent teardown: releases the track once no writer is using it, then shuts the
+     * native engine down. The scope is cancelled here rather than only having its children
+     * cancelled — a rebuilt buffer (voice change) or a destroyed service otherwise leaves
+     * its SupervisorJob alive for the rest of the process.
+     */
+    fun shutdown() {
+        stopPlayback(release = true)
+        scope.cancel()
+        engine.shutdown()
+    }
+
+    private fun stopPlayback(release: Boolean) {
+        isPlaying = false
         prebufferJob?.cancel()
         prebufferJob = null
         scope.coroutineContext.cancelChildren()
         pcmCache.clear()
-        audioTrack?.stop()
-        audioTrack?.release()
-        audioTrack = null
-        trackSampleRate = -1
-        isPlaying = false
-    }
-
-    fun shutdown() {
-        flush()
-        engine.shutdown()
+        synchronized(trackLock) {
+            // pause() + flush() are the documented way to make a blocked write() return.
+            // They are safe on a track another thread is writing to; release() is not.
+            audioTrack?.let { track ->
+                runCatching { track.pause() }
+                runCatching { track.flush() }
+            }
+            if (release) {
+                releaseRequested = true
+            }
+            if (releaseRequested && writersInFlight == 0) {
+                disposeTrackLocked()
+            }
+        }
     }
 
     companion object {
         private const val TAG = "VeritasAudioBuffer"
+
+        /**
+         * Half-open range of sentence indices the look-ahead should hold. The current
+         * sentence is excluded: it may be resumed from a character offset, so only
+         * playSentencePcm knows the exact text to synthesize for it.
+         */
+        fun prebufferWindow(chunkCount: Int, currentIndex: Int, windowSize: Int): Pair<Int, Int> {
+            val safeCount = chunkCount.coerceAtLeast(0)
+            val start = (currentIndex + 1).coerceIn(0, safeCount)
+            val end = (start + windowSize.coerceAtLeast(0)).coerceAtMost(safeCount)
+            return start to end
+        }
     }
 }

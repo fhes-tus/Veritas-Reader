@@ -104,7 +104,6 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.media3:media3-session:1.10.1")
     implementation("androidx.pdf:pdf-viewer-fragment:1.0.0-alpha18")
-    implementation("androidx.room:room-ktx:2.8.4")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
     implementation("com.google.android.gms:play-services-mlkit-language-id:17.0.0")

@@ -896,16 +896,8 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun leadingSilenceMsFor(index: Int): Long {
-        val pages = chunkPageNumbers ?: return 0L
-        if (index !in 0 until pages.size) return 0L
-        val page = pages[index]
-        val firstOfSlide = index == 0 || pages[index - 1] != page
-        if (firstOfSlide) return SLIDE_TRANSITION_SILENCE_MS
-        val secondOfSlide = index == 1 || pages[index - 2] != page
-        if (secondOfSlide) return TITLE_BEAT_SILENCE_MS
-        return 0L
-    }
+    private fun leadingSilenceMsFor(index: Int): Long =
+        leadingSilenceMs(chunkPageNumbers, index)
 
     private fun speakSelectionText(rawText: String) {
         val text = repository.applyPronunciationRules(rawText.trim())
@@ -1747,5 +1739,21 @@ class PlaybackService : MediaSessionService() {
         private const val TITLE_BEAT_SILENCE_MS = 250L
         private const val RESUME_WORD_THRESHOLD = 8
         private const val RESUME_SKIP_CHARS = ".,;:!?)]}\"'»›—–-"
+
+        /**
+         * Silence to queue ahead of the chunk at [index], given the slide each chunk
+         * belongs to. Pure so the cadence can be checked without a running service:
+         * a full beat when the slide changes, a shorter one after the title line,
+         * nothing thereafter. A null [pages] means the document is not a deck.
+         */
+        fun leadingSilenceMs(pages: IntArray?, index: Int): Long {
+            if (pages == null || index !in pages.indices) return 0L
+            val page = pages[index]
+            val firstOfSlide = index == 0 || pages[index - 1] != page
+            if (firstOfSlide) return SLIDE_TRANSITION_SILENCE_MS
+            val secondOfSlide = index == 1 || pages[index - 2] != page
+            if (secondOfSlide) return TITLE_BEAT_SILENCE_MS
+            return 0L
+        }
     }
 }

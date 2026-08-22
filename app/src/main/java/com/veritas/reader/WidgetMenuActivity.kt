@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
+import androidx.compose.material.icons.automirrored.filled.ListAlt
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -82,7 +84,7 @@ fun WidgetMenuDialog(
                 )
 
                 WidgetMenuItem(
-                    icon = Icons.Filled.ListAlt,
+                    icon = Icons.AutoMirrored.Filled.ListAlt,
                     label = "List",
                     onClick = { onActionSelected(MainActivity.ACTION_NEW_CHECKLIST_NOTE) }
                 )
@@ -94,7 +96,7 @@ fun WidgetMenuDialog(
                 )
 
                 WidgetMenuItem(
-                    icon = Icons.Filled.MenuBook,
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
                     label = "Library",
                     onClick = { onActionSelected(MainActivity.ACTION_OPEN_LIBRARY) }
                 )

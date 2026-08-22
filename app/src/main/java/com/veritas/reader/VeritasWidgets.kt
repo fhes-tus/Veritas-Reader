@@ -25,7 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.SizeMode
 import androidx.compose.ui.graphics.Color
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 
@@ -325,9 +326,18 @@ class PlayerActionCallback : ActionCallback {
     }
 }
 
+/**
+ * Widget refreshes are fire-and-forget and outlive whatever triggered them — a receiver,
+ * a service callback, a screen leaving composition. They belong to the process, so they
+ * get a named process-lifetime scope rather than GlobalScope: a SupervisorJob keeps one
+ * failing widget from tearing down the others, and the scope is greppable when a refresh
+ * misbehaves.
+ */
+private val widgetRefreshScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
 fun updateVeritasWidgets(context: Context) {
     val appContext = context.applicationContext
-    GlobalScope.launch(Dispatchers.Main) {
+    widgetRefreshScope.launch {
         runCatching { VeritasPlayerWidget().updateAll(appContext) }
         runCatching { QuickNoteWidget().updateAll(appContext) }
         runCatching { PinnedNoteWidget().updateAll(appContext) }

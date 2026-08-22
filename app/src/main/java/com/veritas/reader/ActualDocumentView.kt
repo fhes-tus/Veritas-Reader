@@ -1250,7 +1250,7 @@ internal fun ActualDocumentView(
                                 }
                             },
                             leadingIcon = {
-                                Icon(Icons.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             },
                             enabled = original != null,
                             onClick = {

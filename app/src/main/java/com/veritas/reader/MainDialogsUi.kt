@@ -40,7 +40,7 @@ import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.ComponentActivity
@@ -1249,8 +1249,8 @@ internal fun getFileColorAndIcon(file: VeritasBrowserFile): Triple<ImageVector, 
         VeritasBrowserTab.DOC -> Icons.Outlined.Description
         VeritasBrowserTab.BOOKS -> Icons.Outlined.Book
         VeritasBrowserTab.HTML -> Icons.Outlined.Language
-        VeritasBrowserTab.TXT -> Icons.Outlined.Article
-        else -> Icons.Outlined.Article
+        VeritasBrowserTab.TXT -> Icons.AutoMirrored.Outlined.Article
+        else -> Icons.AutoMirrored.Outlined.Article
     }
     return Triple(icon, tint, bg)
 }

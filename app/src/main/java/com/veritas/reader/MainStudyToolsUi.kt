@@ -84,7 +84,7 @@ import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.ComponentActivity
@@ -554,7 +554,7 @@ internal fun TranslationToolsDialog(
                 TranslationModeCard(
                     title = "Translate full document",
                     description = "Extract and send all ${document.chunks.size} sentences formatted for translation.",
-                    icon = Icons.Outlined.Article,
+                    icon = Icons.AutoMirrored.Outlined.Article,
                     isSelected = selectedMode == TranslationLauncher.Mode.DOCUMENT,
                     onClick = {
                         selectedMode = TranslationLauncher.Mode.DOCUMENT
@@ -1298,7 +1298,7 @@ internal fun AiAppStudyDialog(
                                 TaskExpandableCard(
                                     title = "Section / Page-by-page summary",
                                     badge = "Targeted range summary with term definitions",
-                                    icon = Icons.Outlined.Article,
+                                    icon = Icons.AutoMirrored.Outlined.Article,
                                     taskKey = "long_doc",
                                     expandedTask = expandedTask.value,
                                     onToggleExpand = { expandedTask.value = it },

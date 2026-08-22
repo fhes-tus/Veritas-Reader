@@ -34,7 +34,7 @@ import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Slideshow
 import androidx.compose.foundation.BorderStroke
@@ -689,7 +689,7 @@ enum class VeritasBrowserTab(val label: String, val emoji: String) {
             DOC -> Icons.Outlined.Description
             SLIDES -> Icons.Outlined.Slideshow
             HTML -> Icons.Outlined.Language
-            TXT -> Icons.Outlined.Article
+            TXT -> Icons.AutoMirrored.Outlined.Article
             OCR -> Icons.Outlined.PhotoCamera
         }
 }
@@ -1523,7 +1523,7 @@ internal fun VeritasReaderApp(
                 }
             }
         } else {
-            val activeDocument = activeDoc ?: return@AnimatedContent
+            val activeDocument = activeDoc
                 val activeMetadata = activeDocument.id?.let { activeId ->
                     uiState.documents.firstOrNull { it.id == activeId }
                 }

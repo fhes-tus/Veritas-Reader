@@ -53,7 +53,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.draw.scale
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -90,7 +90,6 @@ import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Spellcheck
@@ -500,8 +499,10 @@ fun SettingsHubRow(row: SettingsRowSpec) {
                     shape = VeritasPackStyle.compactShape()
                 )
                 .then(
-                    VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
-                        ?.let { Modifier.border(it, VeritasPackStyle.compactShape()) } ?: Modifier
+                    Modifier.border(
+                        VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
+                        VeritasPackStyle.compactShape()
+                    )
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -1555,7 +1556,7 @@ fun AskAiSettingsDialog(
                             color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                             shape = VeritasPackStyle.compactShape()
                         )
-                        .then(if (cardBorder != null) Modifier.border(cardBorder, VeritasPackStyle.compactShape()) else Modifier),
+                        .then(Modifier.border(cardBorder, VeritasPackStyle.compactShape())),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -2746,7 +2747,7 @@ fun PronunciationRulesDialog(
                                 },
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Icon(Icons.Outlined.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.AutoMirrored.Outlined.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Play Audio", style = MaterialTheme.typography.labelSmall)
                             }
@@ -3079,7 +3080,7 @@ private fun AboutOptionRow(
                     color = MaterialTheme.colorScheme.primaryContainer,
                     shape = VeritasPackStyle.compactShape()
                 )
-                .then(if (cardBorder != null) Modifier.border(cardBorder, VeritasPackStyle.compactShape()) else Modifier),
+                .then(Modifier.border(cardBorder, VeritasPackStyle.compactShape())),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -3200,7 +3201,7 @@ fun AboutDialog(
                 val appVersionText = remember(context) {
                     try {
                         val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-                        val vName = pInfo.versionName ?: "2.1.0"
+                        val vName = pInfo.versionName ?: com.veritas.reader.BuildConfig.VERSION_NAME
                         val vCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                             pInfo.longVersionCode
                         } else {
@@ -3209,7 +3210,7 @@ fun AboutDialog(
                         }
                         "Version $vName (Build $vCode)"
                     } catch (_: Exception) {
-                        "Version 2.1.0"
+                        "Version ${com.veritas.reader.BuildConfig.VERSION_NAME}"
                     }
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
