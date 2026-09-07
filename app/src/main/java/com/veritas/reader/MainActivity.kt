@@ -174,6 +174,7 @@ import com.veritas.reader.ui.screens.SettingsHubDialog
 import com.veritas.reader.ui.screens.StorageDialog
 import com.veritas.reader.ui.screens.formatVeritasBytes
 import com.veritas.reader.ui.screens.UserManualDialog
+import com.veritas.reader.ui.screens.AboutDialog
 import com.veritas.reader.ui.screens.SleepTimerDialog
 import com.veritas.reader.ui.screens.UpdateAvailableDialog
 import com.veritas.reader.ui.screens.ReleaseNotesDialog
@@ -320,35 +321,6 @@ class MainActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
-    // Background TTS is the app's core promise, and Doze/aggressive OEM battery
-    // managers kill un-whitelisted background audio. One-time prompt, never nags.
-    private fun maybeShowBatteryOptimizationHint() {
-        val prefs = getSharedPreferences("veritas_reader_library", MODE_PRIVATE)
-        if (prefs.getBoolean("battery_hint_shown", false)) return
-        val powerManager = getSystemService(POWER_SERVICE) as android.os.PowerManager
-        if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
-        prefs.edit().putBoolean("battery_hint_shown", true).apply()
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Keep listening in the background")
-            .setMessage("Android's battery optimization can stop Veritas mid-sentence when the screen is off. Allow unrestricted battery use so playback keeps running.")
-            .setPositiveButton("Allow") { _, _ ->
-                runCatching {
-                    startActivity(
-                        Intent(
-                            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                            android.net.Uri.parse("package:$packageName")
-                        )
-                    )
-                }.onFailure {
-                    runCatching {
-                        startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    }
-                }
-            }
-            .setNegativeButton("Not now", null)
-            .show()
-    }
-
     private fun maybeShowTtsEngineHint() {
         val prefs = getSharedPreferences("veritas_reader_library", MODE_PRIVATE)
         if (prefs.getBoolean("tts_engine_hint_shown", false)) return
@@ -413,7 +385,6 @@ class MainActivity : ComponentActivity() {
         CrashReporter.install(this)
         CrashReporter.offerPendingReport(this)
         maybeShowTtsEngineHint()
-        maybeShowBatteryOptimizationHint()
         // Weekly data-only safety-net backup (worker checks the setting itself).
         AutoBackupWorker.schedule(this)
         // Evening streak-protection nudge (worker checks the setting itself).
@@ -1342,7 +1313,16 @@ internal fun VeritasReaderApp(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
     var showStorageTools by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
+    var showUnrestrictedBatteryDialog by remember { mutableStateOf(false) }
     var pendingShareChooser by remember { mutableStateOf<Pair<String, Uri?>?>(null) }
+
+    val batteryPrefs = remember { context.getSharedPreferences("veritas_reader_library", Context.MODE_PRIVATE) }
+    LaunchedEffect(Unit) {
+        if (!isBatteryOptimizationIgnored(context) && !batteryPrefs.getBoolean("battery_unrestricted_never_ask", false)) {
+            showUnrestrictedBatteryDialog = true
+        }
+    }
 
     fun openInNotes(text: String, uri: Uri?) {
         val noteId = java.util.UUID.randomUUID().toString()
@@ -1878,11 +1858,27 @@ internal fun VeritasReaderApp(
                         voices = uiState.ttsVoices,
                         voiceSettings = uiState.voiceSettings,
                         onVoiceSelected = { voice ->
+                            val detectedEngine = VoiceManager.engineForVoice(voice.name)
+                            val targetEngine = if (detectedEngine != null) {
+                                detectedEngine
+                            } else if (VoiceManager.isVeritasEngine(uiState.voiceSettings.enginePackage)) {
+                                ""
+                            } else {
+                                uiState.voiceSettings.enginePackage
+                            }
+                            val targetEngineLabel = when (targetEngine) {
+                                VoiceManager.VERITAS_LITE -> "Veritas Lite"
+                                VoiceManager.VERITAS_STUDIO -> "Veritas Studio"
+                                "" -> "System default"
+                                else -> uiState.voiceSettings.engineLabel
+                            }
                             viewModel.saveVoiceSettings(
                                 uiState.voiceSettings.copy(
                                     voiceName = voice.name,
-                                    voiceLabel = voice.name,
-                                    localeTag = voice.localeTag
+                                    voiceLabel = voice.label.ifBlank { voice.name },
+                                    localeTag = voice.localeTag,
+                                    enginePackage = targetEngine,
+                                    engineLabel = targetEngineLabel
                                 )
                             )
                         },
@@ -2124,11 +2120,27 @@ internal fun VeritasReaderApp(
                         },
                         onPlayQueue = { viewModel.playQueue() },
                         onVoiceSelected = { voice ->
+                            val detectedEngine = VoiceManager.engineForVoice(voice.name)
+                            val targetEngine = if (detectedEngine != null) {
+                                detectedEngine
+                            } else if (VoiceManager.isVeritasEngine(uiState.voiceSettings.enginePackage)) {
+                                ""
+                            } else {
+                                uiState.voiceSettings.enginePackage
+                            }
+                            val targetEngineLabel = when (targetEngine) {
+                                VoiceManager.VERITAS_LITE -> "Veritas Lite"
+                                VoiceManager.VERITAS_STUDIO -> "Veritas Studio"
+                                "" -> "System default"
+                                else -> uiState.voiceSettings.engineLabel
+                            }
                             viewModel.saveVoiceSettings(
                                 uiState.voiceSettings.copy(
                                     voiceName = voice.name,
-                                    voiceLabel = voice.name,
-                                    localeTag = voice.localeTag
+                                    voiceLabel = voice.label.ifBlank { voice.name },
+                                    localeTag = voice.localeTag,
+                                    enginePackage = targetEngine,
+                                    engineLabel = targetEngineLabel
                                 )
                             )
                         },
@@ -2241,6 +2253,82 @@ internal fun VeritasReaderApp(
         var userManualTipTitle by remember { mutableStateOf("") }
         var userManualTipText by remember { mutableStateOf<String?>(null) }
 
+        if (uiState.showUserManual) {
+            UserManualDialog(
+                onDismiss = { viewModel.updateState { it.copy(showUserManual = false) } },
+                onNavigateToSetting = { setting ->
+                    when (setting) {
+                        "settings_hub" -> viewModel.updateState { it.copy(showUserManual = false, showSettingsHub = true) }
+                        "reader_settings" -> viewModel.updateState { it.copy(showUserManual = false, showReaderSettings = true) }
+                        "voice_studio" -> viewModel.updateState { it.copy(showUserManual = false, showVoiceStudio = true) }
+                        "narration_studio" -> viewModel.updateState { it.copy(showUserManual = false, showNarrationStudio = true) }
+                        "pronunciation" -> viewModel.updateState { it.copy(showUserManual = false, showPronunciationRules = true) }
+                        "sleep_timer" -> viewModel.updateState { it.copy(showUserManual = false, showSleepTimerDialog = true) }
+                        "pdf_tools" -> viewModel.updateState { it.copy(showUserManual = false, showPdfImportTools = true) }
+                        "history" -> viewModel.updateState { it.copy(showUserManual = false, showReadingHistory = true) }
+                        "reading_lists" -> viewModel.updateState { it.copy(showUserManual = false, showReadingLists = true) }
+                        "sync_center" -> viewModel.updateState { it.copy(showUserManual = false, showSyncCenter = true) }
+                        "ai_center" -> viewModel.updateState { it.copy(showUserManual = false, showAiCenter = true) }
+                        "ask_ai" -> viewModel.updateState { it.copy(showUserManual = false, showAskAiSettings = true) }
+                        "file_browser" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            viewModel.openFileBrowser()
+                        }
+                        "backup_tools" -> viewModel.updateState { it.copy(showUserManual = false, showBackupTools = true) }
+                        "classics_catalog" -> viewModel.updateState { it.copy(showUserManual = false, showClassicsCatalog = true) }
+                        "storage_manager" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            showStorageTools = true
+                        }
+                        "about" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            showAboutDialog = true
+                        }
+                        "study_general", "study_flashcards" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            viewModel.navigateToHomeTab(VeritasHomeTab.STUDY)
+                        }
+                        "notes_tab" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            viewModel.navigateToHomeTab(VeritasHomeTab.NOTES)
+                        }
+                        "library" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            viewModel.navigateToHomeTab(VeritasHomeTab.LIBRARY)
+                        }
+                        "library_options" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            viewModel.navigateToHomeTab(VeritasHomeTab.LIBRARY)
+                            userManualTipTitle = "Document Actions"
+                            userManualTipText = "Tap the three-dot overflow button on any book card in your library to edit metadata, rename files, assign categories, add to custom lists, reset progress, or delete files from storage."
+                        }
+                        "bulk_edit" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            viewModel.navigateToHomeTab(VeritasHomeTab.LIBRARY)
+                            userManualTipTitle = "Batch Organization"
+                            userManualTipText = "Long-press any document card in your Library to enter multi-select mode. You can then tap other cards to select them and perform bulk actions like category assignment or batch deletion from the top toolbar."
+                        }
+                        "file_browser_filters" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            viewModel.openFileBrowser()
+                            userManualTipTitle = "Browser Sorting & Filters"
+                            userManualTipText = "Tap the options menu (three dots) at the top-right of the integrated File Browser to change sorting (name, date, size), filter by file type, or toggle hidden files and folders."
+                        }
+                        "text_selection" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            userManualTipTitle = "Interactive Text Selection"
+                            userManualTipText = "Double-tap or long-press on any word or sentence in the reader screen to highlight it. Use the selection handles to expand the text range, and access options like copying, notes, dictionary definitions, and TTS narration controls."
+                        }
+                        "reader_tools" -> {
+                            viewModel.updateState { it.copy(showUserManual = false) }
+                            userManualTipTitle = "Reader Tools Menu"
+                            userManualTipText = "Tap the top-right tool menu button (three dots) inside the Reader Screen to access bookmarks, text search inside the book, theme settings, and notes export actions."
+                        }
+                    }
+                }
+            )
+        }
+
         if (userManualTipText != null) {
             AlertDialog(
                 onDismissRequest = { userManualTipText = null },
@@ -2268,49 +2356,22 @@ internal fun VeritasReaderApp(
             )
         }
 
-        if (uiState.showUserManual) {
-            UserManualDialog(
-                onDismiss = { viewModel.updateState { it.copy(showUserManual = false) } },
-                onNavigateToSetting = { setting ->
-                    when (setting) {
-                        "reader_settings" -> viewModel.updateState { it.copy(showReaderSettings = true) }
-                        "voice_studio" -> viewModel.updateState { it.copy(showVoiceStudio = true) }
-                        "narration_studio" -> viewModel.updateState { it.copy(showNarrationStudio = true) }
-                        "pronunciation" -> viewModel.updateState { it.copy(showPronunciationRules = true) }
-                        "sleep_timer" -> viewModel.updateState { it.copy(showSleepTimerDialog = true) }
-                        "pdf_tools" -> viewModel.updateState { it.copy(showPdfImportTools = true) }
-                        "history" -> viewModel.updateState { it.copy(showReadingHistory = true) }
-                        "reading_lists" -> viewModel.updateState { it.copy(showReadingLists = true) }
-                        "sync_center" -> viewModel.updateState { it.copy(showSyncCenter = true) }
-                        "ai_center" -> viewModel.updateState { it.copy(showAiCenter = true) }
-                        "ask_ai" -> viewModel.updateState { it.copy(showAskAiSettings = true) }
-                        "file_browser" -> viewModel.openFileBrowser()
-                        "backup_tools" -> viewModel.updateState { it.copy(showBackupTools = true) }
-                        "library_options" -> {
-                            userManualTipTitle = "Document Actions"
-                            userManualTipText = "Tap the three-dot overflow button on any book card in your library to edit metadata, rename files, assign categories, add to custom lists, reset progress, or delete files from storage."
-                        }
-                        "bulk_edit" -> {
-                            userManualTipTitle = "Batch Organization"
-                            userManualTipText = "Long-press any document card in your Library to enter multi-select mode. You can then tap other cards to select them and perform bulk actions like category assignment or batch deletion from the top toolbar."
-                        }
-                        "file_browser_filters" -> {
-                            userManualTipTitle = "Browser Sorting & Filters"
-                            userManualTipText = "Tap the options menu (three dots) at the top-right of the integrated File Browser to change sorting (name, date, size), filter by file type, or toggle hidden files and folders."
-                        }
-                        "text_selection" -> {
-                            userManualTipTitle = "Interactive Text Selection"
-                            userManualTipText = "Double-tap or long-press on any word or sentence in the reader screen to highlight it. Use the selection handles to expand the text range, and access options like copying, notes, dictionary definitions, and TTS narration controls."
-                        }
-                        "reader_tools" -> {
-                            userManualTipTitle = "Reader Tools Menu"
-                            userManualTipText = "Tap the top-right tool menu button (three dots) inside the Reader Screen to access bookmarks, text search inside the book, theme settings, and notes export actions."
-                        }
-                        "study_general" -> {
-                            userManualTipTitle = "Study Hub"
-                            userManualTipText = "Open the Study screen from the main navigation bar to browse your accumulated vocabularies, highlights, custom bookmarks, and reading history logs in one consolidated workspace."
-                        }
-                    }
+        if (showAboutDialog) {
+            AboutDialog(
+                uiState = uiState,
+                onCheckForUpdates = { viewModel.checkForUpdates(isManual = true) },
+                onDismiss = { showAboutDialog = false }
+            )
+        }
+
+        if (showUnrestrictedBatteryDialog) {
+            UnrestrictedBatteryDialog(
+                onDismiss = { showUnrestrictedBatteryDialog = false },
+                onOpenSettings = {
+                    requestIgnoreBatteryOptimizations(context)
+                },
+                onNeverAskAgain = {
+                    batteryPrefs.edit().putBoolean("battery_unrestricted_never_ask", true).apply()
                 }
             )
         }
@@ -2368,11 +2429,27 @@ internal fun VeritasReaderApp(
                     )
                 },
                 onVoiceSelected = { voice ->
+                    val detectedEngine = VoiceManager.engineForVoice(voice.name)
+                    val targetEngine = if (detectedEngine != null) {
+                        detectedEngine
+                    } else if (VoiceManager.isVeritasEngine(uiState.voiceSettings.enginePackage)) {
+                        ""
+                    } else {
+                        uiState.voiceSettings.enginePackage
+                    }
+                    val targetEngineLabel = when (targetEngine) {
+                        VoiceManager.VERITAS_LITE -> "Veritas Lite"
+                        VoiceManager.VERITAS_STUDIO -> "Veritas Studio"
+                        "" -> "System default"
+                        else -> uiState.voiceSettings.engineLabel
+                    }
                     viewModel.saveVoiceSettings(
                         uiState.voiceSettings.copy(
                             voiceName = voice.name,
-                            voiceLabel = voice.label,
-                            localeTag = voice.localeTag
+                            voiceLabel = voice.label.ifBlank { voice.name },
+                            localeTag = voice.localeTag,
+                            enginePackage = targetEngine,
+                            engineLabel = targetEngineLabel
                         )
                     )
                 },

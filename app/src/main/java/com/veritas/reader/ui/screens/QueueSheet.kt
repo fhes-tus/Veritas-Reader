@@ -198,7 +198,7 @@ fun VeritasQueueSheet(
         dismissButton = {
             if (queue.isNotEmpty()) {
                 TextButton(onClick = onClear) {
-                    Text("Clear all", color = MaterialTheme.colorScheme.error)
+                    Text("Clear all", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

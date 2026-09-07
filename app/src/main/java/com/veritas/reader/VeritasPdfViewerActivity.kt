@@ -13,6 +13,10 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.ClipDrawable
+import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.Drawable
+import android.view.HapticFeedbackConstants
 import android.net.Uri
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -44,6 +48,7 @@ import android.widget.PopupWindow
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import com.veritas.reader.ui.VeritasSleekSliderView
 import android.widget.Toast
 import android.graphics.drawable.StateListDrawable
 import java.text.SimpleDateFormat
@@ -98,6 +103,8 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private var panelStatusLabel: TextView? = null
     private var panelSpeedLabel: TextView? = null
     private var panelPitchLabel: TextView? = null
+    private var panelSpeedSlider: VeritasSleekSliderView? = null
+    private var panelPitchSlider: VeritasSleekSliderView? = null
     private var keepAwakeTimerJob: Job? = null
     private var pdfTocItems: List<PdfTocItem> = emptyList()
     private var pdfLinksByPage: Map<Int, List<PdfLinkItem>> = emptyMap()
@@ -456,7 +463,8 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             min = 0.5f,
             max = 2.0f,
             current = PlaybackStateStore.rate,
-            suffix = "x"
+            suffix = "x",
+            onSliderCreated = { panelSpeedSlider = it }
         ) { value -> adjustPlayback(rate = value, pitch = PlaybackStateStore.pitch) }
 
         // Pitch slider
@@ -466,7 +474,8 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             min = 0.7f,
             max = 1.4f,
             current = PlaybackStateStore.pitch,
-            suffix = ""
+            suffix = "",
+            onSliderCreated = { panelPitchSlider = it }
         ) { value -> adjustPlayback(rate = PlaybackStateStore.rate, pitch = value) }
 
         // Bottom row: Voice Studio + Queue
@@ -1489,38 +1498,37 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         max: Float,
         current: Float,
         suffix: String,
+        onSliderCreated: ((VeritasSleekSliderView) -> Unit)? = null,
         onCommitted: (Float) -> Unit
     ): TextView {
-        val steps = ((max - min) * 100).toInt().coerceAtLeast(1)
         val label = TextView(this).apply {
             text = "$title ${"%.2f".format(current)}$suffix"
             setTextColor(colorTextPrimary)
-            textSize = 15f
+            textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 4.dp, 0, 4.dp)
+            setPadding(0, 4.dp, 0, 2.dp)
         }
         menu.addView(label)
-        menu.addView(SeekBar(this).apply {
-            this.max = steps
-            progress = (((current.coerceIn(min, max) - min) * 100).toInt()).coerceIn(0, steps)
-            progressTintList = ColorStateList.valueOf(colorPrimary)
-            thumbTintList = ColorStateList.valueOf(colorPrimary)
-            progressBackgroundTintList = ColorStateList.valueOf(colorOutline)
-            setPadding(0, 0, 0, 8.dp)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val value = (min + (progress / 100f)).coerceIn(min, max)
-                    label.text = "$title ${"%.2f".format(value)}$suffix"
-                }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    val value = (min + ((seekBar?.progress ?: 0) / 100f)).coerceIn(min, max)
-                    onCommitted(value)
-                }
-            })
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        val slider = VeritasSleekSliderView(this).apply {
+            minVal = min
+            maxVal = max
+            currentVal = current
+            setSliderColors(
+                primary = colorPrimary,
+                surface = colorSurface,
+                outline = colorOutline
+            )
+            onProgressChangedUser = { value ->
+                label.text = "$title ${"%.2f".format(value)}$suffix"
+            }
+            onStopTracking = { value ->
+                onCommitted(value)
+            }
+        }
+        onSliderCreated?.invoke(slider)
+        menu.addView(slider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = 4.dp
+        })
         return label
     }
 
@@ -2007,6 +2015,8 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         panelStatusLabel?.text = if (playing) "Now reading" else "Ready to read"
         panelSpeedLabel?.text = "Speed ${"%.2f".format(PlaybackStateStore.rate)}x"
         panelPitchLabel?.text = "Pitch ${"%.2f".format(PlaybackStateStore.pitch)}"
+        panelSpeedSlider?.let { if (!it.isTrackingTouch) it.currentVal = PlaybackStateStore.rate }
+        panelPitchSlider?.let { if (!it.isTrackingTouch) it.currentVal = PlaybackStateStore.pitch }
     }
 
     private fun togglePanelExpand() {

@@ -145,6 +145,25 @@ object VoiceManager {
         enginePackage == VERITAS_STUDIO || enginePackage == VERITAS_LITE ||
             enginePackage == "com.veritas.voice"
 
+    /** True if the voice name belongs to a Veritas offline model (Piper or Kokoro). */
+    fun isVeritasVoice(voiceName: String?): Boolean =
+        !voiceName.isNullOrBlank() && (
+            voiceName.startsWith("piper_", ignoreCase = true) ||
+            voiceName.startsWith("kokoro_", ignoreCase = true) ||
+            com.veritas.reader.tts.VoiceModelManager.availableVoices.any { it.id.equals(voiceName, ignoreCase = true) }
+        )
+
+    /** Returns the Veritas engine identifier for a given voice name, or null if system TTS. */
+    fun engineForVoice(voiceName: String?): String? = when {
+        voiceName.isNullOrBlank() -> null
+        voiceName.startsWith("piper_", ignoreCase = true) -> VERITAS_LITE
+        voiceName.startsWith("kokoro_", ignoreCase = true) -> VERITAS_STUDIO
+        else -> com.veritas.reader.tts.VoiceModelManager.availableVoices
+            .firstOrNull { it.id.equals(voiceName, ignoreCase = true) }?.let {
+                if (it.engineType == com.veritas.reader.tts.OfflineEngineType.PIPER) VERITAS_LITE else VERITAS_STUDIO
+            }
+    }
+
     fun loadInstalledEngines(context: Context): List<TtsEngineOption> {
         val pm = context.packageManager
         val intent = Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE)
@@ -215,7 +234,13 @@ object VoiceManager {
         if (isVeritasEngine(enginePackage)) {
             return loadVeritasVoices(context, enginePackage)
         }
-        return withTimeoutOrNull(8_000L) {
+        val installedVeritas = if (enginePackage.isBlank()) {
+            loadVeritasVoices(context).filter { option ->
+                com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(context, option.name)
+            }
+        } else emptyList()
+
+        val systemVoices = withTimeoutOrNull(8_000L) {
             suspendCancellableCoroutine { continuation ->
                 val engineDeferred = CompletableDeferred<TextToSpeech>()
                 val listener = TextToSpeech.OnInitListener { status ->
@@ -279,6 +304,7 @@ object VoiceManager {
                 continuation.invokeOnCancellation { runCatching { engine.shutdown() } }
             }
         } ?: emptyList()
+        return installedVeritas + systemVoices
     }
 
     // Cached preview engine. Voice auditioning happens in a settings screen, so one
@@ -358,7 +384,8 @@ object VoiceManager {
         releasePreviewTrack()
         releaseSystemTts()
 
-        if (isVeritasEngine(enginePackage)) {
+        val isVeritas = isVeritasVoice(voiceName) || isVeritasEngine(enginePackage)
+        if (isVeritas) {
             previewJob = previewScope.launch {
                 // Auditioning voices used to build a whole engine per tap — a 114MB
                 // model load and teardown to speak one phrase. Keep the last one and
@@ -375,7 +402,7 @@ object VoiceManager {
                     releasePreviewEngine()
                     return@launch
                 }
-                val pcm = ttsEngine.synthesize(text)
+                val pcm = ttsEngine.synthesize(text, rate, pitch)
                 if (pcm != null && pcm.isNotEmpty()) {
                     releasePreviewTrack()
                     val audioTrack = android.media.AudioTrack.Builder()

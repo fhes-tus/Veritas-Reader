@@ -199,11 +199,9 @@ class PlaybackService : MediaSessionService() {
             ?.coerceIn(0.7f, 1.4f) ?: PlaybackStateStore.pitch
 
         pausedDueToTransientFocusLoss = false
-        if (VoiceManager.isVeritasEngine(activeEnginePackage)) {
-            // A fresh PLAY command is also how live voice/pronunciation edits restart the
-            // current section. Drop audio synthesized using the previous configuration.
-            veritasAudioBuffer?.flush()
-        }
+        // A fresh PLAY command is also how live voice/pronunciation edits restart the
+        // current section. Drop audio synthesized using the previous configuration.
+        veritasAudioBuffer?.flush()
         if (!loadDocument(documentId, startIndex)) return
 
         pendingJumpCharOffset = charOffset
@@ -262,9 +260,7 @@ class PlaybackService : MediaSessionService() {
         activeDocument?.let { repository.saveDocVoiceMemory(it.id, PlaybackStateStore.rate, PlaybackStateStore.pitch) }
         lastSavedRate = PlaybackStateStore.rate
         lastSavedPitch = PlaybackStateStore.pitch
-        if (VoiceManager.isVeritasEngine(activeEnginePackage)) {
-            veritasAudioBuffer?.flush()
-        }
+        veritasAudioBuffer?.flush()
         if (PlaybackStateStore.isPlaying) {
             speakCurrent()
         } else {
@@ -355,11 +351,19 @@ class PlaybackService : MediaSessionService() {
 
     private fun ensureTtsReadyAndSpeak() {
         val voiceSettings = repository.loadVoiceSettings()
-        val requestedEngine = voiceSettings.enginePackage.ifBlank { null }
+        var requestedEngine = voiceSettings.enginePackage.ifBlank { null }
+        val detectedVoiceEngine = VoiceManager.engineForVoice(voiceSettings.voiceName)
+        if (requestedEngine == null || !VoiceManager.isVeritasEngine(requestedEngine)) {
+            if (VoiceManager.isVeritasEngine(detectedVoiceEngine)) {
+                requestedEngine = detectedVoiceEngine
+            }
+        }
+
         if (VoiceManager.isVeritasEngine(requestedEngine)) {
-            val installed = com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(
+            var voiceToUse = voiceSettings.voiceName
+            var installed = com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(
                 applicationContext,
-                voiceSettings.voiceName
+                voiceToUse
             )
             if (!installed) {
                 val engineType = if (requestedEngine == VoiceManager.VERITAS_LITE) {
@@ -367,17 +371,34 @@ class PlaybackService : MediaSessionService() {
                 } else {
                     com.veritas.reader.tts.OfflineEngineType.KOKORO
                 }
-                val fallbackVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
+                var fallbackVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
                     .firstOrNull { it.engineType == engineType && com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(applicationContext, it.id) }
+                if (fallbackVoice == null) {
+                    fallbackVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
+                        .firstOrNull { com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(applicationContext, it.id) }
+                }
+
                 if (fallbackVoice != null) {
-                    val updatedSettings = voiceSettings.copy(voiceName = fallbackVoice.id)
+                    val resolvedEngine = if (fallbackVoice.engineType == com.veritas.reader.tts.OfflineEngineType.PIPER) {
+                        VoiceManager.VERITAS_LITE
+                    } else {
+                        VoiceManager.VERITAS_STUDIO
+                    }
+                    val updatedSettings = voiceSettings.copy(
+                        voiceName = fallbackVoice.id,
+                        voiceLabel = fallbackVoice.name,
+                        localeTag = fallbackVoice.localeTag,
+                        enginePackage = resolvedEngine,
+                        engineLabel = if (resolvedEngine == VoiceManager.VERITAS_LITE) "Veritas Lite" else "Veritas Studio"
+                    )
                     repository.saveVoiceSettings(updatedSettings)
                     PlaybackStateStore.statusMessage = "Switched to installed voice: ${fallbackVoice.name}"
+                    requestedEngine = resolvedEngine
+                    voiceToUse = fallbackVoice.id
+                    installed = true
                 } else {
-                    Log.w(TAG, "Selected engine $requestedEngine is not downloaded. Falling back to system TTS.")
+                    Log.w(TAG, "No Veritas offline voices are downloaded. Temporarily falling back to system TTS.")
                     PlaybackStateStore.statusMessage = "Voice not downloaded. Falling back to system voice."
-                    val updatedSettings = voiceSettings.copy(enginePackage = "")
-                    repository.saveVoiceSettings(updatedSettings)
                     veritasAudioBuffer?.shutdown()
                     veritasAudioBuffer = null
                     activeEnginePackage = null
@@ -431,11 +452,19 @@ class PlaybackService : MediaSessionService() {
 
     private fun ensureTtsReadyAndSpeakSelection(text: String) {
         val voiceSettings = repository.loadVoiceSettings()
-        val requestedEngine = voiceSettings.enginePackage.ifBlank { null }
+        var requestedEngine = voiceSettings.enginePackage.ifBlank { null }
+        val detectedVoiceEngine = VoiceManager.engineForVoice(voiceSettings.voiceName)
+        if (requestedEngine == null || !VoiceManager.isVeritasEngine(requestedEngine)) {
+            if (VoiceManager.isVeritasEngine(detectedVoiceEngine)) {
+                requestedEngine = detectedVoiceEngine
+            }
+        }
+
         if (VoiceManager.isVeritasEngine(requestedEngine)) {
-            val installed = com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(
+            var voiceToUse = voiceSettings.voiceName
+            var installed = com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(
                 applicationContext,
-                voiceSettings.voiceName
+                voiceToUse
             )
             if (!installed) {
                 val engineType = if (requestedEngine == VoiceManager.VERITAS_LITE) {
@@ -443,14 +472,31 @@ class PlaybackService : MediaSessionService() {
                 } else {
                     com.veritas.reader.tts.OfflineEngineType.KOKORO
                 }
-                val fallbackVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
+                var fallbackVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
                     .firstOrNull { it.engineType == engineType && com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(applicationContext, it.id) }
+                if (fallbackVoice == null) {
+                    fallbackVoice = com.veritas.reader.tts.VoiceModelManager.availableVoices
+                        .firstOrNull { com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(applicationContext, it.id) }
+                }
+
                 if (fallbackVoice != null) {
-                    val updatedSettings = voiceSettings.copy(voiceName = fallbackVoice.id)
+                    val resolvedEngine = if (fallbackVoice.engineType == com.veritas.reader.tts.OfflineEngineType.PIPER) {
+                        VoiceManager.VERITAS_LITE
+                    } else {
+                        VoiceManager.VERITAS_STUDIO
+                    }
+                    val updatedSettings = voiceSettings.copy(
+                        voiceName = fallbackVoice.id,
+                        voiceLabel = fallbackVoice.name,
+                        localeTag = fallbackVoice.localeTag,
+                        enginePackage = resolvedEngine,
+                        engineLabel = if (resolvedEngine == VoiceManager.VERITAS_LITE) "Veritas Lite" else "Veritas Studio"
+                    )
                     repository.saveVoiceSettings(updatedSettings)
+                    requestedEngine = resolvedEngine
+                    voiceToUse = fallbackVoice.id
+                    installed = true
                 } else {
-                    val updatedSettings = voiceSettings.copy(enginePackage = "")
-                    repository.saveVoiceSettings(updatedSettings)
                     veritasAudioBuffer?.shutdown()
                     veritasAudioBuffer = null
                     activeEnginePackage = null
@@ -549,21 +595,30 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun veritasBufferFor(voiceSettings: VoiceSettings): com.veritas.reader.tts.VeritasAudioBuffer {
+        var voiceName = voiceSettings.voiceName
+        if (!com.veritas.reader.tts.VoiceModelManager.isVoiceInstalled(applicationContext, voiceName)) {
+            val installed = com.veritas.reader.tts.VoiceModelManager.getInstalledVoices(applicationContext).firstOrNull()
+            if (installed != null) {
+                voiceName = installed.id
+            }
+        }
         // A change from Piper to Kokoro (or to a different local model) must rebuild the
         // native engine. The service otherwise keeps using the model selected before restart.
-        if (veritasAudioBuffer != null && veritasAudioVoiceId != voiceSettings.voiceName) {
+        if (veritasAudioBuffer != null && veritasAudioVoiceId != voiceName) {
             veritasAudioBuffer?.shutdown()
             veritasAudioBuffer = null
         }
         return veritasAudioBuffer ?: run {
-            val engine = if (voiceSettings.voiceName.startsWith("piper_", ignoreCase = true)) {
-                com.veritas.reader.tts.PiperEngine(applicationContext, voiceSettings.voiceName)
+            val isPiper = voiceName.startsWith("piper_", ignoreCase = true) ||
+                VoiceManager.engineForVoice(voiceName) == VoiceManager.VERITAS_LITE
+            val engine = if (isPiper) {
+                com.veritas.reader.tts.PiperEngine(applicationContext, voiceName)
             } else {
-                com.veritas.reader.tts.KokoroTtsEngine(applicationContext, voiceSettings.voiceName)
+                com.veritas.reader.tts.KokoroTtsEngine(applicationContext, voiceName)
             }
             com.veritas.reader.tts.VeritasAudioBuffer(applicationContext, engine).also {
                 veritasAudioBuffer = it
-                veritasAudioVoiceId = voiceSettings.voiceName
+                veritasAudioVoiceId = voiceName
             }
         }
     }

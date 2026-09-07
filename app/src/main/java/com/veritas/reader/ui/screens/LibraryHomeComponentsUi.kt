@@ -1040,12 +1040,12 @@ internal fun AnnotationDocumentCard(
                             leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete all", color = MaterialTheme.colorScheme.error) },
+                            text = { Text("Delete all") },
                             onClick = {
                                 showBatchMenu = false
                                 showDeleteConfirmDialog = true
                             },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                         )
                     }
                 }
@@ -3006,12 +3006,12 @@ internal fun BookmarkDocumentCard(
                             leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete all", color = MaterialTheme.colorScheme.error) },
+                            text = { Text("Delete all") },
                             onClick = {
                                 showBatchMenu = false
                                 showDeleteConfirmDialog = true
                             },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                         )
                     }
                 }
@@ -3231,12 +3231,12 @@ internal fun BookmarkGroupCard(
                                     leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    text = { Text("Delete") },
                                     onClick = {
                                         showMenu = false
                                         onDeleteGroup()
                                     },
-                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 )
                             }
                         }
@@ -3557,12 +3557,12 @@ internal fun NoteGroupCard(
                                     leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    text = { Text("Delete") },
                                     onClick = {
                                         showMenu = false
                                         onDeleteGroup()
                                     },
-                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 )
                             }
                          }

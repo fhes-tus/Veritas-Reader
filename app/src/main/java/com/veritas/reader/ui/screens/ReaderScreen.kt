@@ -231,6 +231,9 @@ import kotlinx.coroutines.flow.first
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.veritas.reader.ui.OnboardingController
 import com.veritas.reader.ui.rememberSliderHaptics
+import com.veritas.reader.ui.VeritasSleekSlider
+import com.veritas.reader.ui.VeritasThinRoundSlider
+import com.veritas.reader.SlimPageSlider
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -468,6 +471,7 @@ fun ReaderScreen(
         initialPage = (pageItems.indexOfFirst { it.pageNumber == currentPageNumber }.takeIf { it >= 0 } ?: (currentPageNumber - 1))
             .coerceIn(0, (pageItems.size - 1).coerceAtLeast(0))
     ) { pageItems.size.coerceAtLeast(1) }
+    val coroutineScope = rememberCoroutineScope()
 
     // The swipe listener below is keyed on pagerState alone, whose identity never changes,
     // so it launches once and keeps whatever it captured on that first pass forever. Reading
@@ -1112,7 +1116,23 @@ fun ReaderScreen(
                         .onGloballyPositioned { OnboardingController.updateBounds("reader_mode_toggle", it) }
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                if (pageItems.size > 1) {
+                    SlimPageSlider(
+                        pageIndex = pagerState.currentPage,
+                        pageCount = pageItems.size,
+                        onPageSelected = { targetPage ->
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(targetPage)
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(18.dp)
+                            .padding(horizontal = 4.dp)
+                    )
+                } else {
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                }
             }
         }
 
@@ -1296,7 +1316,7 @@ fun ReaderScreen(
                             },
                             shape = RoundedCornerShape(50),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         ) {
                             Icon(
@@ -2006,7 +2026,7 @@ fun SleepTimerDialog(
                             OutlinedButton(
                                 onClick = onCancelTimer,
                                 shape = VeritasPackStyle.chipShape(),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
                             ) {
                                 Text("Cancel timer")
                             }
@@ -3812,51 +3832,6 @@ private fun BookmarksOverviewDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun VeritasThinRoundSlider(
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
-    steps: Int = 0,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    trackHeight: androidx.compose.ui.unit.Dp = 3.5.dp,
-    thumbSize: androidx.compose.ui.unit.Dp = 6.5.dp
-) {
-    Slider(
-        value = value,
-        onValueChange = rememberSliderHaptics(value, valueRange, steps, onValueChange),
-        valueRange = valueRange,
-        steps = steps,
-        enabled = enabled,
-        modifier = modifier,
-        thumb = {
-            Box(
-                modifier = Modifier
-                    .size(thumbSize)
-                    .clip(CircleShape)
-                    .background(
-                        if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    )
-                    .border(0.75.dp, MaterialTheme.colorScheme.surface, CircleShape)
-            )
-        },
-        track = { sliderState ->
-            SliderDefaults.Track(
-                sliderState = sliderState,
-                modifier = Modifier.height(trackHeight),
-                drawStopIndicator = null,
-                drawTick = { _, _ -> },
-                colors = SliderDefaults.colors(
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                )
-            )
-        }
-    )
-}
-
 private enum class DragValue { Collapsed, Expanded }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -4217,7 +4192,7 @@ private fun PlayerPanel(
                         }
                     }
 
-                    VeritasThinRoundSlider(
+                    VeritasSleekSlider(
                         value = rate,
                         onValueChange = onRateChange,
                         valueRange = 0.5f..2.5f,
@@ -4238,7 +4213,7 @@ private fun PlayerPanel(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            VeritasThinRoundSlider(
+                            VeritasSleekSlider(
                                 value = pitch,
                                 onValueChange = onPitchChange,
                                 valueRange = 0.7f..1.4f
@@ -4251,7 +4226,7 @@ private fun PlayerPanel(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            VeritasThinRoundSlider(
+                            VeritasSleekSlider(
                                 value = fontSizeSp.toFloat(),
                                 onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
                                 valueRange = 14f..28f,

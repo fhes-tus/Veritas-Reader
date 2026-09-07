@@ -298,7 +298,7 @@ fun LibraryScreen(
     var showPasteQuiz by remember { mutableStateOf(false) }
     var showQuizLabMetrics by remember { mutableStateOf(false) }
     var quizToDelete by remember { mutableStateOf<QuizSet?>(null) }
-    var docToDelete by remember { mutableStateOf<SavedDocument?>(null) }
+
     var activePlayingQuiz by remember { mutableStateOf<QuizSet?>(null) }
     var showGeminiApiKeyDialog by remember { mutableStateOf(false) }
     var detectedClipboardFlashcards by remember { mutableStateOf<List<Flashcard>>(emptyList()) }
@@ -338,8 +338,7 @@ fun LibraryScreen(
                     onClick = {
                         quizToDelete?.let { onDeleteQuiz(it.id) }
                         quizToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    }
                 ) {
                     Text("Delete")
                 }
@@ -349,27 +348,7 @@ fun LibraryScreen(
             }
         )
     }
-    if (docToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { docToDelete = null },
-            title = { Text("Delete Document?") },
-            text = { Text("Are you sure you want to delete \"${docToDelete?.title}\"? This will permanently delete the document, reading progress, and notes.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        docToDelete?.let { onDeleteDocument(it) }
-                        docToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { docToDelete = null }) { Text("Cancel") }
-            }
-        )
-    }
+
     if (showPasteQuiz) {
         PasteQuizDialog(onSaveQuiz = onSaveQuiz, onDismiss = { showPasteQuiz = false })
     }
@@ -1196,7 +1175,6 @@ fun LibraryScreen(
             text = { Text("This will permanently remove all vocabulary words saved for this book.") },
             confirmButton = {
                 Button(
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     onClick = {
                         vocabDocs.firstOrNull { it.first.id == delDocId }?.third?.forEach { entry ->
                             onRemoveVocabularyWord(delDocId, entry.word)
@@ -2002,7 +1980,7 @@ fun LibraryScreen(
                                                             onManageLists = { manageListsDocument = doc },
                                                             onRename = { onRenameDocument(doc) },
                                                             onShowDetails = { onShowDetails(doc) },
-                                                            onDelete = { docToDelete = doc }
+                                                            onDelete = { onDeleteDocument(doc) }
                                                         )
                                                     }
                                                 }
@@ -2371,7 +2349,7 @@ fun LibraryScreen(
                                 onToggleSelected = {
                                     selectedDocumentIds = if (doc.id in selectedDocumentIds) selectedDocumentIds - doc.id else selectedDocumentIds + doc.id
                                 },
-                                onDelete = { docToDelete = doc },
+                                onDelete = { onDeleteDocument(doc) },
                                 onToggleQueue = { onToggleQueue(doc) },
                                                             onMoveQueueUp = { onMoveQueueUp(doc) },
                                                             onMoveQueueDown = { onMoveQueueDown(doc) },
@@ -2416,7 +2394,7 @@ fun LibraryScreen(
                                 selectedDocumentIds + doc.id
                             }
                         },
-                        onDelete = { docToDelete = doc },
+                        onDelete = { onDeleteDocument(doc) },
                         onToggleQueue = { onToggleQueue(doc) },
                                                             onMoveQueueUp = { onMoveQueueUp(doc) },
                                                             onMoveQueueDown = { onMoveQueueDown(doc) },
@@ -2668,7 +2646,7 @@ fun LibraryScreen(
                                                             TextButton(onClick = {
                                                                 confirmNoteDelete = false
                                                                 onDeleteGeneralNote(generalNote.id)
-                                                            }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) }
+                                                            }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                                         },
                                                         dismissButton = {
                                                             TextButton(onClick = { confirmNoteDelete = false }) {
@@ -3566,12 +3544,12 @@ fun LibraryScreen(
                                                             leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
                                                         )
                                                         DropdownMenuItem(
-                                                            text = { Text("Delete all", color = MaterialTheme.colorScheme.error) },
+                                                            text = { Text("Delete all", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                                             onClick = {
                                                                 showBatchMenu = false
                                                                 confirmDeleteVocabDocId = doc.id
                                                             },
-                                                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                                                         )
                                                     }
                                                 }
@@ -3717,7 +3695,7 @@ fun LibraryScreen(
                                         Text("Play", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                     }
                                     IconButton(onClick = { quizToDelete = quiz }) {
-                                        Icon(Icons.Filled.Delete, contentDescription = "Delete quiz", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                                        Icon(Icons.Filled.Delete, contentDescription = "Delete quiz", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                                     }
                                 }
                             }
@@ -3748,7 +3726,7 @@ fun LibraryScreen(
                                         TextButton(onClick = {
                                             confirmClearHistory = false
                                             onClearReadingHistory()
-                                        }) { Text(stringResource(R.string.action_clear), color = MaterialTheme.colorScheme.error) }
+                                        }) { Text(stringResource(R.string.action_clear), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     },
                                     dismissButton = {
                                         TextButton(onClick = { confirmClearHistory = false }) {
@@ -3764,7 +3742,7 @@ fun LibraryScreen(
                             ) {
                                 Text("Recent history", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                 TextButton(onClick = { confirmClearHistory = true }) {
-                                    Text("Clear all", color = MaterialTheme.colorScheme.error)
+                                    Text("Clear all", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -4633,8 +4611,7 @@ private fun VocabularyEntryRow(
                     onClick = {
                         showDeleteConfirm = false
                         onRemoveVocabularyWord(document.id, entry.word)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    }
                 ) {
                     Text("Delete")
                 }
@@ -4740,12 +4717,12 @@ private fun VocabularyEntryRow(
                     leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
                 )
                 DropdownMenuItem(
-                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                    text = { Text("Delete") },
                     onClick = {
                         itemMenuExpanded = false
                         showDeleteConfirm = true
                     },
-                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                 )
             }
         }

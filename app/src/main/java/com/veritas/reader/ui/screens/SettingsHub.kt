@@ -9,8 +9,12 @@ import com.veritas.reader.ui.ReaderUiState
 import com.veritas.reader.ui.VeritasUiFont
 import com.veritas.reader.ui.VeritasSwitch
 import com.veritas.reader.ui.rememberSliderHaptics
+import com.veritas.reader.ui.VeritasSleekSlider
 import com.veritas.reader.ui.fontFamily
 import com.veritas.reader.aiAssistantIcon
+import com.veritas.reader.UnrestrictedBatteryDialog
+import com.veritas.reader.isBatteryOptimizationIgnored
+import com.veritas.reader.requestIgnoreBatteryOptimizations
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -152,6 +156,7 @@ fun SettingsHubDialog(
         settingsFeatures.requireResolvedFeature(id)
 
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showBatteryDialog by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -217,9 +222,15 @@ fun SettingsHubDialog(
                     ),
                     SettingsRowSpec(
                         "Background playback",
-                        if (isBatteryOptimizationIgnored(LocalContext.current)) "Battery optimization unrestricted (Optimal)" else "Open phone battery optimization settings",
+                        if (isBatteryOptimizationIgnored(LocalContext.current)) "Battery optimization unrestricted (Optimal)" else "Battery optimized (Tap to enable unrestricted)",
                         Icons.Outlined.PowerSettingsNew,
-                        { requestIgnoreBatteryOptimizations(context) }
+                        {
+                            if (isBatteryOptimizationIgnored(context)) {
+                                requestIgnoreBatteryOptimizations(context)
+                            } else {
+                                showBatteryDialog = true
+                            }
+                        }
                     )
                 ))
 
@@ -344,6 +355,13 @@ fun SettingsHubDialog(
             uiState = uiState,
             onCheckForUpdates = onCheckForUpdates,
             onDismiss = { showAboutDialog = false }
+        )
+    }
+
+    if (showBatteryDialog) {
+        UnrestrictedBatteryDialog(
+            onDismiss = { showBatteryDialog = false },
+            onOpenSettings = { requestIgnoreBatteryOptimizations(context) }
         )
     }
 }
@@ -1313,9 +1331,9 @@ fun AccessibilitySettingsDialog(
                         Text("Daily target", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         Text("${settings.dailyGoalMinutes} min", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
-                    Slider(
+                    VeritasSleekSlider(
                         value = settings.dailyGoalMinutes.coerceIn(5, 180).toFloat(),
-                        onValueChange = rememberSliderHaptics(settings.dailyGoalMinutes.coerceIn(5, 180).toFloat(), 5f..180f, 34) { onGoalMinutesChange(it.toInt().coerceIn(5, 180)) },
+                        onValueChange = { onGoalMinutesChange(it.toInt().coerceIn(5, 180)) },
                         valueRange = 5f..180f,
                         steps = 34
                     )
@@ -1445,7 +1463,6 @@ fun AccessibilitySettingsDialog(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VeritasRoundSlider(
     value: Float,
@@ -1455,32 +1472,13 @@ fun VeritasRoundSlider(
     modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
-    val trackHeight = 8.dp
-    val thumbSize = 12.dp
-    Slider(
+    VeritasSleekSlider(
         value = value,
-        onValueChange = rememberSliderHaptics(value, valueRange, steps, onValueChange),
+        onValueChange = onValueChange,
         valueRange = valueRange,
         steps = steps,
-        enabled = enabled,
         modifier = modifier,
-        thumb = {
-            Box(
-                modifier = Modifier
-                    .size(thumbSize)
-                    .background(
-                        if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                        CircleShape
-                    )
-                    .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
-            )
-        },
-        track = { sliderState ->
-            SliderDefaults.Track(
-                sliderState = sliderState,
-                modifier = Modifier.height(trackHeight)
-            )
-        }
+        enabled = enabled
     )
 }
 
@@ -1943,7 +1941,7 @@ fun VoiceStudioDialog(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("Use Veritas Studio", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                if (VoiceManager.isVeritasEngine(settings.enginePackage)) {
+                                if (settings.enginePackage == VoiceManager.VERITAS_STUDIO) {
                                     Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                                 }
                             }
@@ -1951,11 +1949,28 @@ fun VoiceStudioDialog(
                         onClick = {
                             managerMenuExpanded = false
                             onEngineSelected(TtsEngineOption(VoiceManager.VERITAS_STUDIO, "Veritas Studio"))
+                            onLoadVoices()
                         }
                     )
-                    if (engines.isNotEmpty()) {
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Use Veritas Lite", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                if (settings.enginePackage == VoiceManager.VERITAS_LITE) {
+                                    Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        },
+                        onClick = {
+                            managerMenuExpanded = false
+                            onEngineSelected(TtsEngineOption(VoiceManager.VERITAS_LITE, "Veritas Lite"))
+                            onLoadVoices()
+                        }
+                    )
+                    val systemEngines = engines.filterNot { VoiceManager.isVeritasEngine(it.packageName) }
+                    if (systemEngines.isNotEmpty()) {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        engines.forEach { engine ->
+                        systemEngines.forEach { engine ->
                             val isSelected = settings.enginePackage == engine.packageName
                             DropdownMenuItem(
                                 text = {
@@ -2082,9 +2097,8 @@ fun VoiceStudioDialog(
             )
         }
 
-        if (VoiceManager.isVeritasEngine(settings.enginePackage)) {
-            SettingsHubSectionTitle("Veritas voice models")
-            Card(
+        SettingsHubSectionTitle("Veritas voice models")
+        Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = VeritasPackStyle.cardShape(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -2148,7 +2162,7 @@ fun VoiceStudioDialog(
                                         onRefreshEngines()
                                         onLoadVoices()
                                     }) {
-                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete voice model", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete voice model", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                                     }
                                 }
                             } else if (state is com.veritas.reader.tts.DownloadState.Downloading) {
@@ -2176,7 +2190,6 @@ fun VoiceStudioDialog(
                     }
                 }
             }
-        }
 
         // Quick Navigation Studio Shortcuts
         SettingsHubSectionTitle("Narration shortcuts")
@@ -2427,7 +2440,7 @@ fun NarrationStudioDialog(
                                     onSettingsChange(settings.copy(characterProfiles = settings.characterProfiles.filterNot { it.id == char.id }))
                                 }
                             ) {
-                                Icon(Icons.Outlined.Delete, contentDescription = "Remove character", tint = MaterialTheme.colorScheme.error)
+                                Icon(Icons.Outlined.Delete, contentDescription = "Remove character", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -2830,7 +2843,7 @@ fun PronunciationRulesDialog(
                                         Icon(
                                             Icons.Outlined.Delete,
                                             contentDescription = "Remove rule",
-                                            tint = MaterialTheme.colorScheme.error,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -2859,53 +2872,6 @@ private fun openEmail(context: Context, email: String, subject: String = "") {
     }
 }
 
-private fun isBatteryOptimizationIgnored(context: Context): Boolean {
-    val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager ?: return true
-    return pm.isIgnoringBatteryOptimizations(context.packageName)
-}
-
-private fun requestIgnoreBatteryOptimizations(context: Context) {
-    // 1. Try direct App Battery Usage page (Android 14+ / One UI 6-8 / Pixel)
-    runCatching {
-        val intent = Intent("android.settings.APP_BATTERY_USAGE").apply {
-            data = Uri.fromParts("package", context.packageName, null)
-            putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        if (context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()) {
-            context.startActivity(intent)
-            return
-        }
-    }
-
-    // 2. Open App Info page where the user can tap "Battery" (Unrestricted / Optimized)
-    runCatching {
-        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-            data = Uri.fromParts("package", context.packageName, null)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-        return
-    }
-
-    // 3. Try direct prompt to request ignoring battery optimizations
-    runCatching {
-        val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${context.packageName}")
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-        return
-    }
-
-    // 4. Fallback to general battery optimization list if OEM blocks all app-specific routes
-    runCatching {
-        val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        context.startActivity(intent)
-    }
-}
 
 val IconGithub: ImageVector
     get() = ImageVector.Builder(

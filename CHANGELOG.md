@@ -4,6 +4,25 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ---
 
+## [2.3.1] - 2026-09-07
+
+### Added
+*   **Unrestricted Battery Optimization Dialog:** Direct Material 3 pop-up explaining background speech restrictions with 1-tap redirect to app battery usage settings (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `APP_BATTERY_USAGE`, and App Info `APPLICATION_DETAILS_SETTINGS`), ensuring uninterrupted background audio playback when the phone screen is locked.
+*   **Sleek Circular Slider Across All Readers:** Modernized page navigation, speech rate, pitch, and font size sliders across Reader Screen, PDF view (`VeritasPdfViewerActivity`), Original Document view, and Voice Studio with a sleek 18dp circular thumb, 4dp track, surface border ring, and smooth haptic feedback.
+*   **Automatic Veritas Voice Engine Routing:** Fully automatic engine detection for downloaded offline Veritas voice models (Piper & Kokoro), seamlessly initializing native neural synthesis directly without falling back to robotic system TTS.
+*   **User Manual Deep-Link Redirections:** Comprehensive wiring for all in-app User Manual CTA actions, redirecting users directly to the Classics Catalog, Storage Manager, About dialog, Study Hub, Notes Studio, Reading Lists, and Library.
+
+### Changed
+*   **Theme-Fitting Delete and Clear Actions:** Harmonized delete and clear icons, dropdown menu items, and confirmation actions to seamlessly match the active color scheme (`onSurfaceVariant`) instead of harsh persistent red error highlights.
+*   **Reader Tools Menu Streamlining:** Cleaned up Reader Tools overflow by removing redundant options and integrating the direct Document Details inspector.
+
+### Fixed
+*   **Offline Veritas Voice Fallback:** Resolved an issue where selecting downloaded Veritas voices was falling back to the device's default system TTS engine due to engine package mapping; added auto-detection and resilient buffer initialization in `PlaybackService` and `VoiceManager`.
+*   **Duplicate Delete Confirmation Dialogs:** Removed redundant nested confirmation alerts in the Library Recent section and Library tab so deletion confirms cleanly with a single prompt.
+*   **User Manual Dialog Stacking:** Fixed User Manual modal remaining open over target screens when activating feature shortcuts.
+
+---
+
 ## [2.3.0] - 2026-09-07
 
 ### Added

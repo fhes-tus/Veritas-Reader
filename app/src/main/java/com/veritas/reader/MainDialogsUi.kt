@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -346,7 +347,7 @@ internal fun SentenceNoteDialog(
                                             onAudioChange(null, 0)
                                         }
                                     ) {
-                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete voice memo", tint = MaterialTheme.colorScheme.error)
+                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete voice memo", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 } else {
                                     Text(
@@ -550,7 +551,7 @@ internal fun FileBrowserDialog(
                 Icon(
                     Icons.Outlined.Delete,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
             title = {
@@ -736,7 +737,7 @@ internal fun FileBrowserDialog(
                                     } else {
                                         "Delete ${selectedFiles.size} files"
                                     },
-                                    tint = MaterialTheme.colorScheme.error
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Button(
@@ -2579,3 +2580,156 @@ internal fun SyncInfoRow(label: String, value: String) {
         SoftChip(value)
     }
 }
+
+fun isBatteryOptimizationIgnored(context: Context): Boolean {
+    val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager ?: return true
+    return pm.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+fun requestIgnoreBatteryOptimizations(context: Context) {
+    // 1. First try direct system permission dialog (REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+    val requestIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        data = Uri.parse("package:${context.packageName}")
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+    }
+    val directPromptLaunched = runCatching {
+        if (context.packageManager.queryIntentActivities(requestIntent, 0).isNotEmpty()) {
+            context.startActivity(requestIntent)
+            true
+        } else false
+    }.getOrDefault(false)
+
+    if (directPromptLaunched) return
+
+    // 2. Try direct App Battery Usage page (Android 14+ / One UI 6-8 / Pixel)
+    runCatching {
+        val intent = Intent("android.settings.APP_BATTERY_USAGE").apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        if (context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()) {
+            context.startActivity(intent)
+            return
+        }
+    }
+
+    // 3. Open App Info page where the user can tap "Battery" (Unrestricted / Optimized)
+    runCatching {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+        return
+    }
+
+    // 4. Fallback to general battery optimization list if OEM blocks all app-specific routes
+    runCatching {
+        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+    }
+}
+
+@Composable
+fun UnrestrictedBatteryDialog(
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onNeverAskAgain: (() -> Unit)? = null
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.PowerSettingsNew,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        },
+        title = {
+            Text(
+                text = "Unrestricted Battery Playback",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Android battery optimizations will pause or kill Veritas speech playback shortly after your screen locks or turns off.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "How to enable uninterrupted audio:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Tap 'Turn On Unrestricted' and choose 'Allow' on the prompt, or select 'Battery' \u2192 'Unrestricted' in App Info.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onOpenSettings()
+                    onDismiss()
+                },
+                shape = RoundedCornerShape(50)
+            ) {
+                Text("Turn On Unrestricted")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onNeverAskAgain != null) {
+                    TextButton(
+                        onClick = {
+                            onNeverAskAgain()
+                            onDismiss()
+                        }
+                    ) {
+                        Text("Don't Ask Again")
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Not Now")
+                }
+            }
+        }
+    )
+}
+

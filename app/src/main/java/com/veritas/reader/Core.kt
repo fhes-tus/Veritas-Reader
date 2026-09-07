@@ -2948,12 +2948,33 @@ class DocumentRepository(context: Context) {
 
     fun loadVoiceSettings(): VoiceSettings {
         val raw = prefs.getString(KEY_VOICE_SETTINGS, null) ?: return VoiceSettings()
-        return runCatching { VoiceSettings.fromJson(JSONObject(raw)) }.getOrDefault(VoiceSettings())
+        val loaded = runCatching { VoiceSettings.fromJson(JSONObject(raw)) }.getOrDefault(VoiceSettings())
+        val detectedEngine = VoiceManager.engineForVoice(loaded.voiceName)
+        return if (detectedEngine != null && !VoiceManager.isVeritasEngine(loaded.enginePackage)) {
+            loaded.copy(
+                enginePackage = detectedEngine,
+                engineLabel = if (detectedEngine == VoiceManager.VERITAS_LITE) "Veritas Lite" else "Veritas Studio"
+            )
+        } else {
+            loaded
+        }
     }
 
     fun saveVoiceSettings(settings: VoiceSettings): VoiceSettings {
+        val detectedEngine = VoiceManager.engineForVoice(settings.voiceName)
+        val resolvedEnginePackage = if (detectedEngine != null && !VoiceManager.isVeritasEngine(settings.enginePackage)) {
+            detectedEngine
+        } else {
+            settings.enginePackage
+        }
+        val resolvedEngineLabel = if (detectedEngine != null && !VoiceManager.isVeritasEngine(settings.enginePackage)) {
+            if (detectedEngine == VoiceManager.VERITAS_LITE) "Veritas Lite" else "Veritas Studio"
+        } else {
+            settings.engineLabel.ifBlank { "System default" }
+        }
         val normalized = settings.copy(
-            engineLabel = settings.engineLabel.ifBlank { "System default" },
+            enginePackage = resolvedEnginePackage,
+            engineLabel = resolvedEngineLabel,
             voiceLabel = settings.voiceLabel.ifBlank { "System default voice" },
             profileName = settings.profileName.ifBlank { "Balanced" },
             preferredRate = settings.preferredRate.coerceIn(0.5f, 2.0f),

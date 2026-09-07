@@ -55,6 +55,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.graphics.luminance
 import com.veritas.reader.blendColors
@@ -79,6 +80,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import com.veritas.reader.ui.VeritasSleekSlider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -1838,18 +1840,11 @@ private fun DocPlayerPanel(
                             }
                         }
                     }
-                    Slider(
+                    VeritasSleekSlider(
                         value = rate,
-                        onValueChange = rememberSliderHaptics(rate, 0.5f..2.0f, 0, onRateChange),
+                        onValueChange = onRateChange,
                         valueRange = 0.5f..2.0f,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
-                            activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                            inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                        )
+                        modifier = Modifier.padding(horizontal = 8.dp)
                     )
 
                     // Pitch & Font Size row
@@ -1864,17 +1859,10 @@ private fun DocPlayerPanel(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Slider(
+                            VeritasSleekSlider(
                                 value = pitch,
-                                onValueChange = rememberSliderHaptics(pitch, 0.7f..1.4f, 0, onPitchChange),
-                                valueRange = 0.7f..1.4f,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
-                                    activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                                    inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                )
+                                onValueChange = onPitchChange,
+                                valueRange = 0.7f..1.4f
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
@@ -1884,18 +1872,11 @@ private fun DocPlayerPanel(
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Slider(
+                            VeritasSleekSlider(
                                 value = fontSizeSp.toFloat(),
-                                onValueChange = rememberSliderHaptics(fontSizeSp.toFloat(), 14f..28f, 13) { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
+                                onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
                                 valueRange = 14f..28f,
-                                steps = 13,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                    inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
-                                    activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                                    inactiveTickColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                )
+                                steps = 13
                             )
                         }
                     }
@@ -1962,7 +1943,7 @@ private fun DocPlayerPanel(
 }
 
 @Composable
-private fun SlimPageSlider(
+internal fun SlimPageSlider(
     pageIndex: Int,
     pageCount: Int,
     onPageSelected: (Int) -> Unit,
@@ -1994,26 +1975,40 @@ private fun SlimPageSlider(
         contentAlignment = Alignment.CenterStart
     ) {
         val progress = (pageIndex.toFloat() / (pageCount - 1).toFloat()).coerceIn(0f, 1f)
-        val thumbSize = 16.dp
+        val thumbSize = 18.dp
         val thumbPx = with(density) { thumbSize.toPx() }
         val trackWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(thumbPx)
+        val usableWidthPx = (trackWidthPx - thumbPx).coerceAtLeast(1f)
+        val thumbOffsetXPx = (usableWidthPx * progress).roundToInt()
+
+        // Full inactive track
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(4.dp)
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f), androidx.compose.foundation.shape.CircleShape)
+                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f), CircleShape)
         )
+
+        // Active track reaching center of thumb
+        val activeWidthPx = (thumbPx / 2f + usableWidthPx * progress).coerceIn(0f, trackWidthPx)
+        val activeWidthDp = with(density) { activeWidthPx.toDp() }
+        if (activeWidthPx > 0f) {
+            Box(
+                modifier = Modifier
+                    .width(activeWidthDp)
+                    .height(4.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+            )
+        }
+
+        // Circular thumb with 2.dp surface border & subtle drop shadow
         Box(
             modifier = Modifier
-                .fillMaxWidth(progress)
-                .height(4.dp)
-                .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape)
-        )
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(((trackWidthPx - thumbPx) * progress).roundToInt(), 0) }
+                .offset { IntOffset(thumbOffsetXPx, 0) }
                 .size(thumbSize)
-                .background(MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape)
+                .shadow(2.dp, CircleShape)
+                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
         )
     }
 }

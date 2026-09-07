@@ -803,7 +803,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun previewVoice(voice: TtsVoiceOption) {
-        val enginePackage = uiState.value.voiceSettings.enginePackage
+        val detectedEngine = VoiceManager.engineForVoice(voice.name)
+        val enginePackage = if (detectedEngine != null) {
+            detectedEngine
+        } else if (VoiceManager.isVeritasEngine(uiState.value.voiceSettings.enginePackage)) {
+            ""
+        } else {
+            uiState.value.voiceSettings.enginePackage
+        }
         VoiceManager.previewVoice(
             context = getApplication(),
             enginePackage = enginePackage,
@@ -817,7 +824,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun previewActiveVoiceWithPreset() {
         val settings = uiState.value.voiceSettings
         val voiceName = settings.voiceName
-        val enginePackage = settings.enginePackage
+        val detectedEngine = VoiceManager.engineForVoice(voiceName)
+        val enginePackage = if (detectedEngine != null) {
+            detectedEngine
+        } else if (VoiceManager.isVeritasEngine(settings.enginePackage)) {
+            ""
+        } else {
+            settings.enginePackage
+        }
         val sampleText = "Brethren, whatever things are true, noble, just, pure, lovely, whatever things are of good report, - if anything is excellent or praiseworthy, - think about such things"
         VoiceManager.previewVoice(
             context = getApplication(),

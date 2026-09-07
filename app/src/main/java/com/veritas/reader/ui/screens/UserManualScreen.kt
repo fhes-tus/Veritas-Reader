@@ -78,7 +78,7 @@ fun UserManualDialog(
                         subtitle = "Daily targets, reading streak, and instant resume",
                         content = "The Home tab is your daily reading companion. View your active book with a quick 'Continue' button, track daily reading minutes toward your goal ring, see weekly reading bar charts, and conquer fun daily reading quests.",
                         ctaText = "Go to Settings",
-                        ctaAction = "reader_settings",
+                        ctaAction = "settings_hub",
                         flowSteps = listOf(
                             "Tap 'Home' on the bottom navigation bar",
                             "Tap 'Continue' on the hero banner to resume your current book",
@@ -93,7 +93,7 @@ fun UserManualDialog(
                         subtitle = "Home, Library, Study, and Settings Hub",
                         content = "Veritas is organized into 4 primary tabs: 'Home' for daily reading momentum, 'Library' for your document catalog and imports, 'Study' for flashcards and reading insights, and 'Settings' for complete audio, visual, and backup configuration.",
                         ctaText = "Explore Settings",
-                        ctaAction = "reader_settings",
+                        ctaAction = "settings_hub",
                         flowSteps = listOf(
                             "Use the bottom bar to switch between Home, Library, Study, and Settings",
                             "Enjoy fluid animated transitions between all four tabs",
@@ -389,7 +389,7 @@ fun UserManualDialog(
                         icon = Icons.Outlined.BookmarkBorder,
                         subtitle = "Central list of highlights and words",
                         content = "Manage vocabulary and highlights in the Study Hub. The general tab organizes all saved words and highlights in order. Tapping any item takes you back to the exact page and chapter where you saved it.",
-                        ctaText = "Study Hub Tip",
+                        ctaText = "Open Study Hub",
                         ctaAction = "study_general",
                         flowSteps = listOf(
                             "Open Study screen from navigation bar",
