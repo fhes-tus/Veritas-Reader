@@ -1,118 +1,151 @@
-# Veritas Reader Android
+<div align="center">
 
-[![Release](https://img.shields.io/badge/Release-v2.3.1-orange.svg)](https://github.com/fhes-tus/Veritas-Reader/releases)
-[![Android API Target](https://img.shields.io/badge/Target-Android%2016%20(API%2036)-green.svg)](https://developer.android.com/)
-[![Android API Min](https://img.shields.io/badge/Min%20SDK-API%2028-blue.svg)](https://developer.android.com/)
-[![Kotlin Version](https://img.shields.io/badge/Kotlin-2.4.0-purple.svg)](https://kotlinlang.org/)
-[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](#)
+# 📖 Veritas Reader
 
-Veritas Reader is a modern, high-fidelity Android reading and text-to-speech (TTS) application. It transforms imported documents—including TXT, PDFs, DOCX, EPUBs, PPTX, images, scanned pages, and web articles—into a centralized, personal reading library equipped with on-device neural voice playback, interactive study tools, smart cover extraction, dyslexia-friendly typography, and reading habit analytics.
+### *Your intelligent, private reading companion, neural audiobook studio, and active-recall study suite for Android.*
+
+[![Latest Release](https://img.shields.io/badge/Release-v2.3.1-orange.svg)](https://github.com/fhes-tus/Veritas-Reader/releases)
+[![Target Platform](https://img.shields.io/badge/Platform-Android%2016%20(API%2036)-3DDC84.svg?logo=android&logoColor=white)](https://developer.android.com/)
+[![Minimum SDK](https://img.shields.io/badge/Min%20SDK-Android%209.0%20(API%2028)-blue.svg)](https://developer.android.com/)
+[![Language](https://img.shields.io/badge/Kotlin-2.4.0-7F52FF.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+[![UI Toolkit](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4.svg?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20On--Device-success.svg)](#privacy--offline-first)
+
+<br/>
+
+<p align="center">
+  <img width="30%" alt="Home Dashboard" src="docs/screenshots/home.png" />
+  <img width="30%" alt="Central Library" src="docs/screenshots/library.png" />
+  <img width="30%" alt="Reading Mode" src="docs/screenshots/current_reader.png" />
+</p>
+
+</div>
 
 ---
 
-## 📥 Downloads (v2.3.1)
+## 🌟 Overview
 
-Choose the APK package suitable for your device from the [Releases](https://github.com/fhes-tus/Veritas-Reader/releases) page:
+**Veritas Reader** transforms any document into an immersive, multi-sensory reading experience. Whether you are studying dense academic papers, reading digital books on your commute, or listening to long-form articles hands-free, Veritas Reader combines state-of-the-art on-device neural voice synthesis, active-recall study tools, dyslexia-friendly typography, and reading analytics into a single, cohesive experience.
 
-| Package | Size | Target Devices | Description |
-| :--- | :--- | :--- | :--- |
-| **`Veritas_Reader_v2.3.1_arm64.apk`** | **~54 MB** | **64-bit ARM** *(Recommended)* | Optimized build for ~99% of modern Android devices (Snapdragon, MediaTek, Tensor, Exynos). |
-| **`Veritas_Reader_v2.3.1_universal.apk`** | **~75 MB** | **All Devices** | Universal package containing all native binary architectures. |
-| **`Veritas_Reader_v2.3.1_armeabi-v7a.apk`** | **~45 MB** | **32-bit ARM** | Lightweight package for legacy 32-bit Android phones and tablets. |
+Designed with an **offline-first, privacy-respecting philosophy**, your documents, reading history, highlights, and voice notes never leave your device. No subscriptions, no mandatory accounts, and no data tracking.
 
 ---
 
-## 📱 Core Features
+## 📸 App Preview
 
-### 1. Document Import & Preloaded Library
-*   **Default Classic Book:** Comes bundled with Dr. Spencer Johnson's classic *"Who Moved My Cheese?"* with full cover artwork and chapter formatting, alongside the interactive *Veritas Welcome Guide*.
-*   **In-App Book Browser:** Direct sandboxed access to 5 major open digital book repositories (*Project Gutenberg*, *Standard Ebooks*, *Open Library*, *ManyBooks*, and *Ocean of PDF*) with automatic download interception and direct-to-library importing.
-*   **Multi-Format Support:** Import local EPUB, DOCX, PPTX, PDF, and TXT files, or extract clean content from web links.
-*   **Intelligent Cover Extractor:** Multi-page cover candidate scoring with aspect-ratio validation, text-presence analysis, and stylized gradient fallback generation.
-*   **Hybrid OCR & Text Extraction:** Uses a hybrid extraction system powered by PDFBox, native Android PDF rendering, and Google ML Kit OCR to parse content, preserve formatting, and identify column structures.
-*   **Interactive Table of Contents (TOC):** Quick jump drawer with chapter and section hopping for multi-part PDFs and EPUBs.
+<div align="center">
 
-### 2. Audio Playback & Neural TTS Engine
-*   **On-Device Neural Voices:** High-fidelity neural TTS engines powered by Sherpa-ONNX, Kokoro, and Piper with native streaming audio buffers alongside System TTS fallbacks.
-*   **Voice Management:** Deep voice configurations allowing speed, pitch, engine preference, and accent selections.
-*   **Audio Output Safety:** Auto-pauses or ducks speech during audio focus changes (e.g., incoming phone calls) and headphone disconnects.
-*   **Headset Control Mapping:** Map wired, Bluetooth, and media-button actions to reading controls.
-*   **Audio Export:** Convert processed texts into standard WAV audio files for offline listening.
-*   **Sleep Timer:** Auto-stop playback with section-end boundaries so audio never halts mid-sentence.
+| 📚 Reading & TTS | 🎧 Immersive Audio | 📄 Original PDF View |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/current_reader.png" width="280" alt="Reading Mode & Highlighting" /> | <img src="docs/screenshots/audio_player.png" width="280" alt="Audio Player & Speeds" /> | <img src="docs/screenshots/pdf_viewer.png" width="280" alt="Original PDF Mode" /> |
 
-### 3. Study Tools & Markdown Annotations
-*   **Multi-Media Notes:** Attach local images, audio clips, and voice recordings directly to note cards.
-*   **Document Annotations:** Store highlights, bookmarks, and sentence-level notes. An alignment remapping algorithm keeps annotations anchored even if the document text is edited.
-*   **Study Guide PDF Exporter:** Generate beautifully structured study guides with LaTeX mathematical rendering, definitions, and summaries exported directly to printable PDF.
-*   **Note Reminders:** Schedule exact alarms on notes, with automatic fallbacks for newer API versions.
-*   **Extracted Text Editor:** Repair or edit selected sentences directly within the reader app without modifying the original source document.
-*   **Pronunciation Rules:** Configure speech replacements/corrections (e.g., spelling out abbreviations or fixing phonetic anomalies) applied before playback and audio export.
+| ✍️ Notes & Voice Clips | 🧠 Study Hub & Flashcards | 📊 Habit & Reading Insights |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/notes.png" width="280" alt="Multi-Media Notes" /> | <img src="docs/screenshots/study.png" width="280" alt="Study Hub Flashcards" /> | <img src="docs/screenshots/insights.png" width="280" alt="Analytics Heatmap" /> |
 
-### 4. Onboarding Quests & Interactive Guided Tour
-*   **Interactive Guided Tour:** Multi-step spotlight tutorial that navigates through the document reader, Notes Studio, AI Study Hub, and Settings Hub.
-*   **Onboarding Quests:** Floating mission checklist tracking core app milestones (guided tour, import, voice customization, bookmarks) with persistent progress.
+</div>
 
-### 5. On-Device AI & Reference Utilities
-*   **Offline Study Tools:** Generate local summaries, key points, terms, flashcard sets, and quizzes from saved text without requiring external API keys.
-*   **Ask AI Handoff:** Instantly prepare selected text or a reading part for an installed AI app (like Gemini) without needing developer API keys.
-*   **Translation Handoff:** Prepare selected text, sections, or documents for installed translation apps.
-*   **Dictionary & Wikipedia Lookups:** Quick definition lookup for selected words through local dictionary databases or Wikipedia search shortcuts.
+<p align="center">
+  <b>Android 16 Material You Home Screen Widgets</b><br/>
+  <img src="docs/screenshots/widgets.png" width="420" alt="Interactive Home Widgets" />
+</p>
 
-### 6. Habit Analytics & App Updates
-*   **Daily Streaks:** Streak tracker showing current and longest reading patterns.
-*   **Habit Heatmap:** Visual calendar heatmap showing daily read sessions.
-*   **Interactive Analytics Charts:** Dynamic donut charts displaying Format Distribution and Top Book Allocation with spring-bouncy expansion and details cards.
-*   **8-Week Rolling History:** Swipeable bar charts displaying daily reading metrics.
-*   **Local Progress Sync Pack:** Export, share, and import local reading progress, notes, lists, and settings without requiring cloud accounts.
+---
 
-### 7. UI Customization & Typography
-*   **Custom Reading Fonts:** Atkinson Hyperlegible, Bitter, Literata, and Lora variable fonts for high legibility and reading comfort.
-*   **Premium Themes:** Deep UI custom styling including Material You, Liquid Glass, One UI-style, and High Contrast configurations.
-*   **Night Mode PDF Inversion:** Custom color-matrix filter to invert PDF page rendering for comfortable night-time reading.
+## 🚀 Key Features
 
-### 8. Android 16 Material You Home Screen Widgets
-*   **Interactive Flashcards:** Spaced repetition flashcards with tactile flip-to-answer interaction directly on your Android home screen.
-*   **Study Dashboard Widget:** Glance widget displaying daily cards due, streak status, mastery percentage, and active decks.
-*   **Mini Audio Player Widget:** Quick playback controls, sentence counter, and current book info right from the launcher.
+### 📖 1. Universal Multi-Format Reading
+* **Broad Format Support**: Import and read **PDF**, **EPUB**, **DOCX**, **PPTX**, and plain text (**TXT**, **MD**, **LOG**, etc.), or scrape clean distraction-free articles directly from web URLs.
+* **Dual Reading Engines**:
+  * **Text Flow View**: Clean, continuous, customizable typographic view with sentence-by-sentence reading tracking and instant word lookups.
+  * **Original Document View**: High-fidelity page renderer preserving original fonts, layouts, column structures, and embedded illustrations.
+* **Optical Character Recognition (OCR)**: Scanned pages, multi-column research papers, and image-based PDFs are automatically parsed using on-device Google ML Kit OCR.
+* **Interactive Table of Contents**: Jump effortlessly between sections, parts, and chapters with the interactive TOC navigation drawer.
+* **Dyslexia & Comfort Typography**: Includes variable fonts designed for high legibility (*Atkinson Hyperlegible*, *Literata*, *Lora*, *Bitter*), configurable font scaling, line height, and Night Mode PDF color inversion.
+
+### 🎙️ 2. On-Device Neural Audiobook Player
+* **Studio-Quality Neural Voices**: Experience lifelike, expressive offline narration powered by **Piper** and **Kokoro** via Sherpa-ONNX runtime—generating natural speech completely offline.
+* **System TTS Fallback**: Full compatibility with Android's built-in text-to-speech engines and third-party voice providers.
+* **Full Audio Playback Controls**: Real-time slider adjustments for speech rate (0.5x–2.5x), pitch tuning, and voice accents.
+* **Uninterrupted Background Playback**: MediaSession-powered background audio with lock-screen notification controls, headset button mapping, and auto-pause on phone calls or headphone disconnection.
+* **Smart Sleep Timer**: Set timed audio shutoff with automatic sentence-boundary detection so playback never abruptly cuts off mid-thought.
+* **Audio Exporter**: Convert any document chapter or excerpt directly into a `.wav` audio file for offline listening on any device.
+
+### 🧠 3. Active-Recall Study Suite & Flashcards
+* **Tactile Spaced-Repetition Flashcards**: Automatically generate or manually build flashcard decks with tactile flip animations, rating intervals, and mastery tracking.
+* **Rich Markdown Notes**: Create study notes directly anchored to document sentences. Attach photos, document snapshots, and recorded voice memos to your cards.
+* **Study Guide PDF Exporter**: Compile highlights, notes, definitions, and LaTeX mathematical equations into a beautifully styled, printable PDF study guide.
+* **Extracted Sentence Editor**: Fix typographic quirks or customize sentences directly within the app without altering your source document.
+* **Phonetic Pronunciation Rules**: Create custom pronunciation dictionaries (e.g., expanding medical acronyms or correcting foreign names) applied across both live TTS and exported audio.
+
+### 🌐 4. In-App Digital Book Catalog
+* **Direct Repository Access**: Browse, search, and download thousands of public-domain books directly from 5 major digital libraries:
+  * *Project Gutenberg*
+  * *Standard Ebooks*
+  * *Open Library*
+  * *ManyBooks*
+  * *Ocean of PDF*
+* **Automatic Download Interception**: Downloaded EPUBs, PDFs, and TXT files are automatically sandboxed and imported into your personal library with generated book covers and chapter outlines.
+
+### 📊 5. Reading Insights & Habit Tracker
+* **Daily Reading Streaks**: Stay motivated with continuous streak counters and milestones.
+* **Annual Habit Heatmap**: Visual GitHub-style contribution heatmap tracking every reading session throughout the year.
+* **Visual Analytics**: Interactive spring-animated charts showing reading speed (words per minute), format distribution, and rolling 8-week history.
+* **Local Progress Backup**: Export, import, and transfer your full reading library, annotations, flashcard progress, and settings with zero cloud dependency.
+
+### 📱 6. Android 16 Material You Widgets
+* **Interactive Flashcards Widget**: Review due cards with interactive tap-to-flip and grading directly from your launcher screen.
+* **Study Dashboard Widget**: Quick overview of daily review goals, active streaks, and deck mastery.
+* **Mini Audio Player Widget**: Instant play/pause, track seeking, and sentence position counter right on your home screen.
+
+---
+
+## 🔒 Privacy & Offline-First
+
+* **Zero Cloud Tracking**: All text extraction, OCR, AI study aids, and neural speech synthesis run 100% on-device.
+* **No Mandatory Account**: Open the app and start reading immediately. No login, tracking analytics, or telemetry.
+* **Sandboxed Security**: In-app web browsing enforces strict sandbox restrictions, ensuring untrusted web content cannot access local storage or device permissions.
+
+---
+
+## 📥 Installation
+
+Download the latest release APK from the official repository releases:
+
+👉 **[Download Latest Veritas Reader Release](https://github.com/fhes-tus/Veritas-Reader/releases)**
+
+| Package | Recommended For | Architecture |
+| :--- | :--- | :--- |
+| **`Veritas_Reader_v2.3.1_arm64.apk`** | **99% of Modern Android Phones & Tablets** | `arm64-v8a` *(Recommended)* |
+| **`Veritas_Reader_v2.3.1_universal.apk`** | **Universal Package (All Supported Devices)** | `arm64-v8a`, `armeabi-v7a` |
+| **`Veritas_Reader_v2.3.1_armeabi-v7a.apk`** | **Legacy 32-bit Devices** | `armeabi-v7a` |
+
+> **Requirements**: Android 9.0 (Pie / API 28) or higher. Optimized for Android 15 & Android 16.
 
 ---
 
 ## 🛠️ Architecture & Tech Stack
 
-Veritas Reader is built using standard Android architecture guidelines and modern engineering patterns:
+Veritas Reader is built adhering strictly to modern Android development standards and Unidirectional Data Flow (UDF) architecture:
 
-*   **Jetpack Compose & Material 3:** 100% declarative UI built with Material 3 components and spring-based animations.
-*   **AndroidX Glance:** Interactive Material You Home Screen widgets with reactive Glance state management.
-*   **StateFlow MVVM:** Unidirectional Data Flow (UDF) driven by a single-source-of-truth UI state inside `ReaderViewModel`.
-*   **Kotlin Coroutines & Flow:** Asynchronous task threading with cooperative cancellation points (`yield()`).
-*   **Sherpa-ONNX & Kokoro / Piper:** High-efficiency C++/JNI neural text-to-speech runtime.
-*   **SharedPreferences & JSON Persistence:** Hand-rolled JSON document store with a resilient double-write (`__bak`) serialization system to secure user libraries against write corruption.
-*   **Google ML Kit:** Latin text recognition (OCR) and Language Identification.
-*   **AndroidX Media3:** Background media session integration and TTS configurations.
-
----
-
-## 📸 Screenshots
-
-<p align="center">
-  <img width="30%" alt="Home Dashboard" src="docs/screenshots/home.png" />
-  <img width="30%" alt="Central Library" src="docs/screenshots/library.png" />
-  <img width="30%" alt="Notes & Voice Annotations" src="docs/screenshots/notes.png" />
-</p>
-<p align="center">
-  <img width="30%" alt="Reading Mode & TTS" src="docs/screenshots/current_reader.png" />
-  <img width="30%" alt="Audio Player & Listen Mode" src="docs/screenshots/audio_player.png" />
-  <img width="30%" alt="Original PDF View" src="docs/screenshots/pdf_viewer.png" />
-</p>
-
-<p align="center">
-  <img width="30%" alt="Study Hub & Flashcards" src="docs/screenshots/study.png" />
-  <img width="30%" alt="Reading Insights & Habit Tracker" src="docs/screenshots/insights.png" />
-  <img width="35%" alt="Android 16 Material You Widgets" src="docs/screenshots/widgets.png" />
-</p>
+* **UI Layer**: 100% declarative UI built with **Jetpack Compose**, **Material 3**, and Compose Spring Animations.
+* **Architecture**: MVVM with `StateFlow` and immutable UI state representations.
+* **Background Audio & Media**: **AndroidX Media3** with foreground service lifecycle management and battery optimization guardrails.
+* **Home Screen Widgets**: **AndroidX Glance** for responsive, interactive Material You home screen widgets.
+* **Neural Speech Synthesis**: C++/JNI bindings to **Sherpa-ONNX**, running quantized **Piper** and **Kokoro** models with low-latency streaming PCM buffers.
+* **OCR & Vision**: **Google ML Kit** Latin Text Recognition and Language Identification.
+* **Document Parsing**: Hybrid pipeline combining **PdfBox-Android**, Android native `PdfRenderer`, and lightweight XML/EPUB streaming parsers.
+* **Data Reliability**: Atomic file writing and automatic JSON serialization backup (`__bak`) to ensure zero document loss during abrupt process death.
 
 ---
 
-Download and install the newest release APK for the most up-to-date app experience:  
-👉 **[Veritas Reader Releases](https://github.com/fhes-tus/Veritas-Reader/releases)** 🎉
+## 🤝 Contributing & Feedback
+
+Suggestions, bug reports, and pull requests are welcome! Feel free to open an issue on the [Issues page](https://github.com/fhes-tus/Veritas-Reader/issues).
+
+---
+
+<div align="center">
+  <sub>Crafted with passion for readers, students, and lifelong learners.</sub>
+</div>
 
