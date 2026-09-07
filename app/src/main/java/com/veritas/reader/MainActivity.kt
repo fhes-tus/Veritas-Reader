@@ -2519,6 +2519,11 @@ internal fun VeritasReaderApp(
                     viewModel.saveReaderSettings(
                         uiState.readerSettings.copy(collapsibleReaderBars = !uiState.readerSettings.collapsibleReaderBars)
                     )
+                },
+                onToggleNavLabels = {
+                    viewModel.saveReaderSettings(
+                        uiState.readerSettings.copy(showNavLabels = !uiState.readerSettings.showNavLabels)
+                    )
                 }
             )
         }

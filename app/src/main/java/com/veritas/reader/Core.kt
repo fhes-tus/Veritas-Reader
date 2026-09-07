@@ -676,7 +676,9 @@ data class ReaderSettings(
     // Shake phone in final 60s of sleep timer to extend by 10 minutes
     val shakeToExtendSleepTimer: Boolean = true,
     // Accessibility / Reader: toggle whether tapping canvas collapses top & bottom bars
-    val collapsibleReaderBars: Boolean = true
+    val collapsibleReaderBars: Boolean = true,
+    // Accessibility / Navigation: show or hide text labels beneath navigation bar icons
+    val showNavLabels: Boolean = true
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("fontSizeSp", fontSizeSp)
@@ -696,6 +698,7 @@ data class ReaderSettings(
         .put("bionicReading", bionicReading)
         .put("shakeToExtendSleepTimer", shakeToExtendSleepTimer)
         .put("collapsibleReaderBars", collapsibleReaderBars)
+        .put("showNavLabels", showNavLabels)
 
     companion object {
         fun fromJson(obj: JSONObject): ReaderSettings {
@@ -719,7 +722,8 @@ data class ReaderSettings(
                 uiFontId = obj.optString("uiFontId", "system"),
                 bionicReading = obj.optBoolean("bionicReading", false),
                 shakeToExtendSleepTimer = obj.optBoolean("shakeToExtendSleepTimer", true),
-                collapsibleReaderBars = obj.optBoolean("collapsibleReaderBars", true)
+                collapsibleReaderBars = obj.optBoolean("collapsibleReaderBars", true),
+                showNavLabels = obj.optBoolean("showNavLabels", true)
             )
         }
     }

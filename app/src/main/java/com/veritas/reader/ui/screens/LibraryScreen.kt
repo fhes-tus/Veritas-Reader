@@ -97,6 +97,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.outlined.Note
 import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.History
@@ -563,6 +564,13 @@ fun LibraryScreen(
     val pagerState = rememberPagerState(initialPage = initialTab.ordinal) { VeritasHomeTab.entries.size }
     val homeListState = rememberLazyListState()
     val studyListState = rememberLazyListState()
+
+    val navigateToTab: (VeritasHomeTab) -> Unit = remember(pagerState, coroutineScope) {
+        { tab: VeritasHomeTab ->
+            selectedHomeTab = tab
+            coroutineScope.launch { pagerState.animateScrollToPage(tab.ordinal) }
+        }
+    }
 
     // Handle targetHomeTab navigation requests directly:
     LaunchedEffect(uiState.targetHomeTab) {
@@ -1085,7 +1093,7 @@ fun LibraryScreen(
             snapshot = uiState.readerTrackerSnapshot,
             onDismiss = { showHomeSidebar = false },
             onOpenLibrary = {
-                selectedHomeTab = VeritasHomeTab.LIBRARY
+                navigateToTab(VeritasHomeTab.LIBRARY)
                 showHomeSidebar = false
             },
             onOpenStats = {
@@ -1655,105 +1663,144 @@ fun LibraryScreen(
             bottomBar = {
                 val scheme = MaterialTheme.colorScheme
                 val isDark = scheme.surface.luminance() < 0.5f
-                val bottomNavColor = if (isDark) {
-                    blendColors(scheme.surface, scheme.primary, 0.07f).copy(alpha = VeritasPackStyle.surfaceAlpha())
+                val showNavLabels = uiState.readerSettings.showNavLabels
+                val barHeight = if (showNavLabels) 66.dp else 60.dp
+
+                // Translucent floating capsule with theme gradient
+                val gradientBrush = if (isDark) {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            blendColors(scheme.surface, scheme.primary, 0.12f).copy(alpha = 0.94f),
+                            blendColors(scheme.surface, Color.Black, 0.20f).copy(alpha = 0.96f)
+                        )
+                    )
                 } else {
-                    scheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            blendColors(scheme.surface, scheme.primaryContainer, 0.35f).copy(alpha = 0.95f),
+                            blendColors(scheme.surface, scheme.primary, 0.08f).copy(alpha = 0.97f)
+                        )
+                    )
                 }
-                val bottomNavContentColor = if (isDark) scheme.onSurface else scheme.onPrimaryContainer
-                Surface(
-                    color = bottomNavColor,
-                    shape = VeritasPackStyle.bottomNavShape(),
-                    border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
-                    contentColor = bottomNavContentColor,
-                    tonalElevation = if (isDark) 1.dp else 3.dp,
+
+                val borderBrush = if (isDark) {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.22f),
+                            scheme.primary.copy(alpha = 0.32f),
+                            Color.White.copy(alpha = 0.08f)
+                        )
+                    )
+                } else {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.65f),
+                            scheme.primary.copy(alpha = 0.25f),
+                            Color.White.copy(alpha = 0.30f)
+                        )
+                    )
+                }
+
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = VeritasPackStyle.bottomNavPadding())
+                        .navigationBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(
+                    Surface(
                         modifier = Modifier
+                            .widthIn(max = 580.dp)
                             .fillMaxWidth()
-                            .navigationBarsPadding(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .height(barHeight),
+                        shape = RoundedCornerShape(barHeight / 2),
+                        color = Color.Transparent,
+                        shadowElevation = if (isDark) 10.dp else 8.dp,
+                        tonalElevation = 0.dp
                     ) {
-                        Row(
+                        Box(
                             modifier = Modifier
-                                .widthIn(max = 760.dp)
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            horizontalArrangement = Arrangement.SpaceAround,
-                            verticalAlignment = Alignment.CenterVertically
+                                .fillMaxSize()
+                                .background(
+                                    brush = gradientBrush,
+                                    shape = RoundedCornerShape(barHeight / 2)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    brush = borderBrush,
+                                    shape = RoundedCornerShape(barHeight / 2)
+                                ),
+                            contentAlignment = Alignment.Center
                         ) {
-                            BottomNavItem(
-                                selected = activeNavTab == VeritasHomeTab.HOME,
-                                onClick = {
-                                    selectedHomeTab = VeritasHomeTab.HOME
-                                    coroutineScope.launch { pagerState.animateScrollToPage(VeritasHomeTab.HOME.ordinal) }
-                                },
-                                icon = { color ->
-                                    Icon(
-                                        imageVector = if (activeNavTab == VeritasHomeTab.HOME) Icons.Filled.Home else Icons.Outlined.Home,
-                                        contentDescription = "Home",
-                                        tint = color,
-                                        modifier = Modifier.size(if (activeNavTab == VeritasHomeTab.HOME) 27.dp else 24.dp)
-                                    )
-                                },
-                                label = "Home"
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceAround,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                BottomNavItem(
+                                    selected = activeNavTab == VeritasHomeTab.HOME,
+                                    onClick = { navigateToTab(VeritasHomeTab.HOME) },
+                                    icon = { color, size ->
+                                        Icon(
+                                            imageVector = if (activeNavTab == VeritasHomeTab.HOME) Icons.Filled.Home else Icons.Outlined.Home,
+                                            contentDescription = "Home",
+                                            tint = color,
+                                            modifier = Modifier.size(size)
+                                        )
+                                    },
+                                    label = "Home",
+                                    showLabel = showNavLabels
+                                )
 
-                            BottomNavItem(
-                                selected = activeNavTab == VeritasHomeTab.LIBRARY,
-                                onClick = {
-                                    selectedHomeTab = VeritasHomeTab.LIBRARY
-                                    coroutineScope.launch { pagerState.animateScrollToPage(VeritasHomeTab.LIBRARY.ordinal) }
-                                },
-                                icon = { color ->
-                                    Icon(
-                                        imageVector = if (activeNavTab == VeritasHomeTab.LIBRARY) Icons.AutoMirrored.Filled.MenuBook else Icons.AutoMirrored.Outlined.MenuBook,
-                                        contentDescription = "Library",
-                                        tint = color,
-                                        modifier = Modifier.size(if (activeNavTab == VeritasHomeTab.LIBRARY) 27.dp else 24.dp)
-                                    )
-                                },
-                                label = "Library"
-                            )
+                                BottomNavItem(
+                                    selected = activeNavTab == VeritasHomeTab.LIBRARY,
+                                    onClick = { navigateToTab(VeritasHomeTab.LIBRARY) },
+                                    icon = { color, size ->
+                                        Icon(
+                                            imageVector = if (activeNavTab == VeritasHomeTab.LIBRARY) Icons.AutoMirrored.Filled.MenuBook else Icons.AutoMirrored.Outlined.MenuBook,
+                                            contentDescription = "Library",
+                                            tint = color,
+                                            modifier = Modifier.size(size)
+                                        )
+                                    },
+                                    label = "Library",
+                                    showLabel = showNavLabels
+                                )
 
-                            BottomNavItem(
-                                selected = activeNavTab == VeritasHomeTab.NOTES,
-                                onClick = {
-                                    selectedHomeTab = VeritasHomeTab.NOTES
-                                    coroutineScope.launch { pagerState.animateScrollToPage(VeritasHomeTab.NOTES.ordinal) }
-                                },
-                                icon = { color ->
-                                    Icon(
-                                        imageVector = Icons.Outlined.EditNote,
-                                        contentDescription = "Notes",
-                                        tint = color,
-                                        modifier = Modifier.size(if (activeNavTab == VeritasHomeTab.NOTES) 27.dp else 24.dp)
-                                    )
-                                },
-                                label = "Notes",
-                                modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("notes_tab", it) }
-                            )
+                                BottomNavItem(
+                                    selected = activeNavTab == VeritasHomeTab.NOTES,
+                                    onClick = { navigateToTab(VeritasHomeTab.NOTES) },
+                                    icon = { color, size ->
+                                        Icon(
+                                            imageVector = if (activeNavTab == VeritasHomeTab.NOTES) Icons.Filled.EditNote else Icons.Outlined.EditNote,
+                                            contentDescription = "Notes",
+                                            tint = color,
+                                            modifier = Modifier.size(size)
+                                        )
+                                    },
+                                    label = "Notes",
+                                    showLabel = showNavLabels,
+                                    modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("notes_tab", it) }
+                                )
 
-                            BottomNavItem(
-                                selected = activeNavTab == VeritasHomeTab.STUDY,
-                                onClick = {
-                                    selectedHomeTab = VeritasHomeTab.STUDY
-                                    coroutineScope.launch { pagerState.animateScrollToPage(VeritasHomeTab.STUDY.ordinal) }
-                                },
-                                icon = { color ->
-                                    Icon(
-                                        imageVector = if (activeNavTab == VeritasHomeTab.STUDY) Icons.Filled.Layers else Icons.Outlined.Layers,
-                                        contentDescription = "Study",
-                                        tint = color,
-                                        modifier = Modifier.size(if (activeNavTab == VeritasHomeTab.STUDY) 27.dp else 24.dp)
-                                    )
-                                },
-                                label = "Study",
-                                modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("study_tab", it) }
-                            )
+                                BottomNavItem(
+                                    selected = activeNavTab == VeritasHomeTab.STUDY,
+                                    onClick = { navigateToTab(VeritasHomeTab.STUDY) },
+                                    icon = { color, size ->
+                                        Icon(
+                                            imageVector = if (activeNavTab == VeritasHomeTab.STUDY) Icons.Filled.Layers else Icons.Outlined.Layers,
+                                            contentDescription = "Study",
+                                            tint = color,
+                                            modifier = Modifier.size(size)
+                                        )
+                                    },
+                                    label = "Study",
+                                    showLabel = showNavLabels,
+                                    modifier = Modifier.onGloballyPositioned { OnboardingController.updateBounds("study_tab", it) }
+                                )
+                            }
                         }
                     }
                 }
@@ -1905,7 +1952,9 @@ fun LibraryScreen(
                                                         style = MaterialTheme.typography.labelMedium,
                                                         fontWeight = FontWeight.SemiBold,
                                                         color = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.clickable { selectedHomeTab = VeritasHomeTab.LIBRARY }
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .clickable { navigateToTab(VeritasHomeTab.LIBRARY) }
                                                     )
                                                 }
                                             }
@@ -3346,7 +3395,7 @@ fun LibraryScreen(
                                 icon = Icons.Outlined.Bookmark,
                                 title = "No bookmarks yet",
                                 description = "Bookmark key passages while reading. Your bookmarked sentences will show up here.",
-                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onGoToLibrary = { navigateToTab(VeritasHomeTab.LIBRARY) },
                                 onImportFile = onImportFile
                             )
                         }
@@ -3378,7 +3427,7 @@ fun LibraryScreen(
                                 icon = Icons.Outlined.EditNote,
                                 title = "No booknotes yet",
                                 description = "Add notes to sentences or write general document notes while reading.",
-                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onGoToLibrary = { navigateToTab(VeritasHomeTab.LIBRARY) },
                                 onImportFile = onImportFile
                             )
                         }
@@ -3429,7 +3478,7 @@ fun LibraryScreen(
                                 icon = Icons.Outlined.Book,
                                 title = "No vocabulary words yet",
                                 description = "Select words in the reader and click Ask AI, Google Search, or Translate to automatically accumulate lookups here.",
-                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onGoToLibrary = { navigateToTab(VeritasHomeTab.LIBRARY) },
                                 onImportFile = onImportFile
                             )
                         }
@@ -3570,7 +3619,7 @@ fun LibraryScreen(
                                 icon = Icons.Outlined.EditNote,
                                 title = "No quizzes yet",
                                 description = "Take a quiz to test your memory and retention. Create a quiz directly with AI or paste a quiz from ChatGPT, Claude, or Gemini.",
-                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onGoToLibrary = { navigateToTab(VeritasHomeTab.LIBRARY) },
                                 primaryActionLabel = "Open AI Hub",
                                 onPrimaryAction = onOpenAiStudyTools
                             )
@@ -3683,7 +3732,7 @@ fun LibraryScreen(
                                 icon = Icons.Outlined.History,
                                 title = "No reading history yet",
                                 description = "Documents you read will show up here.",
-                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onGoToLibrary = { navigateToTab(VeritasHomeTab.LIBRARY) },
                                 onImportFile = onImportFile
                             )
                         }
@@ -3881,7 +3930,7 @@ fun LibraryScreen(
                                 icon = Icons.Outlined.Book,
                                 title = "No flashcards yet",
                                 description = "Open a document → Study Tools → 'Create flashcards' to send a prompt to your AI app, or create flashcard sets directly with AI.",
-                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                onGoToLibrary = { navigateToTab(VeritasHomeTab.LIBRARY) },
                                 primaryActionLabel = "Open AI Hub",
                                 onPrimaryAction = onOpenAiStudyTools
                             )

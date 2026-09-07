@@ -1244,7 +1244,8 @@ fun AccessibilitySettingsDialog(
     onToggleReduceMotion: () -> Unit,
     onToggleBionicReading: () -> Unit = {},
     onToggleShakeToExtend: () -> Unit = {},
-    onToggleCollapsibleBars: () -> Unit = {}
+    onToggleCollapsibleBars: () -> Unit = {},
+    onToggleNavLabels: () -> Unit = {}
 ) {
     FullScreenSettingsScaffold(title = "Accessibility", onBack = onDismiss) {
         // Reading focus & comprehension
@@ -1430,6 +1431,14 @@ fun AccessibilitySettingsDialog(
                         Text("Display indices for study and search jumps", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     VeritasSwitch(checked = settings.showSectionNumbers, onCheckedChange = { onToggleSectionNumbers() })
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Show navigation tab labels", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                        Text("Display text labels beneath floating navigation bar icons. Toggle off for minimalist icon-only navigation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    VeritasSwitch(checked = settings.showNavLabels, onCheckedChange = { onToggleNavLabels() })
                 }
             }
         }

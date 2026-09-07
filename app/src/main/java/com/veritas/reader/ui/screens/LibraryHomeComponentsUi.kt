@@ -7,6 +7,7 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.SortByAlpha
@@ -1850,31 +1851,35 @@ internal fun Modifier.staggeredEntrance(position: Int): Modifier {
 internal fun RowScope.BottomNavItem(
     selected: Boolean,
     onClick: () -> Unit,
-    icon: @Composable (Color) -> Unit,
+    icon: @Composable (Color, androidx.compose.ui.unit.Dp) -> Unit,
     label: String,
+    showLabel: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.surface.luminance() < 0.5f
+
     val contentColor by animateColorAsState(
         targetValue = if (selected) {
-            MaterialTheme.colorScheme.primary
+            scheme.primary
         } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
+            scheme.onSurfaceVariant.copy(alpha = 0.72f)
         },
         animationSpec = tween(durationMillis = 200),
         label = "navColor"
     )
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    // 0.93x press-scale with a springy release so taps feel physical.
+    // 0.92x press-scale with a springy release so taps feel physical.
     val pressScale by animateFloatAsState(
-        targetValue = if (pressed) 0.93f else 1f,
+        targetValue = if (pressed) 0.92f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow
         ),
         label = "navPress"
     )
-    // Pill indicator softly scales/fades in behind the active icon (Material 3 style).
+    // Pronounced pill indicator softly scales/fades in behind the active icon and text.
     val pillProgress by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
         animationSpec = spring(
@@ -1883,8 +1888,22 @@ internal fun RowScope.BottomNavItem(
         ),
         label = "navPill"
     )
-    val pillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-    Column(
+    val activePillColor = if (isDark) {
+        scheme.primary.copy(alpha = 0.28f)
+    } else {
+        scheme.primary.copy(alpha = 0.18f)
+    }
+    val activePillBorder = if (isDark) {
+        scheme.primary.copy(alpha = 0.50f)
+    } else {
+        scheme.primary.copy(alpha = 0.35f)
+    }
+
+    val pillWidth = if (showLabel) 70.dp else 56.dp
+    val pillHeight = if (showLabel) 48.dp else 42.dp
+    val pillRadius = if (showLabel) 24.dp else 21.dp
+
+    Box(
         modifier = modifier
             .weight(1f)
             .fillMaxHeight()
@@ -1902,26 +1921,53 @@ internal fun RowScope.BottomNavItem(
                 scaleX = pressScale
                 scaleY = pressScale
             },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier.size(width = 64.dp, height = 32.dp),
-            contentAlignment = Alignment.Center
-        ) {
+        if (pillProgress > 0.01f) {
             Box(
                 modifier = Modifier
-                    .matchParentSize()
+                    .width(pillWidth)
+                    .height(pillHeight)
                     .graphicsLayer {
-                        scaleX = 0.55f + 0.45f * pillProgress
+                        scaleX = 0.65f + 0.35f * pillProgress
+                        scaleY = 0.65f + 0.35f * pillProgress
                         alpha = pillProgress.coerceIn(0f, 1f)
                     }
                     .background(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = RoundedCornerShape(50)
+                        color = activePillColor,
+                        shape = RoundedCornerShape(pillRadius)
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = activePillBorder,
+                        shape = RoundedCornerShape(pillRadius)
                     )
             )
-            icon(if (selected) MaterialTheme.colorScheme.primary else contentColor)
+        }
+
+        if (showLabel) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                icon(contentColor, if (selected) 23.dp else 22.dp)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                    ),
+                    color = contentColor,
+                    maxLines = 1
+                )
+            }
+        } else {
+            Box(
+                contentAlignment = Alignment.Center
+            ) {
+                icon(contentColor, if (selected) 27.dp else 25.dp)
+            }
         }
     }
 }
