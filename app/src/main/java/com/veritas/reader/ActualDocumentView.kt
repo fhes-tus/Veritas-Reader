@@ -54,6 +54,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.graphics.luminance
+import com.veritas.reader.blendColors
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.automirrored.outlined.*
@@ -870,7 +874,7 @@ internal fun ActualDocumentView(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 12.dp, bottom = if (bottomBarVisible && !isLandscape) 82.dp else 16.dp),
+                    .padding(end = 12.dp, bottom = if (bottomBarVisible && !isLandscape) 96.dp else 16.dp),
                 shape = RoundedCornerShape(18.dp),
                 tonalElevation = 4.dp,
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
@@ -1425,7 +1429,7 @@ internal fun ActualDocumentView(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = if (bottomBarVisible && !isLandscape) 88.dp else 16.dp, start = 16.dp, end = 16.dp)
+                    .padding(bottom = if (bottomBarVisible && !isLandscape) 96.dp else 16.dp, start = 16.dp, end = 16.dp)
                     .fillMaxWidth()
                     .navigationBarsPadding(),
                 shape = RoundedCornerShape(16.dp),
@@ -1621,28 +1625,79 @@ private fun DocPlayerPanel(
         else voices.filter { it.localeTag.equals(voiceSettings.localeTag, ignoreCase = true) }
     }
 
-    Surface(
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.surface.luminance() < 0.5f
+
+    val gradientBrush = if (isDark) {
+        Brush.verticalGradient(
+            colors = listOf(
+                blendColors(scheme.surface, scheme.primary, 0.12f).copy(alpha = 0.94f),
+                blendColors(scheme.surface, androidx.compose.ui.graphics.Color.Black, 0.20f).copy(alpha = 0.96f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(
+                blendColors(scheme.surface, scheme.primaryContainer, 0.35f).copy(alpha = 0.95f),
+                blendColors(scheme.surface, scheme.primary, 0.08f).copy(alpha = 0.97f)
+            )
+        )
+    }
+
+    val borderBrush = if (isDark) {
+        Brush.verticalGradient(
+            colors = listOf(
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.22f),
+                scheme.primary.copy(alpha = 0.32f),
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.65f),
+                scheme.primary.copy(alpha = 0.25f),
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.30f)
+            )
+        )
+    }
+
+    val cornerRadius = androidx.compose.ui.unit.lerp(34.dp, 24.dp, progress)
+    val capsuleShape = RoundedCornerShape(cornerRadius)
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .height(heightDp)
-            .anchoredDraggable(
-                state = draggableState,
-                orientation = Orientation.Vertical
-            ),
-        shape = VeritasPackStyle.cardShape(),
-        tonalElevation = 4.dp,
-        shadowElevation = 3.dp,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha()),
-        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Column(
+        Surface(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .widthIn(max = 580.dp)
+                .fillMaxWidth()
+                .height(heightDp)
+                .anchoredDraggable(
+                    state = draggableState,
+                    orientation = Orientation.Vertical
+                ),
+            shape = capsuleShape,
+            color = androidx.compose.ui.graphics.Color.Transparent,
+            shadowElevation = if (isDark) 10.dp else 8.dp,
+            tonalElevation = 0.dp
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(brush = gradientBrush, shape = capsuleShape)
+                    .border(width = 1.dp, brush = borderBrush, shape = capsuleShape)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
             // Header Row — visible in both Collapsed and Expanded state
             Row(
                 modifier = Modifier
@@ -1902,6 +1957,8 @@ private fun DocPlayerPanel(
             }
         }
     }
+}
+}
 }
 
 @Composable

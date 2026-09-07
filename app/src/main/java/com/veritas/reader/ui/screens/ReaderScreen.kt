@@ -182,6 +182,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.material.icons.outlined.Info
+import com.veritas.reader.DocumentRepository
+import com.veritas.reader.blendColors
 import com.veritas.reader.ShareScope
 import com.veritas.reader.AiAssistantOption
 import com.veritas.reader.AnnotationPill
@@ -366,6 +371,7 @@ fun ReaderScreen(
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
     var showTools by remember { mutableStateOf(false) }
+    var showDocumentDetails by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
     var showOutline by remember { mutableStateOf(false) }
@@ -574,7 +580,7 @@ fun ReaderScreen(
         label = "readerTopContentPadding"
     )
     val bottomContentPadding by animateDpAsState(
-        targetValue = if (effectiveBottomBarVisible) 84.dp else 8.dp,
+        targetValue = if (effectiveBottomBarVisible) 96.dp else 8.dp,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "readerBottomContentPadding"
     )
@@ -1091,7 +1097,8 @@ fun ReaderScreen(
                             onExportStudyGuidePdf = onExportStudyGuidePdf,
                             onToggleQueue = onToggleQueue,
                             onPlayQueue = onPlayQueue,
-                            onOpenRsvpSpeedReader = { showRsvpSpeedReader = true }
+                            onOpenRsvpSpeedReader = { showRsvpSpeedReader = true },
+                            onOpenDocumentDetails = { showDocumentDetails = true }
                         )
                     }
                 }
@@ -1231,6 +1238,14 @@ fun ReaderScreen(
                     onSentenceClick(targetSentenceIndex)
                 }
             }
+        )
+    }
+
+    if (showDocumentDetails) {
+        ReaderDocumentDetailsDialog(
+            document = document,
+            currentIndex = currentIndex,
+            onDismiss = { showDocumentDetails = false }
         )
     }
 
@@ -1552,7 +1567,8 @@ private fun ReaderToolsMenu(
     onExportStudyGuidePdf: () -> Unit = {},
     onToggleQueue: () -> Unit,
     onPlayQueue: () -> Unit,
-    onOpenRsvpSpeedReader: () -> Unit = {}
+    onOpenRsvpSpeedReader: () -> Unit = {},
+    onOpenDocumentDetails: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var showAiChooser by remember { mutableStateOf(false) }
@@ -1608,10 +1624,9 @@ private fun ReaderToolsMenu(
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             onClick = { choose(onToggleSearch) })
         DropdownMenuItem(
-            text = { Text("Original View") },
-            leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null) },
-            enabled = hasCanvas,
-            onClick = { choose(onOpenCanvas) })
+            text = { Text("Document details") },
+            leadingIcon = { Icon(Icons.Outlined.Info, contentDescription = null) },
+            onClick = { choose(onOpenDocumentDetails) })
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.SLEEP_TIMER),
             label = if (sleepTimerLabel.isBlank()) "Sleep timer" else sleepTimerLabel,
@@ -1624,15 +1639,6 @@ private fun ReaderToolsMenu(
             onClick = { choose(onOpenReadingLists) },
             leadingIcon = Icons.Filled.CollectionsBookmark
         )
-        DropdownMenuItem(
-            text = { Text(if (isQueued) "Remove from Queue" else "Add to Queue") },
-            leadingIcon = {
-                Icon(
-                    if (isQueued) Icons.AutoMirrored.Filled.PlaylistAddCheck else Icons.AutoMirrored.Filled.PlaylistAdd,
-                    contentDescription = null
-                )
-            },
-            onClick = { choose(onToggleQueue) })
         DropdownMenuItem(
             text = { Text("Play Queue ($queueCount)") },
             leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null) },
@@ -1734,12 +1740,6 @@ private fun ReaderToolsMenu(
             }
         )
         FeatureDropdownMenuItem(
-            feature = readerFeature(VeritasFeatureId.AI_APP_HANDOFF),
-            label = "AI Ask current part",
-            leadingIcon = Icons.Outlined.Psychology,
-            onClick = { choose(onAskCurrentSection) }
-        )
-        FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.OFFLINE_STUDY_TOOLS),
             label = "AI Study tools",
             leadingIcon = Icons.Outlined.School,
@@ -1803,6 +1803,108 @@ private fun ReaderToolsMenu(
             onClick = { choose(onExportAudio) }
         )
     }
+}
+
+private data class ReaderDocDetailItem(val label: String, val value: String)
+
+@Composable
+private fun ReaderDocumentDetailsDialog(
+    document: ReaderDocument,
+    currentIndex: Int,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val savedDoc = remember(document.id) {
+        val docId = document.id
+        if (docId != null) {
+            runCatching { DocumentRepository(context).findDocument(docId) }.getOrNull()
+        } else null
+    }
+
+    val totalSentences = document.sentences.size
+    val currentSentence = (currentIndex + 1).coerceAtMost(totalSentences)
+    val progressPct = if (totalSentences > 0) ((currentSentence * 100) / totalSentences) else 0
+    val estMinutes = (totalSentences * 2.5 / 60).toInt().coerceAtLeast(1)
+
+    val details = remember(document, savedDoc, currentSentence, totalSentences, progressPct, estMinutes) {
+        val list = mutableListOf<ReaderDocDetailItem>()
+        list.add(ReaderDocDetailItem("Title", document.title))
+        list.add(ReaderDocDetailItem("Format", document.sourceLabel.ifBlank { "Text Document" }))
+        list.add(ReaderDocDetailItem("Progress", "$currentSentence / $totalSentences sentences ($progressPct%)"))
+        if (document.pageCount > 0) {
+            list.add(ReaderDocDetailItem("Pages", "${document.pageCount}"))
+        }
+        list.add(ReaderDocDetailItem("Est. Reading Time", "$estMinutes min"))
+        if (document.rawText.isNotBlank()) {
+            val words = document.rawText.split(Regex("\\s+")).count { it.isNotBlank() }
+            list.add(ReaderDocDetailItem("Word Count", "%,d words (%,d characters)".format(words, document.rawText.length)))
+        }
+        if (savedDoc != null) {
+            if (savedDoc.language.isNotBlank()) {
+                list.add(ReaderDocDetailItem("Language", savedDoc.language))
+            }
+            val addedDate = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault()).format(java.util.Date(savedDoc.createdAt))
+            list.add(ReaderDocDetailItem("Added Date", addedDate))
+            if (savedDoc.updatedAt > 0) {
+                val lastRead = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault()).format(java.util.Date(savedDoc.updatedAt))
+                if (lastRead != addedDate) {
+                    list.add(ReaderDocDetailItem("Last Read", lastRead))
+                }
+            }
+            if (savedDoc.originalFileName.isNotBlank()) {
+                list.add(ReaderDocDetailItem("Source File", savedDoc.originalFileName.substringAfterLast('/').substringAfterLast('\\')))
+            }
+        }
+        list
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+        textContentColor = MaterialTheme.colorScheme.onSurface,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Text("Document Details", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                details.forEach { item ->
+                    Column {
+                        Text(
+                            text = item.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = item.value,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @Composable
@@ -3836,32 +3938,80 @@ private fun PlayerPanel(
         } else null
     }
 
-    Surface(
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.surface.luminance() < 0.5f
+
+    val gradientBrush = if (isDark) {
+        Brush.verticalGradient(
+            colors = listOf(
+                blendColors(scheme.surface, scheme.primary, 0.12f).copy(alpha = 0.94f),
+                blendColors(scheme.surface, androidx.compose.ui.graphics.Color.Black, 0.20f).copy(alpha = 0.96f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(
+                blendColors(scheme.surface, scheme.primaryContainer, 0.35f).copy(alpha = 0.95f),
+                blendColors(scheme.surface, scheme.primary, 0.08f).copy(alpha = 0.97f)
+            )
+        )
+    }
+
+    val borderBrush = if (isDark) {
+        Brush.verticalGradient(
+            colors = listOf(
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.22f),
+                scheme.primary.copy(alpha = 0.32f),
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.65f),
+                scheme.primary.copy(alpha = 0.25f),
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.30f)
+            )
+        )
+    }
+
+    val cornerRadius = androidx.compose.ui.unit.lerp(34.dp, 24.dp, progress)
+    val capsuleShape = RoundedCornerShape(cornerRadius)
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-            .height(heightDp)
-            .anchoredDraggable(
-                state = draggableState,
-                orientation = Orientation.Vertical
-            )
-            .onGloballyPositioned { OnboardingController.updateBounds("player_panel_header", it) },
-        shape = RoundedCornerShape(24.dp),
-        tonalElevation = 6.dp,
-        shadowElevation = 6.dp,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
-        ),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Column(
+        Surface(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+                .widthIn(max = 580.dp)
+                .fillMaxWidth()
+                .height(heightDp)
+                .anchoredDraggable(
+                    state = draggableState,
+                    orientation = Orientation.Vertical
+                )
+                .onGloballyPositioned { OnboardingController.updateBounds("player_panel_header", it) },
+            shape = capsuleShape,
+            color = androidx.compose.ui.graphics.Color.Transparent,
+            shadowElevation = if (isDark) 10.dp else 8.dp,
+            tonalElevation = 0.dp
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(brush = gradientBrush, shape = capsuleShape)
+                    .border(width = 1.dp, brush = borderBrush, shape = capsuleShape)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
             // Header Row (Capsule Main Controls)
             Row(
                 modifier = Modifier
@@ -4175,4 +4325,6 @@ private fun PlayerPanel(
             }
         }
     }
+}
+}
 }

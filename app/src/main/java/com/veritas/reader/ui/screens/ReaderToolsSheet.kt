@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.Composable
@@ -99,7 +100,7 @@ fun ReaderToolsSheet(
     onExportStudyGuidePdf: () -> Unit = {},
     onToggleQueue: () -> Unit,
     onPlayQueue: () -> Unit,
-    
+    onOpenDocumentDetails: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAllSettings by remember { mutableStateOf(false) }
@@ -204,10 +205,10 @@ fun ReaderToolsSheet(
                 )
 
                 SettingsItem(
-                    title = "Original View",
-                    leadingIcon = Icons.Outlined.Description,
-                    enabled = hasCanvas,
-                    onClick = { choose(onOpenCanvas) }
+                    title = "Document details",
+                    leadingIcon = Icons.Outlined.Info,
+                    subtitle = "Metadata, length & format",
+                    onClick = { choose(onOpenDocumentDetails) }
                 )
 
                 val readingListsFeature = readerFeature(VeritasFeatureId.READING_LISTS)
@@ -217,12 +218,6 @@ fun ReaderToolsSheet(
                     enabled = readingListsFeature.enabled,
                     subtitle = if (!readingListsFeature.enabled) readingListsFeature.disabledReason else null,
                     onClick = { choose(onOpenReadingLists) }
-                )
-
-                SettingsItem(
-                    title = if (isQueued) "Remove from Queue" else "Add to Queue",
-                    leadingIcon = if (isQueued) Icons.AutoMirrored.Filled.PlaylistAddCheck else Icons.AutoMirrored.Filled.PlaylistAdd,
-                    onClick = { choose(onToggleQueue) }
                 )
 
                 SettingsItem(

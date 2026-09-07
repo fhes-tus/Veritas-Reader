@@ -323,9 +323,10 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
         val controlsOuter = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(10.dp, 7.dp, 10.dp, 13.dp)
-            setBackgroundColor(colorBackground)
-            elevation = 6f
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(20.dp, 6.dp, 20.dp, 10.dp)
+            setBackgroundColor(Color.TRANSPARENT)
+            elevation = 0f
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -335,10 +336,27 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         applyDeckInsets(controlsOuter)
         bottomChrome = controlsOuter
 
+        val maxWidthPx = 580.dp
+        val screenWidthPx = resources.displayMetrics.widthPixels
+        val barWidthPx = if (screenWidthPx > maxWidthPx) maxWidthPx else LinearLayout.LayoutParams.MATCH_PARENT
+
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(colorSurface, 24.dp)
-            elevation = 8f
+            clipToOutline = true
+            background = capsuleGradientDrawable(
+                isDark = !isLightTheme,
+                surfaceColor = colorSurface,
+                primaryColor = colorPrimary,
+                containerColor = colorSyncBackground,
+                cornerRadius = 32.dp
+            )
+            elevation = if (!isLightTheme) 10.dp.toFloat() else 8.dp.toFloat()
+            layoutParams = LinearLayout.LayoutParams(
+                barWidthPx,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
         }
 
         // Progress strip (thin coloured bar at top of panel)
@@ -1932,7 +1950,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 navigationBarHeight(),
                 6.dp
             )
-            view.setPadding(10.dp, 7.dp, 10.dp, bottom + 7.dp)
+            view.setPadding(20.dp, 6.dp, 20.dp, bottom + 10.dp)
             insets
         }
     }
@@ -2098,6 +2116,37 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         return GradientDrawable().apply {
             setColor(color)
             cornerRadius = radius.toFloat()
+        }
+    }
+
+    private fun capsuleGradientDrawable(
+        isDark: Boolean,
+        surfaceColor: Int,
+        primaryColor: Int,
+        containerColor: Int,
+        cornerRadius: Int
+    ): GradientDrawable {
+        val topColor: Int
+        val bottomColor: Int
+        val strokeColor: Int
+        if (isDark) {
+            topColor = androidx.core.graphics.ColorUtils.blendARGB(surfaceColor, primaryColor, 0.12f)
+            bottomColor = androidx.core.graphics.ColorUtils.blendARGB(surfaceColor, Color.BLACK, 0.20f)
+            strokeColor = Color.argb((0.22f * 255).toInt(), 255, 255, 255)
+        } else {
+            topColor = androidx.core.graphics.ColorUtils.blendARGB(surfaceColor, containerColor, 0.35f)
+            bottomColor = androidx.core.graphics.ColorUtils.blendARGB(surfaceColor, primaryColor, 0.08f)
+            strokeColor = Color.argb((0.65f * 255).toInt(), 255, 255, 255)
+        }
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                androidx.core.graphics.ColorUtils.setAlphaComponent(topColor, (0.94f * 255).toInt()),
+                androidx.core.graphics.ColorUtils.setAlphaComponent(bottomColor, (0.96f * 255).toInt())
+            )
+        ).apply {
+            this.cornerRadius = cornerRadius.toFloat()
+            setStroke(1.dp, strokeColor)
         }
     }
 
