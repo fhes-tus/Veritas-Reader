@@ -95,23 +95,20 @@ Veritas Reader is built using standard Android architecture guidelines and moder
 ## 📸 Screenshots
 
 <p align="center">
-  <img width="48%" alt="Home Dashboard" src="docs/screenshots/home.png" />
-  <img width="48%" alt="Central Library" src="docs/screenshots/library.png" />
+  <img width="30%" alt="Home Dashboard" src="docs/screenshots/home.png" />
+  <img width="30%" alt="Central Library" src="docs/screenshots/library.png" />
+  <img width="30%" alt="Notes & Voice Annotations" src="docs/screenshots/notes.png" />
 </p>
 <p align="center">
-  <img width="48%" alt="Reading Mode & TTS" src="docs/screenshots/current_reader.png" />
-  <img width="48%" alt="Audio Player & Listen Mode" src="docs/screenshots/audio_player.png" />
+  <img width="30%" alt="Reading Mode & TTS" src="docs/screenshots/current_reader.png" />
+  <img width="30%" alt="Audio Player & Listen Mode" src="docs/screenshots/audio_player.png" />
+  <img width="30%" alt="Original PDF View" src="docs/screenshots/pdf_viewer.png" />
 </p>
+
 <p align="center">
-  <img width="48%" alt="Original PDF View" src="docs/screenshots/pdf_viewer.png" />
-  <img width="48%" alt="Study Hub & Flashcards" src="docs/screenshots/study.png" />
-</p>
-<p align="center">
-  <img width="48%" alt="Notes & Voice Annotations" src="docs/screenshots/notes.png" />
-  <img width="48%" alt="Reading Insights & Habit Tracker" src="docs/screenshots/insights.png" />
-</p>
-<p align="center">
-  <img width="98%" alt="Android 16 Material You Widgets" src="docs/screenshots/widgets.png" />
+  <img width="30%" alt="Study Hub & Flashcards" src="docs/screenshots/study.png" />
+  <img width="30%" alt="Reading Insights & Habit Tracker" src="docs/screenshots/insights.png" />
+  <img width="35%" alt="Android 16 Material You Widgets" src="docs/screenshots/widgets.png" />
 </p>
 
 ---
