@@ -26,9 +26,11 @@ Choose the APK package suitable for your device from the [Releases](https://gith
 
 ### 1. Document Import & Preloaded Library
 *   **Default Classic Book:** Comes bundled with Dr. Spencer Johnson's classic *"Who Moved My Cheese?"* with full cover artwork and chapter formatting, alongside the interactive *Veritas Welcome Guide*.
+*   **In-App Book Browser:** Direct sandboxed access to 5 major open digital book repositories (*Project Gutenberg*, *Standard Ebooks*, *Open Library*, *ManyBooks*, and *Ocean of PDF*) with automatic download interception and direct-to-library importing.
 *   **Multi-Format Support:** Import local EPUB, DOCX, PPTX, PDF, and TXT files, or extract clean content from web links.
 *   **Intelligent Cover Extractor:** Multi-page cover candidate scoring with aspect-ratio validation, text-presence analysis, and stylized gradient fallback generation.
 *   **Hybrid OCR & Text Extraction:** Uses a hybrid extraction system powered by PDFBox, native Android PDF rendering, and Google ML Kit OCR to parse content, preserve formatting, and identify column structures.
+*   **Interactive Table of Contents (TOC):** Quick jump drawer with chapter and section hopping for multi-part PDFs and EPUBs.
 
 ### 2. Audio Playback & Neural TTS Engine
 *   **On-Device Neural Voices:** High-fidelity neural TTS engines powered by Sherpa-ONNX, Kokoro, and Piper with native streaming audio buffers alongside System TTS fallbacks.
@@ -41,6 +43,7 @@ Choose the APK package suitable for your device from the [Releases](https://gith
 ### 3. Study Tools & Markdown Annotations
 *   **Multi-Media Notes:** Attach local images, audio clips, and voice recordings directly to note cards.
 *   **Document Annotations:** Store highlights, bookmarks, and sentence-level notes. An alignment remapping algorithm keeps annotations anchored even if the document text is edited.
+*   **Study Guide PDF Exporter:** Generate beautifully structured study guides with LaTeX mathematical rendering, definitions, and summaries exported directly to printable PDF.
 *   **Note Reminders:** Schedule exact alarms on notes, with automatic fallbacks for newer API versions.
 *   **Extracted Text Editor:** Repair or edit selected sentences directly within the reader app without modifying the original source document.
 *   **Pronunciation Rules:** Configure speech replacements/corrections (e.g., spelling out abbreviations or fixing phonetic anomalies) applied before playback and audio export.
@@ -67,6 +70,11 @@ Choose the APK package suitable for your device from the [Releases](https://gith
 *   **Premium Themes:** Deep UI custom styling including Material You, Liquid Glass, One UI-style, and High Contrast configurations.
 *   **Night Mode PDF Inversion:** Custom color-matrix filter to invert PDF page rendering for comfortable night-time reading.
 
+### 8. Android 16 Material You Home Screen Widgets
+*   **Interactive Flashcards:** Spaced repetition flashcards with tactile flip-to-answer interaction directly on your Android home screen.
+*   **Study Dashboard Widget:** Glance widget displaying daily cards due, streak status, mastery percentage, and active decks.
+*   **Mini Audio Player Widget:** Quick playback controls, sentence counter, and current book info right from the launcher.
+
 ---
 
 ## 🛠️ Architecture & Tech Stack
@@ -74,6 +82,7 @@ Choose the APK package suitable for your device from the [Releases](https://gith
 Veritas Reader is built using standard Android architecture guidelines and modern engineering patterns:
 
 *   **Jetpack Compose & Material 3:** 100% declarative UI built with Material 3 components and spring-based animations.
+*   **AndroidX Glance:** Interactive Material You Home Screen widgets with reactive Glance state management.
 *   **StateFlow MVVM:** Unidirectional Data Flow (UDF) driven by a single-source-of-truth UI state inside `ReaderViewModel`.
 *   **Kotlin Coroutines & Flow:** Asynchronous task threading with cooperative cancellation points (`yield()`).
 *   **Sherpa-ONNX & Kokoro / Piper:** High-efficiency C++/JNI neural text-to-speech runtime.
@@ -86,16 +95,20 @@ Veritas Reader is built using standard Android architecture guidelines and moder
 ## 📸 Screenshots
 
 <p align="center">
-  <img width="45%" alt="Library Home" src="https://github.com/user-attachments/assets/da75ac3a-471e-44fc-aea0-b75cb24244bf" />
-  <img width="45%" alt="Reading Mode" src="https://github.com/user-attachments/assets/812b50c6-3dac-480a-88fb-fbdba486c941" />
+  <img width="48%" alt="Home Dashboard" src="docs/screenshots/home.png" />
+  <img width="48%" alt="Central Library" src="docs/screenshots/library.png" />
 </p>
 <p align="center">
-  <img width="45%" alt="Study Tools & Notes" src="https://github.com/user-attachments/assets/522fa0d7-2856-4350-9d76-94599136bc63" />
-  <img width="45%" alt="Habit Analytics" src="https://github.com/user-attachments/assets/e64e1b7c-ee5b-4d09-9883-1b2701407ba3" />
+  <img width="48%" alt="Reading Mode & TTS" src="docs/screenshots/current_reader.png" />
+  <img width="48%" alt="Narration Studio" src="docs/screenshots/audio_studio.png" />
 </p>
 <p align="center">
-  <img width="45%" alt="Onboarding & Quests" src="https://github.com/user-attachments/assets/3821df10-f370-4b57-a276-d9f946b73bfb" />
-  <img width="45%" alt="Settings Hub" src="https://github.com/user-attachments/assets/557bdf81-cf84-4c39-8591-65d33cfb5f40" />
+  <img width="48%" alt="PDF Viewer & OCR" src="docs/screenshots/pdf_viewer.png" />
+  <img width="48%" alt="Study Hub & Flashcards" src="docs/screenshots/study.png" />
+</p>
+<p align="center">
+  <img width="48%" alt="Notes & Voice Annotations" src="docs/screenshots/notes.png" />
+  <img width="48%" alt="Android 16 Material You Widgets" src="docs/screenshots/widgets.png" />
 </p>
 
 ---
