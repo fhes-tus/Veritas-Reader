@@ -104,7 +104,6 @@ fun ReaderToolsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAllSettings by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    var showAiChooser by remember { mutableStateOf(false) }
 
     val readerFeatures = remember(queueCount) {
         VeritasFeatureRegistry.resolve(
@@ -286,29 +285,6 @@ fun ReaderToolsSheet(
                     color = MaterialTheme.colorScheme.primary
                 )
 
-                SettingsItem(
-                    title = "AI Assistant: ${askAiSettings.assistantLabel}",
-                    leadingIcon = aiAssistantIcon(askAiSettings.assistantId),
-                    onClick = { showAiChooser = !showAiChooser }
-                )
-
-                if (showAiChooser) {
-                    aiAssistantOptions.filter { it.packageName.isNotBlank() }.forEach { option ->
-                        val installedPackage = installedPackageForOption(context, option)
-                        val isSelected = askAiSettings.assistantId == option.id
-                        SettingsSubItem(
-                            title = "${if (isSelected) "✓ " else ""}${option.label}${if (installedPackage == null) " • install" else ""}",
-                            leadingIcon = aiAssistantIcon(option.id),
-                            onClick = {
-                                if (installedPackage != null) {
-                                    choose { onSelectAskAiAssistant(option, installedPackage) }
-                                } else {
-                                    openPlayStoreForPackage(context, option.packageName)
-                                }
-                            }
-                        )
-                    }
-                }
 
                 val studyToolsFeature = readerFeature(VeritasFeatureId.OFFLINE_STUDY_TOOLS)
                 SettingsItem(

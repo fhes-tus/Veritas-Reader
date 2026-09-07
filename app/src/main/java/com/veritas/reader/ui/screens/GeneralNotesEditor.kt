@@ -17,6 +17,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
+import androidx.compose.material.icons.automirrored.filled.FormatIndentDecrease
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -66,6 +68,25 @@ import androidx.compose.ui.text.buildAnnotatedString
 
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.focus.*
+import android.graphics.BitmapFactory
+import android.os.Build
+import android.os.SystemClock
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import android.net.Uri
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.activity.compose.BackHandler
 
 enum class NotesToolbarMenu {
     NONE,
@@ -83,9 +104,38 @@ fun GeneralNotesEditor(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val initialRawContent = note?.content ?: ""
+    val initialContentWithAttachments = remember(note) {
+        val sb = StringBuilder()
+        // If note has legacy stand-alone imageUrl and it's not already in the content markdown, prepend it
+        val legacyImg = note?.imageUrl?.takeIf { it.isNotBlank() }
+        if (legacyImg != null && !initialRawContent.contains(legacyImg)) {
+            sb.append("![image](").append(legacyImg).append(")\n")
+        }
+        sb.append(initialRawContent)
+        // If note has legacy standalone audioUrls not yet present in content markdown, append them
+        note?.allAudioUrls?.forEach { aUrl ->
+            if (aUrl.isNotBlank() && !sb.contains(aUrl)) {
+                if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
+                sb.append("[audio](").append(aUrl).append(")\n")
+            }
+        }
+        sb.toString()
+    }
     var title by remember { mutableStateOf(note?.title ?: "") }
-    var contentText by remember { mutableStateOf(note?.content ?: "") }
-    var contentValue by remember { mutableStateOf(TextFieldValue(note?.content ?: "")) }
+    val blocks = remember(note?.id) {
+        mutableStateListOf<NoteBlock>().apply {
+            addAll(VeritasNoteEditing.parseNoteBlocks(initialContentWithAttachments))
+        }
+    }
+    var focusedBlockIndex by remember { mutableIntStateOf(0) }
+    var contentText by remember { mutableStateOf(VeritasNoteEditing.serializeNoteBlocks(blocks)) }
+    var contentValue by remember {
+        val firstText = blocks.filterIsInstance<NoteBlock.Text>().firstOrNull()?.value ?: TextFieldValue(contentText)
+        mutableStateOf(firstText)
+    }
+    var editVersion by remember { mutableIntStateOf(0) }
+    var hasUnsavedChanges by remember { mutableStateOf(false) }
     var noteColor by remember { mutableStateOf(note?.color) }
     var isPinned by remember { mutableStateOf(note?.pinned ?: false) }
     var isChecklist by remember { mutableStateOf(note?.isChecklist ?: false) }
@@ -96,6 +146,128 @@ fun GeneralNotesEditor(
     var showReminderMenu by remember { mutableStateOf(false) }
     var confirmDeleteNote by remember { mutableStateOf(false) }
     var showExactAlarmPrompt by remember { mutableStateOf(false) }
+
+    fun syncBlocksToContent() {
+        contentText = VeritasNoteEditing.serializeNoteBlocks(blocks)
+        val firstImg = blocks.filterIsInstance<NoteBlock.Image>().firstOrNull()?.path
+        if (firstImg != null) imageUrl = firstImg
+        val noteAudios = blocks.filterIsInstance<NoteBlock.Audio>().map { it.path }
+        if (noteAudios.isNotEmpty()) {
+            audioUrls = (noteAudios + audioUrls).distinct()
+        }
+        hasUnsavedChanges = true
+        editVersion++
+    }
+    var viewingImagePath by remember { mutableStateOf<String?>(null) }
+    var viewingVideoPath by remember { mutableStateOf<String?>(null) }
+
+    fun insertAttachmentAtCursor(attachment: NoteBlock) {
+        if (blocks.isEmpty()) {
+            blocks.add(attachment)
+            val newText = NoteBlock.Text(TextFieldValue(""))
+            blocks.add(newText)
+            focusedBlockIndex = 1
+            contentValue = newText.value
+            syncBlocksToContent()
+            return
+        }
+
+        val targetIndex = focusedBlockIndex.coerceIn(0, blocks.lastIndex)
+        val currentBlock = blocks.getOrNull(targetIndex)
+        if (currentBlock is NoteBlock.Text) {
+            val tfv = currentBlock.value
+            val cursorPos = tfv.selection.start.coerceIn(0, tfv.text.length)
+            val textBefore = tfv.text.substring(0, cursorPos).trimEnd('\n')
+            val textAfter = tfv.text.substring(cursorPos).trimStart('\n')
+
+            if (textBefore.isNotEmpty()) {
+                currentBlock.value = TextFieldValue(textBefore, TextRange(textBefore.length))
+                blocks[targetIndex] = NoteBlock.Text(TextFieldValue(textBefore, TextRange(textBefore.length)))
+                blocks.add(targetIndex + 1, attachment)
+                val remainingBlock = NoteBlock.Text(TextFieldValue(textAfter, TextRange(0)))
+                blocks.add(targetIndex + 2, remainingBlock)
+                focusedBlockIndex = targetIndex + 2
+                contentValue = remainingBlock.value
+            } else {
+                blocks.add(targetIndex, attachment)
+                val remainingBlock = NoteBlock.Text(TextFieldValue(textAfter, TextRange(0)))
+                blocks[targetIndex + 1] = remainingBlock
+                focusedBlockIndex = targetIndex + 1
+                contentValue = remainingBlock.value
+            }
+        } else {
+            val insertAt = (targetIndex + 1).coerceIn(0, blocks.size)
+            blocks.add(insertAt, attachment)
+            if (insertAt + 1 >= blocks.size || blocks[insertAt + 1] !is NoteBlock.Text) {
+                blocks.add(insertAt + 1, NoteBlock.Text(TextFieldValue("")))
+            }
+            focusedBlockIndex = (insertAt + 1).coerceAtMost(blocks.lastIndex)
+            val nextText = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+            if (nextText != null) contentValue = nextText.value
+        }
+        syncBlocksToContent()
+    }
+
+    fun removeBlockAt(idx: Int) {
+        if (idx !in blocks.indices) return
+        val removed = blocks.removeAt(idx)
+        if (removed is NoteBlock.Image && imageUrl == removed.path) {
+            imageUrl = blocks.filterIsInstance<NoteBlock.Image>().firstOrNull()?.path
+        } else if (removed is NoteBlock.Audio) {
+            audioUrls = audioUrls.filter { it != removed.path }
+        }
+        val beforeIdx = idx - 1
+        if (beforeIdx >= 0 && beforeIdx < blocks.size && blocks[beforeIdx] is NoteBlock.Text &&
+            idx < blocks.size && blocks[idx] is NoteBlock.Text
+        ) {
+            val prevText = (blocks[beforeIdx] as NoteBlock.Text).value
+            val nextText = (blocks[idx] as NoteBlock.Text).value
+            val merged = TextFieldValue(
+                text = prevText.text + nextText.text,
+                selection = TextRange(prevText.text.length)
+            )
+            (blocks[beforeIdx] as NoteBlock.Text).value = merged
+            blocks[beforeIdx] = NoteBlock.Text(merged)
+            blocks.removeAt(idx)
+            focusedBlockIndex = beforeIdx
+            contentValue = merged
+        } else {
+            focusedBlockIndex = idx.coerceAtMost(blocks.lastIndex)
+            val cur = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+            if (cur != null) contentValue = cur.value
+        }
+        if (blocks.isEmpty()) {
+            val emptyText = NoteBlock.Text(TextFieldValue(""))
+            blocks.add(emptyText)
+            focusedBlockIndex = 0
+            contentValue = emptyText.value
+        }
+        syncBlocksToContent()
+    }
+
+    fun moveBlockUp(idx: Int) {
+        if (idx > 0 && idx < blocks.size) {
+            val item = blocks.removeAt(idx)
+            blocks.add(idx - 1, item)
+            syncBlocksToContent()
+            editVersion++
+            hasUnsavedChanges = true
+        }
+    }
+
+    fun moveBlockDown(idx: Int) {
+        if (idx >= 0 && idx < blocks.size - 1) {
+            val item = blocks.removeAt(idx)
+            blocks.add(idx + 1, item)
+            syncBlocksToContent()
+            editVersion++
+            hasUnsavedChanges = true
+        }
+    }
+
+    fun copyAttachment(path: String) {
+        com.veritas.reader.copyTextToClipboard(context, "Attachment", path)
+    }
 
     // Reminders fall back to inexact alarms without the "Alarms & reminders" permission on
     // Android 12+, arriving late with no explanation. Ask once when a reminder is set.
@@ -223,54 +395,76 @@ fun GeneralNotesEditor(
     val redoStack = remember { mutableStateListOf<TextFieldValue>() }
 
     fun pushHistory() {
-        undoStack.add(contentValue)
-        if (undoStack.size > 200) undoStack.removeAt(0)
-        redoStack.clear()
+        val curText = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+        if (curText != null) {
+            undoStack.add(curText.value)
+            if (undoStack.size > 200) undoStack.removeAt(0)
+            redoStack.clear()
+        }
     }
 
     var isRecording by remember { mutableStateOf(false) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var recordFilePath by remember { mutableStateOf<String?>(null) }
+    var recordingDurationSec by remember { mutableIntStateOf(0) }
+    var recordingAmplitudes by remember { mutableStateOf(listOf<Int>()) }
+    var recordingInsertTargetIndex by remember { mutableIntStateOf(-1) }
+    var recordingTickerJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
-    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            try {
-                val mediaDir = File(context.filesDir, "notes_media")
-                if (!mediaDir.exists()) mediaDir.mkdirs()
-                val fileName = "rec_${System.currentTimeMillis()}.3gp"
-                val file = File(mediaDir, fileName)
-                val path = file.absolutePath
-                recordFilePath = path
-
-                val recorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                    MediaRecorder(context)
-                } else {
-                    MediaRecorder()
-                }
-
-                recorder.apply {
-                    setAudioSource(MediaRecorder.AudioSource.MIC)
-                    setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-                    setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-                    setOutputFile(path)
-                    prepare()
-                    start()
-                }
-                mediaRecorder = recorder
-                isRecording = true
-                Toast.makeText(context, "Recording started...", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Toast.makeText(context, "Failed to start recording: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+    fun stopRecording() {
+        try {
+            recordingTickerJob?.cancel()
+            recordingTickerJob = null
+            mediaRecorder?.apply {
+                stop()
+                release()
             }
-        } else {
-            Toast.makeText(context, "Microphone permission is required to record audio notes", Toast.LENGTH_SHORT).show()
+            mediaRecorder = null
+            isRecording = false
+            val newPath = recordFilePath
+            if (!newPath.isNullOrBlank() && File(newPath).exists()) {
+                insertAttachmentAtCursor(NoteBlock.Audio(newPath))
+                audioUrls = (audioUrls + newPath).distinct()
+                Toast.makeText(context, "Voice memo inserted in note", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Failed to stop recording: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        } finally {
+            recordFilePath = null
+            recordingDurationSec = 0
+            recordingAmplitudes = emptyList()
+            recordingInsertTargetIndex = -1
         }
     }
 
-    fun startRecording() {
+    fun cancelRecording() {
+        try {
+            recordingTickerJob?.cancel()
+            recordingTickerJob = null
+            mediaRecorder?.apply {
+                runCatching { stop() }
+                release()
+            }
+            mediaRecorder = null
+            isRecording = false
+            recordFilePath?.let { path ->
+                val f = File(path)
+                if (f.exists()) f.delete()
+            }
+            Toast.makeText(context, "Recording discarded", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            recordFilePath = null
+            recordingDurationSec = 0
+            recordingAmplitudes = emptyList()
+            recordingInsertTargetIndex = -1
+        }
+    }
+
+    fun startRecording(insertAtIndex: Int = -1) {
         try {
             val mediaDir = File(context.filesDir, "notes_media")
             if (!mediaDir.exists()) mediaDir.mkdirs()
@@ -278,10 +472,12 @@ fun GeneralNotesEditor(
             val file = File(mediaDir, fileName)
             val path = file.absolutePath
             recordFilePath = path
+            recordingInsertTargetIndex = if (insertAtIndex >= 0) insertAtIndex else focusedBlockIndex
 
             val recorder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 MediaRecorder(context)
             } else {
+                @Suppress("DEPRECATION")
                 MediaRecorder()
             }
 
@@ -295,6 +491,21 @@ fun GeneralNotesEditor(
             }
             mediaRecorder = recorder
             isRecording = true
+            recordingDurationSec = 0
+            recordingAmplitudes = emptyList()
+
+            recordingTickerJob?.cancel()
+            val startTime = SystemClock.elapsedRealtime()
+            recordingTickerJob = coroutineScope.launch {
+                while (isRecording && mediaRecorder != null) {
+                    val elapsed = ((SystemClock.elapsedRealtime() - startTime) / 1000).toInt()
+                    recordingDurationSec = elapsed
+                    val amp = runCatching { mediaRecorder?.maxAmplitude ?: 0 }.getOrDefault(0)
+                    recordingAmplitudes = (recordingAmplitudes + amp).takeLast(60)
+                    delay(100)
+                }
+            }
+
             Toast.makeText(context, "Recording started...", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -302,22 +513,13 @@ fun GeneralNotesEditor(
         }
     }
 
-    fun stopRecording() {
-        try {
-            mediaRecorder?.apply {
-                stop()
-                release()
-            }
-            mediaRecorder = null
-            isRecording = false
-            val newPath = recordFilePath
-            if (!newPath.isNullOrBlank() && File(newPath).exists()) {
-                audioUrls = audioUrls + newPath
-                Toast.makeText(context, "Voice memo saved (${audioUrls.size} total)", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Toast.makeText(context, "Failed to stop recording: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+    val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            startRecording(recordingInsertTargetIndex)
+        } else {
+            Toast.makeText(context, "Microphone permission is required to record audio notes", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -337,12 +539,84 @@ fun GeneralNotesEditor(
                     inputStream.close()
                     outputStream.close()
                     imageUrl = file.absolutePath
-                    Toast.makeText(context, "Image attached successfully", Toast.LENGTH_SHORT).show()
+
+                    insertAttachmentAtCursor(NoteBlock.Image(file.absolutePath))
+                    Toast.makeText(context, "Image inserted in note", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 Toast.makeText(context, "Failed to attach image: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    val videoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                if (inputStream != null) {
+                    val mediaDir = File(context.filesDir, "notes_media")
+                    if (!mediaDir.exists()) mediaDir.mkdirs()
+                    val fileName = "vid_${System.currentTimeMillis()}.mp4"
+                    val file = File(mediaDir, fileName)
+                    val outputStream = FileOutputStream(file)
+                    inputStream.copyTo(outputStream)
+                    inputStream.close()
+                    outputStream.close()
+
+                    insertAttachmentAtCursor(NoteBlock.Video(file.absolutePath))
+                    Toast.makeText(context, "Video attached to note", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "Failed to attach video: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun openVideo(path: String) {
+        try {
+            val file = File(path)
+            if (!file.exists()) {
+                Toast.makeText(context, "Video file not found", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "video/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Play video"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Cannot open video: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun shareMediaFile(path: String, mimeType: String) {
+        try {
+            val file = File(path)
+            if (!file.exists()) return
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(intent, "Share"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Failed to share: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -359,6 +633,49 @@ fun GeneralNotesEditor(
     var playProgress by remember { mutableStateOf(0f) }
     var currentPosition by remember { mutableStateOf("0:00") }
     var audioDurations by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+    fun seekAudio(fraction: Float, path: String) {
+        try {
+            val clamped = fraction.coerceIn(0f, 1f)
+            if (activePlayingAudioPath == path && mediaPlayer != null) {
+                val dur = mediaPlayer?.duration ?: 0
+                if (dur > 0) {
+                    val targetMs = (clamped * dur).toInt()
+                    mediaPlayer?.seekTo(targetMs)
+                    playProgress = clamped
+                    val curSecs = targetMs / 1000
+                    currentPosition = String.format(Locale.US, "%d:%02d", curSecs / 60, curSecs % 60)
+                }
+            } else {
+                // If seeking while paused or not currently active, initialize and seek
+                mediaPlayer?.stop()
+                mediaPlayer?.release()
+                mediaPlayer = null
+                val player = MediaPlayer().apply {
+                    setDataSource(path)
+                    prepare()
+                    val dur = duration.coerceAtLeast(1)
+                    val targetMs = (clamped * dur).toInt()
+                    seekTo(targetMs)
+                    setOnCompletionListener {
+                        isPlaying = false
+                        playProgress = 0f
+                        currentPosition = "0:00"
+                        activePlayingAudioPath = null
+                    }
+                }
+                mediaPlayer = player
+                activePlayingAudioPath = path
+                playProgress = clamped
+                val curSecs = player.currentPosition / 1000
+                currentPosition = String.format(Locale.US, "%d:%02d", curSecs / 60, curSecs % 60)
+                player.start()
+                isPlaying = true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     LaunchedEffect(audioUrls) {
         val durations = mutableMapOf<String, String>()
@@ -463,12 +780,20 @@ fun GeneralNotesEditor(
 
     // ── Continuous auto-save ────────────────────────────────────────────
     // Debounced save: fires 800 ms after the user stops typing.
-    // This covers fast edits without hammering storage on every keystroke.
-    val autoSaveContent = if (isChecklist) contentText else contentValue.text
-    LaunchedEffect(title, autoSaveContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls, reminderAt) {
+    // This serializes ONLY when typing pauses, leaving keystrokes completely unblocked.
+    LaunchedEffect(editVersion, title, noteColor, isPinned, isChecklist, imageUrl, audioUrls, reminderAt) {
+        if (editVersion == 0 && !hasUnsavedChanges) return@LaunchedEffect
         kotlinx.coroutines.delay(800)
-        if (title.isNotBlank() || autoSaveContent.isNotBlank() || imageUrl != null || audioUrls.isNotEmpty()) {
-            onSave(title, autoSaveContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls.firstOrNull(), reminderAt, false, audioUrls)
+        val contentToSave = if (isChecklist) {
+            items.joinToString("\n") { (checked, tfv) ->
+                if (checked) "[x] ${tfv.text}" else "[ ] ${tfv.text}"
+            }
+        } else {
+            VeritasNoteEditing.serializeNoteBlocks(blocks)
+        }
+        if (title.isNotBlank() || contentToSave.isNotBlank() || imageUrl != null || audioUrls.isNotEmpty()) {
+            onSave(title, contentToSave, noteColor, isPinned, isChecklist, imageUrl, audioUrls.firstOrNull(), reminderAt, false, audioUrls)
+            hasUnsavedChanges = false
         }
     }
     // Heartbeat save: fires every 2 seconds while the editor is open.
@@ -477,9 +802,18 @@ fun GeneralNotesEditor(
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(2_000)
-            val currentContent = if (isChecklist) contentText else contentValue.text
-            if (title.isNotBlank() || currentContent.isNotBlank() || imageUrl != null || audioUrls.isNotEmpty()) {
-                onSave(title, currentContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls.firstOrNull(), reminderAt, false, audioUrls)
+            if (hasUnsavedChanges) {
+                val currentContent = if (isChecklist) {
+                    items.joinToString("\n") { (checked, tfv) ->
+                        if (checked) "[x] ${tfv.text}" else "[ ] ${tfv.text}"
+                    }
+                } else {
+                    VeritasNoteEditing.serializeNoteBlocks(blocks)
+                }
+                if (title.isNotBlank() || currentContent.isNotBlank() || imageUrl != null || audioUrls.isNotEmpty()) {
+                    onSave(title, currentContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls.firstOrNull(), reminderAt, false, audioUrls)
+                    hasUnsavedChanges = false
+                }
             }
         }
     }
@@ -505,9 +839,17 @@ fun GeneralNotesEditor(
     fun applyInlineMarker(marker: String) {
         if (isChecklist) return
         pushHistory()
-        val newValue = VeritasNoteEditing.toggleInlineMarker(contentValue, marker)
-        contentValue = newValue
-        contentText = newValue.text
+        val textBlock = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+        if (textBlock != null) {
+            val newValue = VeritasNoteEditing.toggleInlineMarker(textBlock.value, marker)
+            blocks[focusedBlockIndex] = NoteBlock.Text(newValue)
+            contentValue = newValue
+            syncBlocksToContent()
+        } else {
+            val newValue = VeritasNoteEditing.toggleInlineMarker(contentValue, marker)
+            contentValue = newValue
+            contentText = newValue.text
+        }
     }
 
     // Toggle a line-level prefix (heading / list marker) across every line touched by the
@@ -515,9 +857,97 @@ fun GeneralNotesEditor(
     fun applyLinePrefix(prefix: String) {
         if (isChecklist) return
         pushHistory()
-        val newValue = VeritasNoteEditing.toggleLinePrefix(contentValue, prefix)
-        contentValue = newValue
-        contentText = newValue.text
+        val textBlock = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+        if (textBlock != null) {
+            val newValue = VeritasNoteEditing.toggleLinePrefix(textBlock.value, prefix)
+            blocks[focusedBlockIndex] = NoteBlock.Text(newValue)
+            contentValue = newValue
+            syncBlocksToContent()
+        } else {
+            val newValue = VeritasNoteEditing.toggleLinePrefix(contentValue, prefix)
+            contentValue = newValue
+            contentText = newValue.text
+        }
+    }
+
+    fun applyIndent() {
+        if (isChecklist) return
+        pushHistory()
+        val textBlock = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+        if (textBlock != null) {
+            val newValue = VeritasNoteEditing.applyIndent(textBlock.value)
+            blocks[focusedBlockIndex] = NoteBlock.Text(newValue)
+            contentValue = newValue
+            syncBlocksToContent()
+        } else {
+            val newValue = VeritasNoteEditing.applyIndent(contentValue)
+            contentValue = newValue
+            contentText = newValue.text
+        }
+    }
+
+    fun applyOutdent() {
+        if (isChecklist) return
+        pushHistory()
+        val textBlock = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+        if (textBlock != null) {
+            val newValue = VeritasNoteEditing.applyOutdent(textBlock.value)
+            blocks[focusedBlockIndex] = NoteBlock.Text(newValue)
+            contentValue = newValue
+            syncBlocksToContent()
+        } else {
+            val newValue = VeritasNoteEditing.applyOutdent(contentValue)
+            contentValue = newValue
+            contentText = newValue.text
+        }
+    }
+
+    fun cycleHeading() {
+        if (isChecklist) return
+        pushHistory()
+        val textBlock = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+        if (textBlock != null) {
+            val newValue = VeritasNoteEditing.cycleHeading(textBlock.value)
+            blocks[focusedBlockIndex] = NoteBlock.Text(newValue)
+            contentValue = newValue
+            syncBlocksToContent()
+        } else {
+            val newValue = VeritasNoteEditing.cycleHeading(contentValue)
+            contentValue = newValue
+            contentText = newValue.text
+        }
+    }
+
+    fun toggleQuote() {
+        if (isChecklist) return
+        pushHistory()
+        val textBlock = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+        if (textBlock != null) {
+            val newValue = VeritasNoteEditing.toggleQuotePrefix(textBlock.value)
+            blocks[focusedBlockIndex] = NoteBlock.Text(newValue)
+            contentValue = newValue
+            syncBlocksToContent()
+        } else {
+            val newValue = VeritasNoteEditing.toggleQuotePrefix(contentValue)
+            contentValue = newValue
+            contentText = newValue.text
+        }
+    }
+
+    fun toggleTask() {
+        if (isChecklist) return
+        pushHistory()
+        val textBlock = blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text
+        if (textBlock != null) {
+            val newValue = VeritasNoteEditing.toggleTaskCheckbox(textBlock.value)
+            blocks[focusedBlockIndex] = NoteBlock.Text(newValue)
+            contentValue = newValue
+            syncBlocksToContent()
+        } else {
+            val newValue = VeritasNoteEditing.toggleTaskCheckbox(contentValue)
+            contentValue = newValue
+            contentText = newValue.text
+        }
     }
 
     // Continue list markers when Enter is pressed; terminate the list on an empty item.
@@ -597,9 +1027,27 @@ fun GeneralNotesEditor(
     val cardBgColor = noteColor?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.surface
     val onCardColor = if (noteColor != null) Color.Black else MaterialTheme.colorScheme.onSurface
 
+    val richTextTransformation = remember(onCardColor) { RichTextVisualTransformation(onCardColor) }
+
     fun performSave() {
-        val finalContent = if (isChecklist) contentText else contentValue.text
+        val finalContent = if (isChecklist) {
+            items.joinToString("\n") { (checked, tfv) ->
+                if (checked) "[x] ${tfv.text}" else "[ ] ${tfv.text}"
+            }
+        } else {
+            VeritasNoteEditing.serializeNoteBlocks(blocks)
+        }
         onSave(title, finalContent, noteColor, isPinned, isChecklist, imageUrl, audioUrls.firstOrNull(), reminderAt, true, audioUrls)
+        hasUnsavedChanges = false
+    }
+
+    BackHandler {
+        val hasAnyText = if (isChecklist) items.any { it.second.text.isNotBlank() } else blocks.any { it is NoteBlock.Text && it.value.text.isNotBlank() }
+        if (title.isNotBlank() || hasAnyText || imageUrl != null || audioUrls.isNotEmpty()) {
+            performSave()
+        } else {
+            onDismiss()
+        }
     }
 
     Scaffold(
@@ -608,8 +1056,8 @@ fun GeneralNotesEditor(
                 title = { },
                 navigationIcon = {
                     IconButton(onClick = {
-                        val finalContent = if (isChecklist) contentText else contentValue.text
-                        if (title.isNotBlank() || finalContent.isNotBlank() || imageUrl != null || audioUrls.isNotEmpty()) {
+                        val hasAnyText = if (isChecklist) items.any { it.second.text.isNotBlank() } else blocks.any { it is NoteBlock.Text && it.value.text.isNotBlank() }
+                        if (title.isNotBlank() || hasAnyText || imageUrl != null || audioUrls.isNotEmpty()) {
                             performSave()
                         } else {
                             onDismiss()
@@ -739,7 +1187,7 @@ fun GeneralNotesEditor(
                     color = cardBgColor,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    val showUndoRedo = if (isChecklist) contentText.isNotEmpty() else contentValue.text.isNotEmpty()
+                    val showUndoRedo = true
                     
                     when (expandedMenu) {
                         NotesToolbarMenu.FORMATTING -> {
@@ -756,14 +1204,18 @@ fun GeneralNotesEditor(
                                 }
                                 VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp), color = onCardColor.copy(alpha = 0.2f))
                                 
-                                FormatToolbarButton(Icons.Filled.Title, "Heading", onCardColor) { applyLinePrefix("# ") }
+                                FormatToolbarButton(Icons.Filled.Title, "Heading", onCardColor) { cycleHeading() }
                                 FormatToolbarButton(Icons.Filled.FormatBold, "Bold", onCardColor) { applyInlineMarker("**") }
                                 FormatToolbarButton(Icons.Filled.FormatItalic, "Italic", onCardColor) { applyInlineMarker("*") }
                                 FormatToolbarButton(Icons.Filled.FormatUnderlined, "Underline", onCardColor) { applyInlineMarker("__") }
                                 FormatToolbarButton(Icons.Filled.StrikethroughS, "Strikethrough", onCardColor) { applyInlineMarker("~~") }
+                                FormatToolbarButton(Icons.Filled.FormatQuote, "Quote", onCardColor) { toggleQuote() }
                                 FormatToolbarButton(Icons.Filled.Code, "Monospace", onCardColor) { applyInlineMarker("`") }
                                 FormatToolbarButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet list", onCardColor) { applyLinePrefix("- ") }
                                 FormatToolbarButton(Icons.Filled.FormatListNumbered, "Numbered list", onCardColor) { applyLinePrefix("1. ") }
+                                FormatToolbarButton(Icons.Filled.CheckBoxOutlineBlank, "Task", onCardColor) { toggleTask() }
+                                FormatToolbarButton(Icons.AutoMirrored.Filled.FormatIndentDecrease, "Outdent", onCardColor) { applyOutdent() }
+                                FormatToolbarButton(Icons.AutoMirrored.Filled.FormatIndentIncrease, "Indent", onCardColor) { applyIndent() }
                             }
                         }
                         NotesToolbarMenu.ATTACHMENTS -> {
@@ -781,9 +1233,14 @@ fun GeneralNotesEditor(
 
                                 // Checklist Toggle
                                 IconButton(onClick = {
-                                    isChecklist = !isChecklist
-                                    if (isChecklist && contentText.isBlank()) {
-                                        contentText = "[ ] "
+                                    val activeTfv = (blocks.getOrNull(focusedBlockIndex) as? NoteBlock.Text)?.value ?: contentValue
+                                    if (activeTfv.selection.min != activeTfv.selection.max) {
+                                        toggleTask()
+                                    } else {
+                                        isChecklist = !isChecklist
+                                        if (isChecklist && contentText.isBlank()) {
+                                            contentText = "[ ] "
+                                        }
                                     }
                                     expandedMenu = NotesToolbarMenu.NONE
                                 }) {
@@ -800,9 +1257,21 @@ fun GeneralNotesEditor(
                                     expandedMenu = NotesToolbarMenu.NONE
                                 }) {
                                     Icon(
-                                        imageVector = if (imageUrl != null) Icons.Filled.Image else Icons.Outlined.Image,
+                                        imageVector = Icons.Outlined.Image,
                                         contentDescription = "Attach Image",
-                                        tint = if (imageUrl != null) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f)
+                                        tint = onCardColor.copy(alpha = 0.8f)
+                                    )
+                                }
+
+                                // Attach Video
+                                IconButton(onClick = {
+                                    videoLauncher.launch("video/*")
+                                    expandedMenu = NotesToolbarMenu.NONE
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.VideoLibrary,
+                                        contentDescription = "Attach Video",
+                                        tint = onCardColor.copy(alpha = 0.8f)
                                     )
                                 }
 
@@ -812,17 +1281,19 @@ fun GeneralNotesEditor(
                                     if (isRecording) {
                                         stopRecording()
                                     } else {
+                                        val targetIdx = (focusedBlockIndex + 1).coerceIn(0, blocks.size)
                                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                            startRecording()
+                                            startRecording(targetIdx)
                                         } else {
+                                            recordingInsertTargetIndex = targetIdx
                                             recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         }
                                     }
                                 }) {
                                     Icon(
-                                        imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrls.isNotEmpty()) Icons.Filled.Mic else Icons.Outlined.Mic),
+                                        imageVector = if (isRecording) Icons.Filled.Stop else Icons.Outlined.Mic,
                                         contentDescription = if (isRecording) "Stop Recording" else "Record Audio",
-                                        tint = if (isRecording) MaterialTheme.colorScheme.error else (if (audioUrls.isNotEmpty()) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f))
+                                        tint = if (isRecording) MaterialTheme.colorScheme.error else onCardColor.copy(alpha = 0.8f)
                                     )
                                 }
                             }
@@ -846,15 +1317,17 @@ fun GeneralNotesEditor(
                                         if (isRecording) {
                                             stopRecording()
                                         } else {
+                                            val targetIdx = (focusedBlockIndex + 1).coerceIn(0, blocks.size)
                                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                                                startRecording()
+                                                startRecording(targetIdx)
                                             } else {
+                                                recordingInsertTargetIndex = targetIdx
                                                 recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                             }
                                         }
                                     }) {
                                         Icon(
-                                            imageVector = if (isRecording) Icons.Filled.Stop else (if (audioUrls.isNotEmpty()) Icons.Filled.Mic else Icons.Outlined.Mic),
+                                            imageVector = if (isRecording) Icons.Filled.Stop else Icons.Outlined.Mic,
                                             contentDescription = if (isRecording) "Stop Recording" else "Record Audio",
                                             tint = if (isRecording) MaterialTheme.colorScheme.error else (if (audioUrls.isNotEmpty()) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.8f))
                                         )
@@ -989,165 +1462,137 @@ fun GeneralNotesEditor(
                 )
             }
 
-            // Display Image attachment preview if attached
-            if (imageUrl != null) {
-                val bitmap = remember(imageUrl) {
-                    try {
-                        android.graphics.BitmapFactory.decodeFile(imageUrl)
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
-                Card(
-                    modifier = Modifier.fillMaxWidth().height(200.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = onCardColor.copy(alpha = 0.05f))
-                ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "Attached image",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("Error loading image", color = onCardColor)
-                            }
-                        }
-                        IconButton(
-                            onClick = { imageUrl = null },
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(8.dp)
-                                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                                .size(32.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = "Remove image", tint = Color.White, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-            }
-
-            // Live recording banner
+            // Sleek live recording panel with pulse indicator, timer, live Canvas waveform, and clean controls
             if (isRecording) {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Column(
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val infiniteTransition = rememberInfiniteTransition(label = "recPulse")
+                            val pulse by infiniteTransition.animateFloat(
+                                initialValue = 0.4f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(700, easing = FastOutSlowInEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "recPulseVal"
+                            )
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(20.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size((16 * pulse).dp)
+                                        .background(Color.Red.copy(alpha = 0.35f * pulse), CircleShape)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(9.dp)
+                                        .background(Color.Red, CircleShape)
+                                )
+                            }
+                            val timerFormatted = String.format(
+                                Locale.US,
+                                "%02d:%02d",
+                                recordingDurationSec / 60,
+                                recordingDurationSec % 60
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Recording Voice Memo",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = timerFormatted,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { cancelRecording() },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Delete,
+                                    contentDescription = "Discard",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Button(
+                                onClick = { stopRecording() },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(50),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Insert", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        // Live audio waveform amplitude visualization using smooth Canvas bars
                         Box(
                             modifier = Modifier
-                                .size(12.dp)
-                                .background(MaterialTheme.colorScheme.error, CircleShape)
-                        )
-                        Text(
-                            "Recording audio memo…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Button(
-                            onClick = { stopRecording() },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            shape = RoundedCornerShape(50),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                .fillMaxWidth()
+                                .height(32.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
-                            Text("Done", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                }
-            }
+                            val primaryColor = MaterialTheme.colorScheme.primary
+                            val amps = recordingAmplitudes
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val canvasW = size.width
+                                val canvasH = size.height
+                                val barW = 2.5.dp.toPx()
+                                val barGap = 2.dp.toPx()
+                                val step = barW + barGap
+                                val count = (canvasW / step).toInt().coerceAtLeast(10)
+                                val recentAmps = if (amps.size > count) amps.takeLast(count) else amps
+                                val padCount = (count - recentAmps.size).coerceAtLeast(0)
+                                val fullAmps = List(padCount) { 0 } + recentAmps
+                                val maxAmp = (fullAmps.maxOrNull() ?: 1).coerceAtLeast(1)
+                                val centerY = canvasH / 2f
+                                val startX = (canvasW - (count * step - barGap)) / 2f
 
-            // Display Audio attachments preview if any attached
-            if (audioUrls.isNotEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    audioUrls.forEachIndexed { index, path ->
-                        val isThisPlaying = isPlaying && activePlayingAudioPath == path
-                        val memoTotalDur = audioDurations[path] ?: "0:00"
-                        val durDisplay = if (isThisPlaying) "$currentPosition / $memoTotalDur" else memoTotalDur
-
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = onCardColor.copy(alpha = 0.08f)),
-                            border = BorderStroke(1.dp, onCardColor.copy(alpha = 0.15f))
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                                    .fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (isThisPlaying) MaterialTheme.colorScheme.primary else onCardColor.copy(alpha = 0.12f),
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = { togglePlayPause(path) },
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isThisPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                            contentDescription = if (isThisPlaying) "Pause" else "Play",
-                                            tint = if (isThisPlaying) MaterialTheme.colorScheme.onPrimary else onCardColor,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = if (audioUrls.size == 1) "Voice Memo" else "Voice Memo ${index + 1}",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = onCardColor
-                                        )
-                                        Text(
-                                            text = durDisplay,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = onCardColor.copy(alpha = 0.7f)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    LinearProgressIndicator(
-                                        progress = { if (isThisPlaying) playProgress else 0f },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(4.dp)
-                                            .clip(RoundedCornerShape(2.dp)),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        trackColor = onCardColor.copy(alpha = 0.15f)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { removeAudio(path) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Close,
-                                        contentDescription = "Remove Memo",
-                                        tint = onCardColor.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(16.dp)
+                                for (i in 0 until count) {
+                                    val amp = fullAmps[i]
+                                    val norm = (amp.toFloat() / maxAmp.toFloat()).coerceIn(0.08f, 1f)
+                                    val barH = (norm * (canvasH - 4.dp.toPx())).coerceAtLeast(3.dp.toPx())
+                                    val halfH = barH / 2f
+                                    val x = startX + i * step + barW / 2f
+                                    drawLine(
+                                        color = primaryColor,
+                                        start = androidx.compose.ui.geometry.Offset(x, centerY - halfH),
+                                        end = androidx.compose.ui.geometry.Offset(x, centerY + halfH),
+                                        strokeWidth = barW,
+                                        cap = androidx.compose.ui.graphics.StrokeCap.Round
                                     )
                                 }
                             }
@@ -1190,50 +1635,469 @@ fun GeneralNotesEditor(
                 )
 
                 if (!isChecklist) {
-                    TextField(
-                        value = contentValue,
-                        onValueChange = { raw ->
-                            val processed = handleSmartNewline(contentValue, raw)
-                            // Coalesce keystrokes into word-level undo steps.
-                            val prev = contentValue
-                            val isBoundary = processed.text.length < prev.text.length ||
-                                (processed.text.length - prev.text.length) > 1 ||
-                                processed.text.lastOrNull()?.isWhitespace() == true
-                            if (isBoundary && prev.text != processed.text) {
-                                undoStack.add(prev)
-                                if (undoStack.size > 200) undoStack.removeAt(0)
-                                redoStack.clear()
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        blocks.forEachIndexed { index, block ->
+                            when (block) {
+                                is NoteBlock.Text -> {
+                                    NoteTextBlockItem(
+                                        block = block,
+                                        onValueChange = { processed ->
+                                            val prev = block.value
+                                            val isBoundary = processed.text.length < prev.text.length ||
+                                                (processed.text.length - prev.text.length) > 1 ||
+                                                processed.text.lastOrNull()?.isWhitespace() == true
+                                            if (isBoundary && prev.text != processed.text) {
+                                                undoStack.add(prev)
+                                                if (undoStack.size > 200) undoStack.removeAt(0)
+                                                redoStack.clear()
+                                            }
+                                            block.value = processed
+                                            contentValue = processed
+                                            focusedBlockIndex = index
+                                            hasUnsavedChanges = true
+                                            editVersion++
+                                        },
+                                        onFocus = {
+                                            focusedBlockIndex = index
+                                            contentValue = block.value
+                                        },
+                                        onBackspaceAtStart = {
+                                            if (index > 0) {
+                                                val prevBlock = blocks.getOrNull(index - 1)
+                                                if (prevBlock !is NoteBlock.Text) {
+                                                    removeBlockAt(index - 1)
+                                                    true
+                                                } else false
+                                            } else false
+                                        },
+                                        visualTransformation = richTextTransformation,
+                                        onCardColor = onCardColor,
+                                        isOnlyBlock = blocks.size == 1
+                                    )
+                                }
+                                is NoteBlock.Image -> {
+                                    val bitmap = remember(block.path) {
+                                        loadNoteBitmap(context, block.path)
+                                    }
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(220.dp)
+                                            .clickable { viewingImagePath = block.path },
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(containerColor = onCardColor.copy(alpha = 0.05f))
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            if (bitmap != null) {
+                                                Image(
+                                                    bitmap = bitmap.asImageBitmap(),
+                                                    contentDescription = "Inline Note Image",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                    Text("Error loading image", color = onCardColor)
+                                                }
+                                            }
+                                            Surface(
+                                                color = Color.Black.copy(alpha = 0.55f),
+                                                shape = RoundedCornerShape(50),
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomStart)
+                                                    .padding(8.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.Visibility,
+                                                        contentDescription = "View image",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Text("Tap to view", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                                                }
+                                            }
+                                            Row(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                NoteAttachmentMenu(
+                                                    onCopy = { copyAttachment(block.path) },
+                                                    canMoveUp = index > 0,
+                                                    onMoveUp = { moveBlockUp(index) },
+                                                    canMoveDown = index < blocks.size - 1,
+                                                    onMoveDown = { moveBlockDown(index) },
+                                                    onDelete = { removeBlockAt(index) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                is NoteBlock.Audio -> {
+                                    val audioPath = block.path
+                                    val isThisPlaying = isPlaying && activePlayingAudioPath == audioPath
+                                    val memoTotalDur = remember(audioPath) {
+                                        try {
+                                            val file = File(audioPath)
+                                            if (file.exists()) {
+                                                val retriever = android.media.MediaMetadataRetriever()
+                                                retriever.setDataSource(audioPath)
+                                                val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                                val durMs = durStr?.toLongOrNull() ?: 0L
+                                                val totalSec = durMs / 1000
+                                                retriever.release()
+                                                String.format(Locale.US, "%d:%02d", totalSec / 60, totalSec % 60)
+                                            } else "0:00"
+                                        } catch (_: Exception) {
+                                            "0:00"
+                                        }
+                                    }
+                                    val dynamicDurationLabel = if (isThisPlaying) "$currentPosition / $memoTotalDur" else memoTotalDur
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        AudioVoiceMemoWaveform(
+                                            durationLabel = dynamicDurationLabel,
+                                            isPlaying = isThisPlaying,
+                                            progress = if (isThisPlaying) playProgress else 0f,
+                                            onTogglePlay = { togglePlayPause(audioPath) },
+                                            onSeek = { fraction -> seekAudio(fraction, audioPath) },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        NoteAttachmentMenu(
+                                            onCopy = { copyAttachment(audioPath) },
+                                            canMoveUp = index > 0,
+                                            onMoveUp = { moveBlockUp(index) },
+                                            canMoveDown = index < blocks.size - 1,
+                                            onMoveDown = { moveBlockDown(index) },
+                                            onDelete = { removeBlockAt(index) }
+                                        )
+                                    }
+                                }
+                                is NoteBlock.Video -> {
+                                    val videoPath = block.path
+                                    val videoThumbnail = remember(videoPath) {
+                                        try {
+                                            android.media.ThumbnailUtils.createVideoThumbnail(
+                                                videoPath,
+                                                android.provider.MediaStore.Images.Thumbnails.MINI_KIND
+                                            )
+                                        } catch (_: Exception) {
+                                            null
+                                        }
+                                    }
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(190.dp)
+                                            .clickable { viewingVideoPath = videoPath },
+                                        shape = RoundedCornerShape(14.dp),
+                                        colors = CardDefaults.cardColors(containerColor = onCardColor.copy(alpha = 0.08f)),
+                                        border = BorderStroke(1.dp, onCardColor.copy(alpha = 0.2f))
+                                    ) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            if (videoThumbnail != null) {
+                                                Image(
+                                                    bitmap = videoThumbnail.asImageBitmap(),
+                                                    contentDescription = "Video Thumbnail",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(Color.Black.copy(alpha = 0.35f)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.Movie,
+                                                        contentDescription = null,
+                                                        tint = Color.White.copy(alpha = 0.6f),
+                                                        modifier = Modifier.size(48.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            // Play overlay button
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color.Black.copy(alpha = 0.65f),
+                                                modifier = Modifier
+                                                    .size(52.dp)
+                                                    .align(Alignment.Center)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        Icons.Filled.PlayArrow,
+                                                        contentDescription = "Play Video",
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(30.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Surface(
+                                                color = Color.Black.copy(alpha = 0.55f),
+                                                shape = RoundedCornerShape(50),
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomStart)
+                                                    .padding(8.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.PlayCircle,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Text("Tap to play", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                                                }
+                                            }
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                NoteAttachmentMenu(
+                                                    onCopy = { copyAttachment(videoPath) },
+                                                    canMoveUp = index > 0,
+                                                    onMoveUp = { moveBlockUp(index) },
+                                                    canMoveDown = index < blocks.size - 1,
+                                                    onMoveDown = { moveBlockDown(index) },
+                                                    onDelete = { removeBlockAt(index) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            contentValue = processed
-                            contentText = processed.text
-                        },
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = onCardColor),
-                        placeholder = {
-                            Text(
-                                "Note",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = onCardColor.copy(alpha = 0.4f)
-                            )
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = 200.dp),
-                        visualTransformation = RichTextVisualTransformation(onCardColor),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = onCardColor
-                        )
-                    )
+                        }
+                    }
                 } else {
                     val coroutineScope = rememberCoroutineScope()
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        val mediaBlocks = remember(blocks, editVersion) { blocks.filter { it !is NoteBlock.Text } }
+                        if (mediaBlocks.isNotEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                mediaBlocks.forEach { mediaBlock ->
+                                    val index = blocks.indexOf(mediaBlock)
+                                    when (mediaBlock) {
+                                        is NoteBlock.Image -> {
+                                            val bitmap = remember(mediaBlock.path) {
+                                                loadNoteBitmap(context, mediaBlock.path)
+                                            }
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(200.dp)
+                                                    .clickable { viewingImagePath = mediaBlock.path },
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = CardDefaults.cardColors(containerColor = onCardColor.copy(alpha = 0.05f))
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxSize()) {
+                                                    if (bitmap != null) {
+                                                        Image(
+                                                            bitmap = bitmap.asImageBitmap(),
+                                                            contentDescription = "Inline Note Image",
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    } else {
+                                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                            Text("Error loading image", color = onCardColor)
+                                                        }
+                                                    }
+                                                    Surface(
+                                                        color = Color.Black.copy(alpha = 0.55f),
+                                                        shape = RoundedCornerShape(50),
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomStart)
+                                                            .padding(8.dp)
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Filled.Visibility,
+                                                                contentDescription = "View image",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                            Text("Tap to view", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                                                        }
+                                                    }
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .align(Alignment.TopEnd)
+                                                            .padding(8.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        NoteAttachmentMenu(
+                                                            onCopy = { copyAttachment(mediaBlock.path) },
+                                                            canMoveUp = index > 0,
+                                                            onMoveUp = { moveBlockUp(index) },
+                                                            canMoveDown = index < blocks.size - 1,
+                                                            onMoveDown = { moveBlockDown(index) },
+                                                            onDelete = { removeBlockAt(index) }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        is NoteBlock.Audio -> {
+                                            val audioPath = mediaBlock.path
+                                            val isThisPlaying = isPlaying && activePlayingAudioPath == audioPath
+                                            val memoTotalDur = remember(audioPath) {
+                                                try {
+                                                    val file = File(audioPath)
+                                                    if (file.exists()) {
+                                                        val retriever = android.media.MediaMetadataRetriever()
+                                                        retriever.setDataSource(audioPath)
+                                                        val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                                        val durMs = durStr?.toLongOrNull() ?: 0L
+                                                        val totalSec = durMs / 1000
+                                                        retriever.release()
+                                                        String.format(Locale.US, "%d:%02d", totalSec / 60, totalSec % 60)
+                                                    } else "0:00"
+                                                } catch (_: Exception) {
+                                                    "0:00"
+                                                }
+                                            }
+                                            val dynamicDurationLabel = if (isThisPlaying) "$currentPosition / $memoTotalDur" else memoTotalDur
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                AudioVoiceMemoWaveform(
+                                                    durationLabel = dynamicDurationLabel,
+                                                    isPlaying = isThisPlaying,
+                                                    progress = if (isThisPlaying) playProgress else 0f,
+                                                    onTogglePlay = { togglePlayPause(audioPath) },
+                                                    onSeek = { fraction -> seekAudio(fraction, audioPath) },
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                NoteAttachmentMenu(
+                                                    onCopy = { copyAttachment(audioPath) },
+                                                    canMoveUp = index > 0,
+                                                    onMoveUp = { moveBlockUp(index) },
+                                                    canMoveDown = index < blocks.size - 1,
+                                                    onMoveDown = { moveBlockDown(index) },
+                                                    onDelete = { removeBlockAt(index) }
+                                                )
+                                            }
+                                        }
+                                        is NoteBlock.Video -> {
+                                            val videoPath = mediaBlock.path
+                                            val videoThumbnail = remember(videoPath) {
+                                                try {
+                                                    android.media.ThumbnailUtils.createVideoThumbnail(
+                                                        videoPath,
+                                                        android.provider.MediaStore.Images.Thumbnails.MINI_KIND
+                                                    )
+                                                } catch (_: Exception) {
+                                                    null
+                                                }
+                                            }
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(190.dp)
+                                                    .clickable { viewingVideoPath = videoPath },
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = CardDefaults.cardColors(containerColor = onCardColor.copy(alpha = 0.08f)),
+                                                border = BorderStroke(1.dp, onCardColor.copy(alpha = 0.2f))
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxSize()) {
+                                                    if (videoThumbnail != null) {
+                                                        Image(
+                                                            bitmap = videoThumbnail.asImageBitmap(),
+                                                            contentDescription = "Video Thumbnail",
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                    } else {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .background(Color.Black.copy(alpha = 0.35f)),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Filled.Movie,
+                                                                contentDescription = null,
+                                                                tint = Color.White.copy(alpha = 0.6f),
+                                                                modifier = Modifier.size(48.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    Surface(
+                                                        shape = CircleShape,
+                                                        color = Color.Black.copy(alpha = 0.65f),
+                                                        modifier = Modifier
+                                                            .size(52.dp)
+                                                            .align(Alignment.Center)
+                                                    ) {
+                                                        Box(contentAlignment = Alignment.Center) {
+                                                            Icon(
+                                                                Icons.Filled.PlayArrow,
+                                                                contentDescription = "Play Video",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(30.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .align(Alignment.TopEnd)
+                                                            .padding(8.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        NoteAttachmentMenu(
+                                                            onCopy = { copyAttachment(videoPath) },
+                                                            canMoveUp = index > 0,
+                                                            onMoveUp = { moveBlockUp(index) },
+                                                            canMoveDown = index < blocks.size - 1,
+                                                            onMoveDown = { moveBlockDown(index) },
+                                                            onDelete = { removeBlockAt(index) }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        else -> {}
+                                    }
+                                }
+                            }
+                        }
                         items.forEachIndexed { idx, (checked, tfv) ->
                             val focusRequester = focusRequesters.getOrPut(idx) { FocusRequester() }
                             Row(
@@ -1255,7 +2119,8 @@ fun GeneralNotesEditor(
                                     value = tfv,
                                     onValueChange = { newTfv ->
                                         items[idx] = checked to newTfv
-                                        updateChecklistString()
+                                        hasUnsavedChanges = true
+                                        editVersion++
                                     },
                                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                                         color = onCardColor,
@@ -1333,6 +2198,185 @@ fun GeneralNotesEditor(
             }
         }
     }
+
+    viewingImagePath?.let { imgPath ->
+        NoteImageViewerDialog(
+            path = imgPath,
+            onShare = { path -> shareMediaFile(path, "image/*") },
+            onDismiss = { viewingImagePath = null }
+        )
+    }
+
+    viewingVideoPath?.let { vidPath ->
+        NoteVideoViewerDialog(
+            path = vidPath,
+            onOpenExternal = { path -> openVideo(path) },
+            onShare = { path -> shareMediaFile(path, "video/*") },
+            onDismiss = { viewingVideoPath = null }
+        )
+    }
+}
+
+@Composable
+private fun NoteImageViewerDialog(
+    path: String,
+    onShare: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val bitmap = remember(path) {
+        loadNoteBitmap(context, path)
+    }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.95f))
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Full view image",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                scale = (scale * zoom).coerceIn(0.8f, 5f)
+                                if (scale > 1f) {
+                                    offsetX += pan.x
+                                    offsetY += pan.y
+                                } else {
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+                            }
+                        }
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offsetX,
+                            translationY = offsetY
+                        )
+                )
+            } else {
+                Text(
+                    "Cannot load image",
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+
+            // Top control bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                        .size(40.dp)
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                }
+
+                IconButton(
+                    onClick = { onShare(path) },
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                        .size(40.dp)
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = "Share", tint = Color.White)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteVideoViewerDialog(
+    path: String,
+    onOpenExternal: (String) -> Unit,
+    onShare: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    android.widget.VideoView(ctx).apply {
+                        val uri = Uri.fromFile(File(path))
+                        setVideoURI(uri)
+                        val controller = android.widget.MediaController(ctx)
+                        controller.setAnchorView(this)
+                        setMediaController(controller)
+                        setOnPreparedListener { mp ->
+                            mp.isLooping = false
+                            start()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Top control bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                        .size(40.dp)
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White)
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(
+                        onClick = { onOpenExternal(path) },
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            .size(40.dp)
+                    ) {
+                        Icon(Icons.Filled.Launch, contentDescription = "Open in player", tint = Color.White)
+                    }
+                    IconButton(
+                        onClick = { onShare(path) },
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            .size(40.dp)
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = "Share", tint = Color.White)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1350,17 +2394,94 @@ private fun FormatToolbarButton(
 /**
  * Renders inline markdown-style markers as real formatting while HIDING the marker
  * characters themselves, so the editor shows styled text instead of raw `**markup**`.
+ */
+@Composable
+private fun NoteTextBlockItem(
+    block: NoteBlock.Text,
+    onValueChange: (TextFieldValue) -> Unit,
+    onFocus: () -> Unit,
+    onBackspaceAtStart: () -> Boolean,
+    visualTransformation: VisualTransformation,
+    onCardColor: Color,
+    isOnlyBlock: Boolean,
+    modifier: Modifier = Modifier
+) {
+    var textValue by remember(block) { mutableStateOf(block.value) }
+
+    LaunchedEffect(block.value.text, block.value.selection) {
+        if (textValue.text != block.value.text || textValue.selection != block.value.selection) {
+            textValue = block.value
+        }
+    }
+
+    TextField(
+        value = textValue,
+        onValueChange = { raw ->
+            val processed = VeritasNoteEditing.continueListOnNewline(textValue, raw)
+            textValue = processed
+            onValueChange(processed)
+        },
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = onCardColor),
+        placeholder = {
+            if (isOnlyBlock && textValue.text.isEmpty()) {
+                Text(
+                    "Note",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = onCardColor.copy(alpha = 0.4f)
+                )
+            }
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = if (isOnlyBlock) 200.dp else 24.dp)
+            .onFocusChanged { fState ->
+                if (fState.isFocused) {
+                    onFocus()
+                }
+            }
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.key == Key.Backspace && keyEvent.type == KeyEventType.KeyDown) {
+                    val isAtStart = textValue.selection.start == 0 && textValue.selection.end == 0
+                    if (isAtStart) {
+                        return@onPreviewKeyEvent onBackspaceAtStart()
+                    }
+                }
+                false
+            },
+        visualTransformation = visualTransformation,
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Color.Transparent,
+            disabledContainerColor = Color.Transparent,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            focusedTextColor = onCardColor
+        )
+    )
+}
+
+/**
+ * Applies visual styling for inline Markdown markers and headings.
  * Maintains an exact bidirectional offset mapping so the caret and selection stay correct.
  */
 class RichTextVisualTransformation(private val baseColor: Color) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
-        return RichTextFormatter.transform(text.text)
+        return RichTextFormatter.transform(text.text, baseColor)
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is RichTextVisualTransformation) return false
+        return baseColor == other.baseColor
+    }
+
+    override fun hashCode(): Int {
+        return baseColor.hashCode()
     }
 }
 
 object RichTextFormatter {
-    private data class StyleSpan(val start: Int, val endExclusive: Int, val style: SpanStyle)
-
+    private val HEADING_REGEX = Regex("^(#{1,3}) ")
     private val inlineMarkers: List<Pair<Regex, (String) -> SpanStyle>> = listOf(
         Regex("\\*\\*(.*?)\\*\\*") to { _: String -> SpanStyle(fontWeight = FontWeight.Bold) },
         Regex("__(.*?)__") to { _: String -> SpanStyle(textDecoration = TextDecoration.Underline) },
@@ -1371,22 +2492,36 @@ object RichTextFormatter {
 
     private val markerLengths = listOf(2, 2, 2, 1, 1)
 
-    fun transform(raw: String): TransformedText {
+    fun transform(raw: String, baseColor: Color = Color.Unspecified): TransformedText {
         val n = raw.length
-        val hidden = BooleanArray(n)
-        val consumed = BooleanArray(n)
-        val spans = mutableListOf<StyleSpan>()
+        if (n == 0) {
+            return TransformedText(AnnotatedString(""), OffsetMapping.Identity)
+        }
 
-        // Line-level headings: hide the leading "# " / "## " / "### " and enlarge the line.
-        run {
+        // Fast-path: if text contains no markdown indicator characters, skip all regex parsing entirely!
+        val hasMarkdown = raw.any { it == '*' || it == '_' || it == '~' || it == '`' || it == '#' || it == '>' }
+        if (!hasMarkdown) {
+            return TransformedText(AnnotatedString(raw), OffsetMapping.Identity)
+        }
+
+        val markerStyle = if (baseColor != Color.Unspecified) {
+            SpanStyle(color = baseColor.copy(alpha = 0.35f))
+        } else {
+            SpanStyle(color = Color.Gray.copy(alpha = 0.5f))
+        }
+
+        val annotated = buildAnnotatedString {
+            append(raw)
+
+            // Line-level headings and quotes
             var lineStart = 0
-            while (lineStart <= n) {
+            while (lineStart < n) {
                 val nl = raw.indexOf('\n', lineStart).let { if (it < 0) n else it }
                 val line = raw.substring(lineStart, nl)
-                val m = Regex("^(#{1,3}) ").find(line)
+                val m = HEADING_REGEX.find(line)
                 if (m != null) {
                     val prefixLen = m.value.length
-                    for (i in lineStart until (lineStart + prefixLen)) hidden[i] = true
+                    addStyle(markerStyle, lineStart, lineStart + prefixLen)
                     val level = m.groupValues[1].length
                     val size = when (level) {
                         1 -> 24f
@@ -1394,66 +2529,40 @@ object RichTextFormatter {
                         else -> 17f
                     }
                     if (nl > lineStart + prefixLen) {
-                        spans.add(StyleSpan(lineStart + prefixLen, nl, SpanStyle(fontWeight = FontWeight.Bold, fontSize = size.sp)))
+                        addStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = size.sp), lineStart + prefixLen, nl)
                     }
+                } else if (line.startsWith("> ")) {
+                    addStyle(markerStyle, lineStart, lineStart + 2)
+                    addStyle(SpanStyle(fontStyle = FontStyle.Italic), lineStart + 2, nl)
                 }
                 if (nl >= n) break
                 lineStart = nl + 1
             }
-        }
 
-        // Inline markers, in priority order, claiming non-overlapping balanced pairs.
-        inlineMarkers.forEachIndexed { index, (regex, styleFor) ->
-            val mlen = markerLengths[index]
-            regex.findAll(raw).forEach { match ->
-                val s = match.range.first
-                val e = match.range.last // inclusive
-                if (s < 0 || e >= n) return@forEach
-                var overlaps = false
-                for (i in s..e) if (consumed[i]) { overlaps = true; break }
-                if (overlaps) return@forEach
-                val innerStart = s + mlen
-                val innerEnd = e + 1 - mlen
-                if (innerEnd <= innerStart) return@forEach
-                for (i in s..e) consumed[i] = true
-                for (i in s until innerStart) hidden[i] = true
-                for (i in innerEnd..e) hidden[i] = true
-                spans.add(StyleSpan(innerStart, innerEnd, styleFor(match.groupValues.getOrElse(1) { "" })))
+            // Inline markers
+            val consumed = BooleanArray(n)
+            inlineMarkers.forEachIndexed { index, (regex, styleFor) ->
+                val mlen = markerLengths[index]
+                regex.findAll(raw).forEach { match ->
+                    val s = match.range.first
+                    val e = match.range.last // inclusive
+                    if (s < 0 || e >= n) return@forEach
+                    var overlaps = false
+                    for (i in s..e) if (consumed[i]) { overlaps = true; break }
+                    if (overlaps) return@forEach
+                    val innerStart = s + mlen
+                    val innerEnd = e + 1 - mlen
+                    if (innerEnd <= innerStart) return@forEach
+                    for (i in s..e) consumed[i] = true
+
+                    addStyle(markerStyle, s, innerStart)
+                    addStyle(styleFor(match.groupValues.getOrElse(1) { "" }), innerStart, innerEnd)
+                    addStyle(markerStyle, innerEnd, e + 1)
+                }
             }
         }
 
-        // Build the visible text plus exact offset maps.
-        val origToTrans = IntArray(n + 1)
-        val sb = StringBuilder()
-        val transToOrigList = ArrayList<Int>(n + 1)
-        var t = 0
-        for (i in 0 until n) {
-            origToTrans[i] = t
-            if (!hidden[i]) {
-                sb.append(raw[i])
-                transToOrigList.add(i)
-                t++
-            }
-        }
-        origToTrans[n] = t
-        transToOrigList.add(n)
-        val transToOrig = IntArray(t + 1) { idx -> transToOrigList.getOrElse(idx) { n } }
-
-        val annotated = buildAnnotatedString {
-            append(sb.toString())
-            spans.forEach { span ->
-                val ts = origToTrans[span.start.coerceIn(0, n)]
-                val te = origToTrans[span.endExclusive.coerceIn(0, n)]
-                if (ts < te) addStyle(span.style, ts, te)
-            }
-        }
-
-        val mapping = object : OffsetMapping {
-            override fun originalToTransformed(offset: Int): Int = origToTrans[offset.coerceIn(0, n)]
-            override fun transformedToOriginal(offset: Int): Int = transToOrig[offset.coerceIn(0, t)]
-        }
-
-        return TransformedText(annotated, mapping)
+        return TransformedText(annotated, OffsetMapping.Identity)
     }
 
     /** Removes inline markup and heading prefixes for plain-text sharing. */
@@ -1464,7 +2573,103 @@ object RichTextFormatter {
         out = out.replace(Regex("~~(.+?)~~"), "$1")
         out = out.replace(Regex("`(.+?)`"), "$1")
         out = out.replace(Regex("\\*(.+?)\\*"), "$1")
-        out = out.lineSequence().joinToString("\n") { it.replaceFirst(Regex("^#{1,3} "), "") }
+        out = out.lineSequence().joinToString("\n") {
+            it.replaceFirst(Regex("^#{1,3} "), "").replaceFirst(Regex("^> "), "")
+        }
         return out
     }
 }
+
+fun loadNoteBitmap(context: android.content.Context, pathOrUri: String): android.graphics.Bitmap? {
+    if (pathOrUri.isBlank()) return null
+    return try {
+        if (pathOrUri.startsWith("content://") || pathOrUri.startsWith("file://")) {
+            val uri = android.net.Uri.parse(pathOrUri)
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream)
+            }
+        } else {
+            val file = File(pathOrUri)
+            if (file.exists()) {
+                BitmapFactory.decodeFile(file.absolutePath)
+            } else {
+                val uri = android.net.Uri.parse(pathOrUri)
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+@Composable
+fun NoteAttachmentMenu(
+    onCopy: () -> Unit,
+    canMoveUp: Boolean,
+    onMoveUp: () -> Unit,
+    canMoveDown: Boolean,
+    onMoveDown: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                .size(32.dp)
+        ) {
+            Icon(
+                Icons.Filled.MoreVert,
+                contentDescription = "Attachment options",
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("Copy Path") },
+                leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
+                onClick = {
+                    expanded = false
+                    onCopy()
+                }
+            )
+            if (canMoveUp) {
+                DropdownMenuItem(
+                    text = { Text("Move Up") },
+                    leadingIcon = { Icon(Icons.Outlined.ArrowUpward, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onMoveUp()
+                    }
+                )
+            }
+            if (canMoveDown) {
+                DropdownMenuItem(
+                    text = { Text("Move Down") },
+                    leadingIcon = { Icon(Icons.Outlined.ArrowDownward, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onMoveDown()
+                    }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                onClick = {
+                    expanded = false
+                    onDelete()
+                }
+            )
+        }
+    }
+}
+

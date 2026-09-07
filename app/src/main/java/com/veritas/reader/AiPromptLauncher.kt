@@ -11,6 +11,7 @@ import java.io.File
 
 enum class AiPromptScope(val label: String) {
     CURRENT_SENTENCE("current sentence"),
+    CURRENT_PAGE("current page"),
     CURRENT_SECTION("current section"),
     WHOLE_DOCUMENT("whole document"),
     CUSTOM_PAGE_RANGE("custom page range")
@@ -29,21 +30,22 @@ enum class AiPromptType(val label: String) {
 }
 
 object AiPromptLauncher {
-    fun launch(
-        context: Context,
+    fun getSelectedSentences(
         document: ReaderDocument,
         currentIndex: Int,
-        type: AiPromptType,
-        customInstruction: String = "",
-        scope: AiPromptScope = AiPromptScope.WHOLE_DOCUMENT,
-        customPageRange: IntRange? = null,
-        settings: AskAiSettings? = null,
-        noPrompt: Boolean = false
-    ): Boolean {
+        scope: AiPromptScope,
+        customPageRange: IntRange? = null
+    ): List<ReaderSentence> {
         val model = ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
-        val selectedSentences = when (scope) {
+        return when (scope) {
             AiPromptScope.CURRENT_SENTENCE -> {
                 if (currentIndex in model.sentences.indices) listOf(model.sentences[currentIndex]) else emptyList()
+            }
+            AiPromptScope.CURRENT_PAGE -> {
+                val curSentence = model.sentences.getOrNull(currentIndex)
+                val pageNum = curSentence?.pageNumber ?: 1
+                val onPage = model.sentences.filter { it.pageNumber == pageNum }
+                if (onPage.isNotEmpty()) onPage else if (currentIndex in model.sentences.indices) listOf(model.sentences[currentIndex]) else emptyList()
             }
             AiPromptScope.CURRENT_SECTION -> {
                 val part = model.partForSentence(currentIndex)
@@ -56,6 +58,30 @@ object AiPromptLauncher {
                 if (customPageRange == null) model.sentences else model.sentences.filter { it.pageNumber in customPageRange }
             }
         }
+    }
+
+    fun extractTextForScope(
+        document: ReaderDocument,
+        currentIndex: Int,
+        scope: AiPromptScope,
+        customPageRange: IntRange? = null
+    ): String {
+        val sentences = getSelectedSentences(document, currentIndex, scope, customPageRange)
+        return buildMarkdownForSentences(sentences)
+    }
+
+    fun launch(
+        context: Context,
+        document: ReaderDocument,
+        currentIndex: Int,
+        type: AiPromptType,
+        customInstruction: String = "",
+        scope: AiPromptScope = AiPromptScope.WHOLE_DOCUMENT,
+        customPageRange: IntRange? = null,
+        settings: AskAiSettings? = null,
+        noPrompt: Boolean = false
+    ): Boolean {
+        val selectedSentences = getSelectedSentences(document, currentIndex, scope, customPageRange)
 
         if (selectedSentences.isEmpty()) {
             Toast.makeText(context, "No content to share", Toast.LENGTH_SHORT).show()
@@ -71,14 +97,18 @@ object AiPromptLauncher {
 
         val selectedPackage = preferredAiPackage(context, settings).orEmpty()
 
-        val fileNameMd = if (scope == AiPromptScope.CURRENT_SECTION) {
-            if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
-            else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
-        } else if (scope == AiPromptScope.CUSTOM_PAGE_RANGE) {
-            if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
-            else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
-        } else {
-            "Veritas - $sanitizedTitle - Entire Document.md"
+        val fileNameMd = when (scope) {
+            AiPromptScope.CURRENT_SENTENCE -> "Veritas - $sanitizedTitle - Sentence.md"
+            AiPromptScope.CURRENT_PAGE -> "Veritas - $sanitizedTitle - Page $minPage.md"
+            AiPromptScope.CURRENT_SECTION -> {
+                if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
+                else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
+            }
+            AiPromptScope.CUSTOM_PAGE_RANGE -> {
+                if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
+                else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
+            }
+            AiPromptScope.WHOLE_DOCUMENT -> "Veritas - $sanitizedTitle - Entire Document.md"
         }
 
         val prompt = buildPrompt(
@@ -178,29 +208,82 @@ object AiPromptLauncher {
             customInstruction
         } else {
             when (type) {
-                AiPromptType.SUMMARY -> if (scope == AiPromptScope.CURRENT_SECTION) {
-                    "Summarize only the current section/chunk clearly. Give the main idea, key points, and anything the reader should remember."
-                } else {
-                    "Summarize the whole document clearly. Give a short overview first, then the main points, then any important conclusions or action items."
+                AiPromptType.SUMMARY -> {
+                    val scopeDesc = when (scope) {
+                        AiPromptScope.CURRENT_SENTENCE -> "this sentence"
+                        AiPromptScope.CURRENT_PAGE -> "this page"
+                        AiPromptScope.CURRENT_SECTION -> "this section"
+                        else -> "this excerpt/document"
+                    }
+                    """
+                    Provide a clear, high-yield executive summary of $scopeDesc:
+                    1. 📌 Executive Overview: 2-3 sentences capturing the core thesis or narrative.
+                    2. 💡 Key Takeaways: 4-6 bullet points covering the most essential facts, ideas, or arguments.
+                    3. 🎯 Conclusion: The main significance or actionable insight.
+                    """.trimIndent()
                 }
-                AiPromptType.KEY_POINTS -> "Extract the key points from this document. Group related ideas together and keep the wording clear for revision."
-                AiPromptType.EXPLAIN_SECTION -> "Explain the current section in simple language. Identify the main idea, difficult terms, and why the section matters in the document."
-                AiPromptType.STUDY_NOTES -> "Turn this document into organized study notes. Use headings, bullet points, definitions, examples, likely exam areas, and a short final revision checklist."
-                AiPromptType.SIMPLIFY -> "Rewrite and explain the document in simpler language without removing important meaning. Define difficult words and give short examples where useful."
-                AiPromptType.SECTION_BY_SECTION -> "This is part of a long-document workflow. Summarize this section or page range only, give 3-6 key points, define difficult terms, and end with a short note saying what the user should send next."
-                AiPromptType.QUIZ -> "Create an exam-style multiple-choice revision quiz from this document. Format every question EXACTLY like this, with one blank line between questions:\nQ: <question>\nA) <option>\nB) <option>\nC) <option>\nD) <option>\nAnswer: <letter>\nExplanation: <one short sentence>"
-                AiPromptType.FLASHCARDS -> "Create flashcards from this document. Focus on definitions, processes, comparisons, and important facts. Reply as plain text only (no tables, no attachments) with every card formatted EXACTLY like this, one blank line between cards:\nQ: <question>\nA: <concise answer>"
-                AiPromptType.CUSTOM -> "Help me study this document."
+                AiPromptType.KEY_POINTS -> """
+                    Extract the high-yield core ideas from this text.
+                    Group related concepts together and present them as concise, memorable bullet points.
+                    Highlight key definitions and cause-and-effect relationships.
+                """.trimIndent()
+                AiPromptType.EXPLAIN_SECTION -> """
+                    Explain this text using the Feynman technique (simple, clear, and intuitive):
+                    1. 💡 Core Idea: Explain what is happening in plain English without academic jargon.
+                    2. 🔍 Analogy: Provide a relatable real-world comparison.
+                    3. 📖 Vocabulary: Define any difficult or domain-specific words.
+                    4. 🔑 Significance: Why does this passage matter?
+                """.trimIndent()
+                AiPromptType.STUDY_NOTES -> """
+                    Transform this text into an organized, high-yield study cheatsheet:
+                    - 📚 Summary & Framework
+                    - 🗝️ Key Definitions & Terms
+                    - ⚡ Important Principles or Findings
+                    - 📝 3 Quick Active-Recall Questions with Answers
+                """.trimIndent()
+                AiPromptType.SIMPLIFY -> """
+                    Rewrite and explain this text in clear, everyday language (like explaining to a bright beginner).
+                    Keep all important nuance, but eliminate unnecessary density, jargon, or complex syntax.
+                """.trimIndent()
+                AiPromptType.SECTION_BY_SECTION -> """
+                    Provide a structured section-by-section breakdown of this text with concise bullet points and term definitions.
+                """.trimIndent()
+                AiPromptType.QUIZ -> """
+                    Create a standard academic multiple-choice practice quiz (at least 10 questions) based on this text.
+                    For every question, test genuine conceptual understanding and retention rather than superficial recall.
+                    
+                    CRITICAL ANTI-AI GIVEAWAY RULES:
+                    1. UNIFORM OPTION LENGTH & DETAIL: All 4 multiple-choice options (A, B, C, D) MUST be of approximately equal length, grammatical complexity, and tone. Under NO circumstances make the correct answer noticeably longer or more detailed than distractors.
+                    2. NO BRACKETED OR PARENTHETICAL HINTS: Do NOT include parenthetical explanations or bracketed qualifiers inside options.
+                    3. PLAUSIBLE DISTRACTORS: All 3 incorrect choices must be plausible, realistic, and contextually grounded in the text so that answers cannot be guessed without reading.
+                    4. Evenly distribute the correct answers across choices A, B, C, and D.
+                    
+                    Format each question clearly:
+                    Q: <Question text>
+                    A) <Option A>
+                    B) <Option B>
+                    C) <Option C>
+                    D) <Option D>
+                    Answer: <Letter>
+                    Explanation: <Short 1-sentence rationale>
+                """.trimIndent()
+                AiPromptType.FLASHCARDS -> """
+                    Create high-yield, active recall flashcards (5-10 cards) based on this text.
+                    Focus on fundamental concepts, definitions, cause-and-effect, and key facts.
+                    Format each flashcard cleanly:
+                    Q: <Concise question or term>
+                    A: <Direct, clear answer or definition>
+                """.trimIndent()
+                AiPromptType.CUSTOM -> "Help me study and master this document excerpt."
             }
         }
 
         val builder = StringBuilder()
-        builder.appendLine("Attached is the document '${title.ifBlank { "Untitled document" }}'. Please perform the following task on it:")
+        builder.appendLine("You are an expert study and learning companion for Veritas Reader.")
+        builder.appendLine("Analyze the attached text from '${title.ifBlank { "the document" }}' and execute the following task:")
         builder.appendLine()
-        builder.appendLine("Task:")
+        builder.appendLine("Task Instructions:")
         builder.appendLine(instruction)
-        builder.appendLine()
-        builder.appendLine("Note that page boundaries are marked with [[VERITAS_PAGE:X]] where X is the page number. Citations should refer to these page numbers.")
 
         return builder.toString().trim()
     }
@@ -209,9 +292,8 @@ object AiPromptLauncher {
         if (sentences.isEmpty()) return ""
         val output = StringBuilder()
         val ordered = sentences.groupBy { it.pageNumber.coerceAtLeast(1) }.toSortedMap()
-        ordered.forEach { (pageNumber, pageSentences) ->
+        ordered.forEach { (_, pageSentences) ->
             if (output.isNotBlank()) output.append("\n\n")
-            output.append("[[VERITAS_PAGE:$pageNumber]]\n\n")
             val pageText = StringBuilder()
             pageSentences.forEachIndexed { index, sentence ->
                 if (pageText.isNotBlank()) {

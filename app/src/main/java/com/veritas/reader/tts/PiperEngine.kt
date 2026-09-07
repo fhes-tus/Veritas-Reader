@@ -45,12 +45,13 @@ class PiperEngine(context: Context, private val voiceId: String) : TtsEngine {
 
     override fun isReady(): Boolean = engine != null
 
-    override suspend fun synthesize(sentence: String): ShortArray? = withContext(Dispatchers.Default) {
+    override suspend fun synthesize(sentence: String, rate: Float, pitch: Float): ShortArray? = withContext(Dispatchers.Default) {
         val tts = engine ?: return@withContext null
         val clean = sentence.trim()
         if (clean.isBlank()) return@withContext null
+        val safeSpeed = rate.coerceIn(0.5f, 2.0f)
         runCatching {
-            val audio = tts.generate(clean, sid = 0, speed = 1.0f)
+            val audio = tts.generate(clean, sid = 0, speed = safeSpeed)
             val samples = audio.samples
             if (samples.isEmpty()) return@withContext null
             ShortArray(samples.size) { index ->

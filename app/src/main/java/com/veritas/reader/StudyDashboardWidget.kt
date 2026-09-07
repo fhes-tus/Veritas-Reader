@@ -2,302 +2,460 @@ package com.veritas.reader
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
-import androidx.glance.action.clickable
 import androidx.glance.action.ActionParameters
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.LinearProgressIndicator
+import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.*
+import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import androidx.glance.text.FontWeight
-import androidx.glance.unit.ColorProvider
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.Color
-import androidx.glance.appwidget.cornerRadius
-import androidx.glance.appwidget.LinearProgressIndicator
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 class StudyDashboardWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = StudyDashboardWidget()
 }
 
 class StudyDashboardWidget : GlanceAppWidget() {
-    override val sizeMode: androidx.glance.appwidget.SizeMode = androidx.glance.appwidget.SizeMode.Exact
+    override val sizeMode: SizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repository = DocumentRepository(context)
         val tracker = repository.loadReaderTrackerSnapshot()
-        val notesCount = repository.loadGeneralNotes().size
+        val settings = repository.loadReaderSettings()
+        val allCards = repository.loadAllFlashcards()
+        val sets = repository.loadFlashcardSets()
+        val notes = repository.loadGeneralNotes()
+
+        val dueCards = allCards.filter { it.recall.isBlank() || it.recall == "again" || it.recall == "hard" }
+        val masteredCards = allCards.filter { it.recall == "good" || it.recall == "easy" }
+        val masteryPercent = if (allCards.isNotEmpty()) {
+            ((masteredCards.size * 100f) / allCards.size.toFloat()).toInt()
+        } else 0
+
+        val cal = Calendar.getInstance()
+        val todayKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
+        val daysByKey = repository.loadTrackerDays()
+        val todayMillis = daysByKey[todayKey]?.usageMillis ?: 0L
+        val todayMinutes = (todayMillis / 60000L).coerceAtLeast(0L)
+
+        val hasGoal = settings.dailyGoalMinutes > 0
+        val dailyGoalMinutes = settings.dailyGoalMinutes.toLong()
+        val goalProgress = if (hasGoal && dailyGoalMinutes > 0) {
+            (todayMinutes.toFloat() / dailyGoalMinutes.toFloat()).coerceIn(0f, 1f)
+        } else 0f
 
         provideContent {
             val size = androidx.glance.LocalSize.current
-            val cal = java.util.Calendar.getInstance()
-            val todayKey = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(cal.time)
-            val daysByKey = repository.loadTrackerDays()
-            val todayMillis = daysByKey[todayKey]?.usageMillis ?: 0L
-            val todayMinutes = (todayMillis / 60000L).coerceAtLeast(0L)
-            
-            val dailyGoalMinutes = 30L
-            val goalProgress = (todayMinutes.toFloat() / dailyGoalMinutes.toFloat()).coerceIn(0f, 1f)
+            val isCompact = size.height < 125.dp
+            val isTall = size.height >= 180.dp
+            val isWide = size.width >= 240.dp
 
-            val borderModifier = GlanceModifier
-                .fillMaxSize()
-                .background(VeritasWidgetColors.border)
-                .cornerRadius(28.dp)
-
-            Box(
-                modifier = borderModifier,
-                contentAlignment = Alignment.Center
+            Column(
+                modifier = GlanceModifier
+                    .fillMaxSize()
+                    .cornerRadius(32.dp)
+                    .background(VeritasWidgetColors.widgetBackground)
+                    .padding(if (isCompact) 10.dp else 12.dp)
+                    .clickable(actionRunCallback<StudyDashboardClickCallback>())
             ) {
-                Column(
-                    modifier = GlanceModifier
-                        .fillMaxSize()
-                        .padding(1.dp)
-                        .cornerRadius(27.dp)
-                        .background(VeritasWidgetColors.frostedBackground)
-                        .padding(12.dp)
-                        .clickable(actionRunCallback<StudyDashboardClickCallback>())
+                // Header: Title + Streak badge
+                Row(
+                    modifier = GlanceModifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Header
-                    Row(
-                        modifier = GlanceModifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                    Text(
+                        text = "Study Hub",
+                        style = TextStyle(
+                            fontSize = if (isWide) 16.sp else 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = VeritasWidgetColors.textPrimary
+                        ),
+                        modifier = GlanceModifier.defaultWeight()
+                    )
+
+                    Box(
+                        modifier = GlanceModifier
+                            .cornerRadius(12.dp)
+                            .background(VeritasWidgetColors.cardBackground)
+                            .padding(horizontal = 9.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Study Dashboard",
+                            text = "🔥 ${tracker.currentStreak}d Streak",
                             style = TextStyle(
-                                fontSize = if (size.width >= 240.dp) 15.sp else 13.sp,
+                                fontSize = if (isWide) 12.sp else 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = VeritasWidgetColors.textPrimary
-                            ),
-                            modifier = GlanceModifier.defaultWeight()
-                        )
-                        
-                        Box(
-                            modifier = GlanceModifier
-                                .cornerRadius(12.dp)
-                                .background(VeritasWidgetColors.cardBackground)
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "🔥 ${tracker.currentStreak}d Streak",
-                                style = TextStyle(
-                                    fontSize = if (size.width >= 240.dp) 11.sp else 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = VeritasWidgetColors.streakAccent
-                                )
+                                color = VeritasWidgetColors.streakAccent
                             )
+                        )
+                    }
+                }
+
+                Spacer(modifier = GlanceModifier.height(if (isCompact) 6.dp else 8.dp))
+
+                // Compact layout: Essential info in a single clean row
+                if (isCompact) {
+                    Box(
+                        modifier = GlanceModifier
+                            .defaultWeight()
+                            .fillMaxWidth()
+                            .cornerRadius(18.dp)
+                            .background(VeritasWidgetColors.cardBackground)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                Text(
+                                    text = if (dueCards.isNotEmpty()) "${dueCards.size} Cards Due" else "All Caught Up! 🎉",
+                                    style = TextStyle(
+                                        fontSize = if (isWide) 15.sp else 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (dueCards.isNotEmpty()) VeritasWidgetColors.streakAccent else VeritasWidgetColors.successAccent
+                                    ),
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = GlanceModifier.height(2.dp))
+                                Text(
+                                    text = if (allCards.isNotEmpty()) "$masteryPercent% mastery • ${sets.size} active deck${if (sets.size == 1) "" else "s"}" else "${notes.size} study notes saved",
+                                    style = TextStyle(
+                                        fontSize = if (isWide) 12.sp else 10.sp,
+                                        color = VeritasWidgetColors.textMuted
+                                    ),
+                                    maxLines = 1
+                                )
+                            }
+
+                            Spacer(modifier = GlanceModifier.width(8.dp))
+
+                            Box(
+                                modifier = GlanceModifier
+                                    .cornerRadius(16.dp)
+                                    .background(VeritasWidgetColors.playButtonAccent)
+                                    .clickable(actionRunCallback<StudyDashboardClickCallback>())
+                                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Study",
+                                    style = TextStyle(
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = VeritasWidgetColors.playIconColor
+                                    )
+                                )
+                            }
                         }
                     }
-
-                    Spacer(modifier = GlanceModifier.height(8.dp))
-
-                    // Stats row with elevated cards
+                } else {
+                    // Stats Row: 3 elevated colorful tiles (Due, Mastery, Decks)
                     Row(
                         modifier = GlanceModifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Due Cards Tile
                         Box(
                             modifier = GlanceModifier
                                 .defaultWeight()
                                 .cornerRadius(14.dp)
                                 .background(VeritasWidgetColors.cardBackground)
-                                .padding(8.dp)
+                                .padding(10.dp)
                         ) {
                             Column {
                                 Text(
-                                    text = "Today",
+                                    text = "Due",
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 11.sp else 9.sp,
+                                        fontSize = if (isWide) 12.sp else 10.sp,
                                         color = VeritasWidgetColors.textMuted
                                     )
                                 )
                                 Spacer(modifier = GlanceModifier.height(2.dp))
                                 Text(
-                                    text = "$todayMinutes min",
+                                    text = "${dueCards.size}",
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
+                                        fontSize = if (isWide) 18.sp else 15.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = VeritasWidgetColors.textPrimary
+                                        color = if (dueCards.isNotEmpty()) VeritasWidgetColors.streakAccent else VeritasWidgetColors.successAccent
                                     )
                                 )
                             }
                         }
 
-                        Spacer(modifier = GlanceModifier.width(6.dp))
+                        Spacer(modifier = GlanceModifier.width(8.dp))
 
+                        // Mastery Tile
                         Box(
                             modifier = GlanceModifier
                                 .defaultWeight()
                                 .cornerRadius(14.dp)
                                 .background(VeritasWidgetColors.cardBackground)
-                                .padding(8.dp)
+                                .padding(10.dp)
                         ) {
                             Column {
                                 Text(
-                                    text = "Notes",
+                                    text = "Mastery",
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 11.sp else 9.sp,
+                                        fontSize = if (isWide) 12.sp else 10.sp,
                                         color = VeritasWidgetColors.textMuted
                                     )
                                 )
                                 Spacer(modifier = GlanceModifier.height(2.dp))
                                 Text(
-                                    text = "$notesCount",
+                                    text = "$masteryPercent%",
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
+                                        fontSize = if (isWide) 18.sp else 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = VeritasWidgetColors.cyanAccent
+                                    )
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = GlanceModifier.width(8.dp))
+
+                        // Decks / Notes Tile
+                        Box(
+                            modifier = GlanceModifier
+                                .defaultWeight()
+                                .cornerRadius(14.dp)
+                                .background(VeritasWidgetColors.cardBackground)
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = if (sets.isNotEmpty()) "Decks" else "Notes",
+                                    style = TextStyle(
+                                        fontSize = if (isWide) 12.sp else 10.sp,
+                                        color = VeritasWidgetColors.textMuted
+                                    )
+                                )
+                                Spacer(modifier = GlanceModifier.height(2.dp))
+                                Text(
+                                    text = "${if (sets.isNotEmpty()) sets.size else notes.size}",
+                                    style = TextStyle(
+                                        fontSize = if (isWide) 18.sp else 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = VeritasWidgetColors.secondaryAccent
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = GlanceModifier.height(8.dp))
+
+                    // Center Focus Card: Next Card or Start Review
+                    Box(
+                        modifier = GlanceModifier
+                            .fillMaxWidth()
+                            .then(if (isTall) GlanceModifier.defaultWeight() else GlanceModifier)
+                            .cornerRadius(18.dp)
+                            .background(VeritasWidgetColors.cardBackground)
+                            .padding(12.dp)
+                            .clickable(actionRunCallback<StudyDashboardClickCallback>()),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = GlanceModifier.defaultWeight()) {
+                                if (dueCards.isNotEmpty()) {
+                                    val nextCard = dueCards.first()
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = GlanceModifier
+                                                .cornerRadius(6.dp)
+                                                .background(VeritasWidgetColors.cyanAccent)
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "NEXT CARD",
+                                                style = TextStyle(
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = androidx.glance.unit.ColorProvider(androidx.compose.ui.graphics.Color.White)
+                                                )
+                                            )
+                                        }
+                                        Spacer(modifier = GlanceModifier.width(6.dp))
+                                        Text(
+                                            text = nextCard.setName.ifBlank { "Flashcards" },
+                                            style = TextStyle(
+                                                fontSize = 11.sp,
+                                                color = VeritasWidgetColors.textMuted
+                                            ),
+                                            maxLines = 1
+                                        )
+                                    }
+                                    Spacer(modifier = GlanceModifier.height(4.dp))
+                                    Text(
+                                        text = nextCard.front,
+                                        style = TextStyle(
+                                            fontSize = if (isWide) 14.sp else 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = VeritasWidgetColors.textPrimary
+                                        ),
+                                        maxLines = if (isTall) 2 else 1
+                                    )
+                                } else if (allCards.isNotEmpty()) {
+                                    Text(
+                                        text = "All Caught Up!",
+                                        style = TextStyle(
+                                            fontSize = if (isWide) 14.sp else 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = VeritasWidgetColors.successAccent
+                                        )
+                                    )
+                                    Spacer(modifier = GlanceModifier.height(2.dp))
+                                    Text(
+                                        text = "All ${allCards.size} cards reviewed • Keep it up!",
+                                        style = TextStyle(
+                                            fontSize = 11.sp,
+                                            color = VeritasWidgetColors.textMuted
+                                        )
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Study Hub Ready",
+                                        style = TextStyle(
+                                            fontSize = if (isWide) 14.sp else 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = VeritasWidgetColors.textPrimary
+                                        )
+                                    )
+                                    Spacer(modifier = GlanceModifier.height(2.dp))
+                                    Text(
+                                        text = "Import cards from reading notes or AI prompts",
+                                        style = TextStyle(
+                                            fontSize = 11.sp,
+                                            color = VeritasWidgetColors.textMuted
+                                        )
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = GlanceModifier.width(10.dp))
+
+                            Box(
+                                modifier = GlanceModifier
+                                    .cornerRadius(16.dp)
+                                    .background(VeritasWidgetColors.playButtonAccent)
+                                    .clickable(actionRunCallback<StudyDashboardClickCallback>())
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (dueCards.isNotEmpty()) "Review" else "Open",
+                                    style = TextStyle(
+                                        fontSize = if (isWide) 13.sp else 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = VeritasWidgetColors.playIconColor
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // For Tall: Active Decks List preview chips
+                    if (isTall && sets.isNotEmpty()) {
+                        Spacer(modifier = GlanceModifier.height(10.dp))
+                        Text(
+                            text = "Active Decks",
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = VeritasWidgetColors.textMuted
+                            )
+                        )
+                        Spacer(modifier = GlanceModifier.height(6.dp))
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            sets.take(2).forEachIndexed { index, set ->
+                                if (index > 0) Spacer(modifier = GlanceModifier.width(8.dp))
+                                val setDue = set.cards.count { it.recall.isBlank() || it.recall == "again" || it.recall == "hard" }
+                                Box(
+                                    modifier = GlanceModifier
+                                        .defaultWeight()
+                                        .cornerRadius(14.dp)
+                                        .background(VeritasWidgetColors.cardElevated)
+                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = set.name,
+                                            style = TextStyle(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = VeritasWidgetColors.textPrimary
+                                            ),
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = GlanceModifier.height(2.dp))
+                                        Text(
+                                            text = "${set.cards.size} cards • ${if (setDue > 0) "$setDue due" else "caught up"}",
+                                            style = TextStyle(
+                                                fontSize = 10.sp,
+                                                color = if (setDue > 0) VeritasWidgetColors.streakAccent else VeritasWidgetColors.textMuted
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Daily goal (ONLY if configured by user in app settings)
+                    if (hasGoal) {
+                        Spacer(modifier = GlanceModifier.height(8.dp))
+                        Column(modifier = GlanceModifier.fillMaxWidth()) {
+                            Row(
+                                modifier = GlanceModifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Daily Goal: ${dailyGoalMinutes} min",
+                                    style = TextStyle(
+                                        fontSize = 11.sp,
+                                        color = VeritasWidgetColors.textMuted
+                                    ),
+                                    modifier = GlanceModifier.defaultWeight()
+                                )
+                                Text(
+                                    text = "${(goalProgress * 100).toInt()}%",
+                                    style = TextStyle(
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = VeritasWidgetColors.primaryAccent
                                     )
                                 )
                             }
-                        }
-
-                        Spacer(modifier = GlanceModifier.width(6.dp))
-
-                        Box(
-                            modifier = GlanceModifier
-                                .defaultWeight()
-                                .cornerRadius(14.dp)
-                                .background(VeritasWidgetColors.cardBackground)
-                                .padding(8.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Completed",
-                                    style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 11.sp else 9.sp,
-                                        color = VeritasWidgetColors.textMuted
-                                    )
-                                )
-                                Spacer(modifier = GlanceModifier.height(2.dp))
-                                Text(
-                                    text = "${tracker.documentsCompletedThisMonth}",
-                                    style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 14.sp else 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = VeritasWidgetColors.successAccent
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = GlanceModifier.height(8.dp))
-
-                    // Goal bar
-                    Column(modifier = GlanceModifier.fillMaxWidth()) {
-                        Row(
-                            modifier = GlanceModifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Daily Goal: 30 min",
-                                style = TextStyle(
-                                    fontSize = if (size.width >= 240.dp) 11.sp else 10.sp,
-                                    color = VeritasWidgetColors.textMuted
-                                ),
-                                modifier = GlanceModifier.defaultWeight()
+                            Spacer(modifier = GlanceModifier.height(3.dp))
+                            LinearProgressIndicator(
+                                progress = goalProgress,
+                                modifier = GlanceModifier.fillMaxWidth().height(4.dp),
+                                color = VeritasWidgetColors.primaryAccent,
+                                backgroundColor = VeritasWidgetColors.progressTrack
                             )
-                            Text(
-                                text = "${(goalProgress * 100).toInt()}%",
-                                style = TextStyle(
-                                    fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = VeritasWidgetColors.primaryAccent
-                                )
-                            )
-                        }
-                        Spacer(modifier = GlanceModifier.height(3.dp))
-                        LinearProgressIndicator(
-                            progress = goalProgress,
-                            modifier = GlanceModifier.fillMaxWidth().height(4.dp),
-                            color = VeritasWidgetColors.primaryAccent,
-                            backgroundColor = VeritasWidgetColors.progressTrack
-                        )
-                    }
-
-                    Spacer(modifier = GlanceModifier.height(8.dp))
-
-                    // Weekly usage bar chart representation
-                    Column(modifier = GlanceModifier.fillMaxWidth()) {
-                        Text(
-                            text = "Weekly Activity",
-                            style = TextStyle(
-                                fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = VeritasWidgetColors.textMuted
-                            )
-                        )
-                        Spacer(modifier = GlanceModifier.height(4.dp))
-                        Row(
-                            modifier = GlanceModifier.fillMaxWidth().height(48.dp),
-                            verticalAlignment = Alignment.Bottom
-                        ) {
-                            val sundayCal = java.util.Calendar.getInstance().apply {
-                                firstDayOfWeek = java.util.Calendar.SUNDAY
-                                set(java.util.Calendar.DAY_OF_WEEK, java.util.Calendar.SUNDAY)
-                                set(java.util.Calendar.HOUR_OF_DAY, 0)
-                                set(java.util.Calendar.MINUTE, 0)
-                                set(java.util.Calendar.SECOND, 0)
-                                set(java.util.Calendar.MILLISECOND, 0)
-                            }
-                            val sundayToSaturdayKeys = List(7) { index ->
-                                val dayCal = (sundayCal.clone() as java.util.Calendar).apply {
-                                    add(java.util.Calendar.DAY_OF_YEAR, index)
-                                }
-                                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(dayCal.time)
-                            }
-                            val weeklyUsageByDay = sundayToSaturdayKeys.map { key -> daysByKey[key]?.usageMillis ?: 0L }
-                            val maxVal = weeklyUsageByDay.maxOrNull()?.coerceAtLeast(1L) ?: 1L
-                            val labels = listOf("S", "M", "T", "W", "T", "F", "S")
-                            val dayIdx = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
-
-                            weeklyUsageByDay.forEachIndexed { i, value ->
-                                val isToday = i == dayIdx
-                                val fraction = (value.toFloat() / maxVal.toFloat()).coerceIn(0f, 1f)
-                                val barHeight = (fraction * 36f).toInt().coerceAtLeast(4)
-
-                                Column(
-                                    modifier = GlanceModifier.defaultWeight(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Box(
-                                        modifier = GlanceModifier
-                                            .width(14.dp)
-                                            .height(36.dp)
-                                            .cornerRadius(7.dp)
-                                            .background(VeritasWidgetColors.cardBackground),
-                                        contentAlignment = Alignment.BottomCenter
-                                    ) {
-                                        Box(
-                                            modifier = GlanceModifier
-                                                .width(14.dp)
-                                                .height(barHeight.dp)
-                                                .cornerRadius(7.dp)
-                                                .background(
-                                                    if (isToday) VeritasWidgetColors.primaryAccent else VeritasWidgetColors.cardElevated
-                                                )
-                                        ) {}
-                                    }
-                                    Spacer(modifier = GlanceModifier.height(2.dp))
-                                    Text(
-                                        text = labels.getOrElse(i) { "" },
-                                        style = TextStyle(
-                                            fontSize = if (size.width >= 240.dp) 10.sp else 8.sp,
-                                            fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isToday) VeritasWidgetColors.primaryAccent else VeritasWidgetColors.textMuted
-                                        )
-                                    )
-                                }
-                            }
                         }
                     }
                 }

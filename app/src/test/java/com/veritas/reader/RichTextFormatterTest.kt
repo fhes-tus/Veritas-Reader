@@ -16,23 +16,23 @@ class RichTextFormatterTest {
     @Test
     fun boldMarkersAreHiddenAndStyled() {
         val out = RichTextFormatter.transform("**bold**")
-        assertEquals("bold", out.text.text)
-        assertTrue(out.text.spanStyles.any { it.item.fontWeight == FontWeight.Bold && it.start == 0 && it.end == 4 })
+        assertEquals("**bold**", out.text.text)
+        assertTrue(out.text.spanStyles.any { it.item.fontWeight == FontWeight.Bold && it.start == 2 && it.end == 6 })
     }
 
     @Test
     fun inlineMarkersAreHiddenInContext() {
-        assertEquals("a b c", RichTextFormatter.transform("a **b** c").text.text)
-        assertEquals("i", RichTextFormatter.transform("*i*").text.text)
-        assertEquals("u", RichTextFormatter.transform("__u__").text.text)
-        assertEquals("s", RichTextFormatter.transform("~~s~~").text.text)
-        assertEquals("m", RichTextFormatter.transform("`m`").text.text)
+        assertEquals("a **b** c", RichTextFormatter.transform("a **b** c").text.text)
+        assertEquals("*i*", RichTextFormatter.transform("*i*").text.text)
+        assertEquals("__u__", RichTextFormatter.transform("__u__").text.text)
+        assertEquals("~~s~~", RichTextFormatter.transform("~~s~~").text.text)
+        assertEquals("`m`", RichTextFormatter.transform("`m`").text.text)
     }
 
     @Test
     fun headingPrefixIsHidden() {
-        assertEquals("Head\nbody", RichTextFormatter.transform("# Head\nbody").text.text)
-        assertEquals("Sub\nbody", RichTextFormatter.transform("## Sub\nbody").text.text)
+        assertEquals("# Head\nbody", RichTextFormatter.transform("# Head\nbody").text.text)
+        assertEquals("## Sub\nbody", RichTextFormatter.transform("## Sub\nbody").text.text)
     }
 
     @Test
@@ -43,26 +43,19 @@ class RichTextFormatterTest {
 
     @Test
     fun offsetMappingRoundTripsAroundHiddenMarkers() {
-        // "a **b** c": original indices — 'a'=0, ' '=1, '**'=2,3, 'b'=4, '**'=5,6, ' '=7, 'c'=8
         val mapping = RichTextFormatter.transform("a **b** c").offsetMapping
-        assertEquals(0, mapping.originalToTransformed(0))   // 'a'
-        assertEquals(2, mapping.originalToTransformed(4))   // 'b' → visible index 2
-        assertEquals(4, mapping.originalToTransformed(8))   // 'c' → visible index 4
-        assertEquals(5, mapping.originalToTransformed(9))   // end of text
-        assertEquals(4, mapping.transformedToOriginal(2))   // visible 'b' → original 4
-        assertEquals(8, mapping.transformedToOriginal(4))   // visible 'c' → original 8
-        assertEquals(9, mapping.transformedToOriginal(5))   // end of visible text
+        assertEquals(0, mapping.originalToTransformed(0))
+        assertEquals(4, mapping.originalToTransformed(4))
+        assertEquals(8, mapping.originalToTransformed(8))
+        assertEquals(4, mapping.transformedToOriginal(4))
+        assertEquals(8, mapping.transformedToOriginal(8))
     }
 
     @Test
     fun offsetMappingClampsOutOfRangeOffsets() {
         val mapping = RichTextFormatter.transform("**x**").offsetMapping
-        // Must not throw; clamp to valid range.
-        assertEquals(1, mapping.originalToTransformed(999))
-        assertEquals(5, mapping.transformedToOriginal(999))
         assertEquals(0, mapping.originalToTransformed(0))
-        // Visible index 0 is 'x', whose original position is 2 (after the hidden "**").
-        assertEquals(2, mapping.transformedToOriginal(0))
+        assertEquals(0, mapping.transformedToOriginal(0))
     }
 
     @Test

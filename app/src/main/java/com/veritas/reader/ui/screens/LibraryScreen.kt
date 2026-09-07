@@ -35,8 +35,10 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.animation.core.animateFloatAsState
@@ -100,6 +102,9 @@ import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material3.*
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -148,6 +153,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -168,7 +174,7 @@ import com.veritas.reader.R
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 
-internal enum class VeritasHomeTab {
+enum class VeritasHomeTab {
     HOME,
     LIBRARY,
     NOTES,
@@ -241,6 +247,7 @@ fun LibraryScreen(
     onBatchQueueDocuments: (Set<String>) -> Unit,
     onBatchSetCollectionDocuments: (Set<String>, String) -> Unit,
     onDeleteAnnotations: (Set<String>) -> Unit,
+    onClearTargetHomeTab: () -> Unit = {},
     onWriteGeneralNote: () -> Unit,
     onEditGeneralNote: (GeneralNote) -> Unit,
     onCreateReadingList: (String, String?) -> Unit = { _, _ -> },
@@ -258,6 +265,12 @@ fun LibraryScreen(
     onRenameFlashcardSet: (String, String) -> Unit = { _, _ -> },
     onDeleteFlashcardSet: (String) -> Unit = {},
     onSaveReaderSettings: (ReaderSettings) -> Unit = {},
+    onSaveQuiz: (QuizSet) -> Unit = {},
+    onDeleteQuiz: (String) -> Unit = {},
+    onRecordQuizScore: (String, Int) -> Unit = { _, _ -> },
+    onGenerateInAppFlashcards: (SavedDocument, String?) -> Unit = { _, _ -> },
+    onGenerateInAppQuiz: (SavedDocument, String?) -> Unit = { _, _ -> },
+    onOpenAiStudyTools: () -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
 ) {
@@ -282,11 +295,82 @@ fun LibraryScreen(
     var viewerSetName by remember { mutableStateOf("") }
     var showPasteFlashcards by remember { mutableStateOf(false) }
     var showPasteQuiz by remember { mutableStateOf(false) }
+    var showQuizLabMetrics by remember { mutableStateOf(false) }
+    var quizToDelete by remember { mutableStateOf<QuizSet?>(null) }
+    var docToDelete by remember { mutableStateOf<SavedDocument?>(null) }
+    var activePlayingQuiz by remember { mutableStateOf<QuizSet?>(null) }
+    var showGeminiApiKeyDialog by remember { mutableStateOf(false) }
+    var detectedClipboardFlashcards by remember { mutableStateOf<List<Flashcard>>(emptyList()) }
+    var detectedClipboardQuiz by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
+    var dismissedClipboardSnippet by remember { mutableStateOf<String?>(null) }
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     var renameSetTarget by remember { mutableStateOf<FlashcardSet?>(null) }
     var showContentSearchResults by remember { mutableStateOf(false) }
 
+    if (activePlayingQuiz != null) {
+        QuizPlayerDialog(
+            questions = activePlayingQuiz!!.questions,
+            quizTitle = activePlayingQuiz!!.title,
+            onSaveScore = { score -> onRecordQuizScore(activePlayingQuiz!!.id, score) },
+            onDismiss = { activePlayingQuiz = null }
+        )
+    }
+    if (showGeminiApiKeyDialog) {
+        GeminiApiKeyDialog(onDismiss = { showGeminiApiKeyDialog = false })
+    }
+    if (showQuizLabMetrics) {
+        QuizLabMetricsDialog(
+            quizzes = uiState.quizzes,
+            documents = uiState.documents,
+            onPlayQuiz = { activePlayingQuiz = it },
+            onNewQuiz = { showPasteQuiz = true },
+            onDismiss = { showQuizLabMetrics = false }
+        )
+    }
+    if (quizToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { quizToDelete = null },
+            title = { Text("Delete Quiz?") },
+            text = { Text("Are you sure you want to delete \"${quizToDelete?.title}\"? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        quizToDelete?.let { onDeleteQuiz(it.id) }
+                        quizToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { quizToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+    if (docToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { docToDelete = null },
+            title = { Text("Delete Document?") },
+            text = { Text("Are you sure you want to delete \"${docToDelete?.title}\"? This will permanently delete the document, reading progress, and notes.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        docToDelete?.let { onDeleteDocument(it) }
+                        docToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { docToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
     if (showPasteQuiz) {
-        PasteQuizDialog(onDismiss = { showPasteQuiz = false })
+        PasteQuizDialog(onSaveQuiz = onSaveQuiz, onDismiss = { showPasteQuiz = false })
     }
     if (showContentSearchResults) {
         AlertDialog(
@@ -390,36 +474,44 @@ fun LibraryScreen(
         )
     }
     var showLibraryViewMenu by remember { mutableStateOf(false) }
-    var selectedHomeTab by remember(widgetAction) {
-        mutableStateOf(
-            when (widgetAction) {
-                "show_study_dashboard" -> VeritasHomeTab.STUDY
-                "show_notes",
-                "new_note",
-                "new_checklist_note",
-                "new_reminder_note" -> VeritasHomeTab.NOTES
-                "open_library" -> VeritasHomeTab.LIBRARY
-                else -> VeritasHomeTab.HOME
-            }
-        )
-    }
-    // Auto-switch tabs during onboarding so each spotlight target is actually on screen:
-    // the hamburger lives on the HOME tab, the FAB and document cards on LIBRARY.
-    val isTourActive = OnboardingController.activeStep != null
-    LaunchedEffect(OnboardingController.activeStep) {
-        when (OnboardingController.activeStep) {
-            OnboardingStep.INSIGHTS_SPOTLIGHT -> selectedHomeTab = VeritasHomeTab.HOME
-            OnboardingStep.NOTES_TAB_SPOTLIGHT -> selectedHomeTab = VeritasHomeTab.NOTES
-            OnboardingStep.STUDY_TAB_SPOTLIGHT -> selectedHomeTab = VeritasHomeTab.STUDY
-            null -> {}
-            else -> selectedHomeTab = VeritasHomeTab.LIBRARY
+    val initialTab = remember(widgetAction, uiState.targetHomeTab) {
+        uiState.targetHomeTab ?: when (widgetAction) {
+            "show_study_dashboard",
+            "show_flashcards" -> VeritasHomeTab.STUDY
+            "show_notes",
+            "new_note",
+            "new_checklist_note",
+            "new_reminder_note" -> VeritasHomeTab.NOTES
+            "open_library" -> VeritasHomeTab.LIBRARY
+            else -> VeritasHomeTab.HOME
         }
     }
+    var selectedHomeTab by remember(initialTab) { mutableStateOf(initialTab) }
+    LaunchedEffect(selectedHomeTab) {
+        if (selectedHomeTab == VeritasHomeTab.STUDY) {
+            val clip = clipboardManager.getText()?.text?.toString()?.trim().orEmpty()
+            if (clip.isNotBlank() && clip.length in 15..30000 && clip.take(60) != dismissedClipboardSnippet) {
+                val quiz = AiResultParser.parseQuiz(clip)
+                if (quiz.isNotEmpty()) {
+                    detectedClipboardQuiz = quiz
+                    detectedClipboardFlashcards = emptyList()
+                } else {
+                    val cards = AiResultParser.parseFlashcards(clip)
+                    if (cards.size >= 2) {
+                        detectedClipboardFlashcards = cards
+                        detectedClipboardQuiz = emptyList()
+                    }
+                }
+            }
+        }
+    }
+    // the hamburger lives on the HOME tab, the FAB and document cards on LIBRARY.
+    val isTourActive = OnboardingController.activeStep != null
     var showHomeSidebar by remember { mutableStateOf(false) }
     var showImportSheet by remember { mutableStateOf(false) }
     var importSheetMode by remember { mutableStateOf(ImportSheetMode.MENU) }
     var showReadingStatsHome by remember(widgetAction) {
-        mutableStateOf(widgetAction == "show_study_dashboard")
+        mutableStateOf(widgetAction == "show_reader_tracker")
     }
     // During the insights onboarding step the dashboard opens itself so the tour can
     // describe it in place; it closes again when the tour moves on.
@@ -435,6 +527,7 @@ fun LibraryScreen(
     var confirmAnnotationDelete by remember { mutableStateOf(false) }
     var annotationFilter by remember { mutableStateOf("Bookmarks") }
     var expandedVocabDocIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmDeleteVocabDocId by remember { mutableStateOf<String?>(null) }
     var selectedGeneralNoteTag by remember { mutableStateOf("All") }
     val libraryListState = rememberLazyListState()
     val notesListState = rememberLazyListState()
@@ -466,26 +559,81 @@ fun LibraryScreen(
     val currentStreak = uiState.readerTrackerSnapshot.currentStreak
     val longestStreak = uiState.readerTrackerSnapshot.longestStreak
 
-    val pagerState = rememberPagerState(initialPage = selectedHomeTab.ordinal) { VeritasHomeTab.entries.size }
+    val coroutineScope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(initialPage = initialTab.ordinal) { VeritasHomeTab.entries.size }
     val homeListState = rememberLazyListState()
     val studyListState = rememberLazyListState()
 
-    // Sync pager scroll to selectedHomeTab changes (tab taps, programmatic switches):
-    LaunchedEffect(selectedHomeTab) {
-        if (pagerState.currentPage != selectedHomeTab.ordinal) {
-            pagerState.animateScrollToPage(selectedHomeTab.ordinal)
+    // Handle targetHomeTab navigation requests directly:
+    LaunchedEffect(uiState.targetHomeTab) {
+        uiState.targetHomeTab?.let { target ->
+            pagerState.scrollToPage(target.ordinal)
+            selectedHomeTab = target
+            onClearTargetHomeTab()
         }
     }
 
-    // Sync selectedHomeTab from the pager via targetPage: during a user swipe/fling it
-    // updates the moment the destination is known (crossing halfway), so the chrome syncs
-    // as responsively as a tab tap; during a programmatic animateScrollToPage it already
-    // equals the final destination, so intermediate pages crossed mid-animation can never
-    // hijack the selection (the old currentPage bug where Home→Study landed on Library).
-    LaunchedEffect(pagerState.targetPage) {
-        val targetTab = VeritasHomeTab.entries[pagerState.targetPage]
-        if (selectedHomeTab != targetTab) {
-            selectedHomeTab = targetTab
+    // Handle widget actions:
+    LaunchedEffect(widgetAction) {
+        when (widgetAction) {
+            "show_study_dashboard",
+            "show_flashcards" -> {
+                pagerState.animateScrollToPage(VeritasHomeTab.STUDY.ordinal)
+                selectedHomeTab = VeritasHomeTab.STUDY
+            }
+            "show_notes",
+            "new_note",
+            "new_checklist_note",
+            "new_reminder_note" -> {
+                pagerState.animateScrollToPage(VeritasHomeTab.NOTES.ordinal)
+                selectedHomeTab = VeritasHomeTab.NOTES
+            }
+            "open_library" -> {
+                pagerState.animateScrollToPage(VeritasHomeTab.LIBRARY.ordinal)
+                selectedHomeTab = VeritasHomeTab.LIBRARY
+            }
+        }
+    }
+
+    // Handle onboarding tour steps:
+    LaunchedEffect(OnboardingController.activeStep) {
+        when (OnboardingController.activeStep) {
+            OnboardingStep.INSIGHTS_SPOTLIGHT -> {
+                pagerState.animateScrollToPage(VeritasHomeTab.HOME.ordinal)
+                selectedHomeTab = VeritasHomeTab.HOME
+            }
+            OnboardingStep.NOTES_TAB_SPOTLIGHT -> {
+                pagerState.animateScrollToPage(VeritasHomeTab.NOTES.ordinal)
+                selectedHomeTab = VeritasHomeTab.NOTES
+            }
+            OnboardingStep.STUDY_TAB_SPOTLIGHT -> {
+                pagerState.animateScrollToPage(VeritasHomeTab.STUDY.ordinal)
+                selectedHomeTab = VeritasHomeTab.STUDY
+            }
+            null -> {}
+            else -> {
+                pagerState.animateScrollToPage(VeritasHomeTab.LIBRARY.ordinal)
+                selectedHomeTab = VeritasHomeTab.LIBRARY
+            }
+        }
+    }
+
+    // Active navigation tab follows targetPage during swipe, settles cleanly:
+    val activeNavTab = remember(pagerState.currentPage, pagerState.targetPage, pagerState.isScrollInProgress, selectedHomeTab) {
+        if (pagerState.isScrollInProgress) {
+            VeritasHomeTab.entries.getOrNull(pagerState.targetPage) ?: selectedHomeTab
+        } else {
+            VeritasHomeTab.entries.getOrNull(pagerState.currentPage) ?: selectedHomeTab
+        }
+    }
+
+    // Keep selectedHomeTab in sync with settled page:
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            val targetTab = VeritasHomeTab.entries.getOrNull(page) ?: VeritasHomeTab.HOME
+            if (selectedHomeTab != targetTab) {
+                selectedHomeTab = targetTab
+            }
         }
     }
 
@@ -1033,6 +1181,32 @@ fun LibraryScreen(
         )
     }
 
+    confirmDeleteVocabDocId?.let { delDocId ->
+        AlertDialog(
+            onDismissRequest = { confirmDeleteVocabDocId = null },
+            title = { Text("Delete all vocabulary?") },
+            text = { Text("This will permanently remove all vocabulary words saved for this book.") },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        vocabDocs.firstOrNull { it.first.id == delDocId }?.third?.forEach { entry ->
+                            onRemoveVocabularyWord(delDocId, entry.word)
+                        }
+                        confirmDeleteVocabDocId = null
+                    }
+                ) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteVocabDocId = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     if (uiState.isOpeningDocument) {
         Dialog(
             onDismissRequest = { },
@@ -1066,12 +1240,12 @@ fun LibraryScreen(
                 // FAB pops in/out with the Library tab and its + rotates 45° with a
                 // spring while the import sheet is open (micro-morph, no layout risk).
                 AnimatedVisibility(
-                    visible = selectedHomeTab == VeritasHomeTab.LIBRARY || selectedHomeTab == VeritasHomeTab.NOTES,
+                    visible = activeNavTab == VeritasHomeTab.LIBRARY || activeNavTab == VeritasHomeTab.NOTES,
                     enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(150)),
                     exit = scaleOut(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) + fadeOut(tween(150))
                 ) {
                     androidx.compose.animation.AnimatedContent(
-                        targetState = selectedHomeTab,
+                        targetState = activeNavTab,
                         label = "fabTabContentTransition"
                     ) { currentTab ->
                         if (currentTab == VeritasHomeTab.NOTES) {
@@ -1144,7 +1318,7 @@ fun LibraryScreen(
                                 .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            when (selectedHomeTab) {
+                            when (activeNavTab) {
                                 VeritasHomeTab.HOME -> {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -1512,42 +1686,51 @@ fun LibraryScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             BottomNavItem(
-                                selected = selectedHomeTab == VeritasHomeTab.HOME,
-                                onClick = { selectedHomeTab = VeritasHomeTab.HOME },
+                                selected = activeNavTab == VeritasHomeTab.HOME,
+                                onClick = {
+                                    selectedHomeTab = VeritasHomeTab.HOME
+                                    coroutineScope.launch { pagerState.animateScrollToPage(VeritasHomeTab.HOME.ordinal) }
+                                },
                                 icon = { color ->
                                     Icon(
-                                        imageVector = if (selectedHomeTab == VeritasHomeTab.HOME) Icons.Filled.Home else Icons.Outlined.Home,
+                                        imageVector = if (activeNavTab == VeritasHomeTab.HOME) Icons.Filled.Home else Icons.Outlined.Home,
                                         contentDescription = "Home",
                                         tint = color,
-                                        modifier = Modifier.size(if (selectedHomeTab == VeritasHomeTab.HOME) 27.dp else 24.dp)
+                                        modifier = Modifier.size(if (activeNavTab == VeritasHomeTab.HOME) 27.dp else 24.dp)
                                     )
                                 },
                                 label = "Home"
                             )
 
                             BottomNavItem(
-                                selected = selectedHomeTab == VeritasHomeTab.LIBRARY,
-                                onClick = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                selected = activeNavTab == VeritasHomeTab.LIBRARY,
+                                onClick = {
+                                    selectedHomeTab = VeritasHomeTab.LIBRARY
+                                    coroutineScope.launch { pagerState.animateScrollToPage(VeritasHomeTab.LIBRARY.ordinal) }
+                                },
                                 icon = { color ->
                                     Icon(
-                                        imageVector = if (selectedHomeTab == VeritasHomeTab.LIBRARY) Icons.AutoMirrored.Filled.MenuBook else Icons.AutoMirrored.Outlined.MenuBook,
+                                        imageVector = if (activeNavTab == VeritasHomeTab.LIBRARY) Icons.AutoMirrored.Filled.MenuBook else Icons.AutoMirrored.Outlined.MenuBook,
                                         contentDescription = "Library",
                                         tint = color,
-                                        modifier = Modifier.size(if (selectedHomeTab == VeritasHomeTab.LIBRARY) 27.dp else 24.dp)
+                                        modifier = Modifier.size(if (activeNavTab == VeritasHomeTab.LIBRARY) 27.dp else 24.dp)
                                     )
                                 },
                                 label = "Library"
                             )
 
                             BottomNavItem(
-                                selected = selectedHomeTab == VeritasHomeTab.NOTES,
-                                onClick = { selectedHomeTab = VeritasHomeTab.NOTES },
+                                selected = activeNavTab == VeritasHomeTab.NOTES,
+                                onClick = {
+                                    selectedHomeTab = VeritasHomeTab.NOTES
+                                    coroutineScope.launch { pagerState.animateScrollToPage(VeritasHomeTab.NOTES.ordinal) }
+                                },
                                 icon = { color ->
                                     Icon(
                                         imageVector = Icons.Outlined.EditNote,
                                         contentDescription = "Notes",
                                         tint = color,
-                                        modifier = Modifier.size(if (selectedHomeTab == VeritasHomeTab.NOTES) 27.dp else 24.dp)
+                                        modifier = Modifier.size(if (activeNavTab == VeritasHomeTab.NOTES) 27.dp else 24.dp)
                                     )
                                 },
                                 label = "Notes",
@@ -1555,14 +1738,17 @@ fun LibraryScreen(
                             )
 
                             BottomNavItem(
-                                selected = selectedHomeTab == VeritasHomeTab.STUDY,
-                                onClick = { selectedHomeTab = VeritasHomeTab.STUDY },
+                                selected = activeNavTab == VeritasHomeTab.STUDY,
+                                onClick = {
+                                    selectedHomeTab = VeritasHomeTab.STUDY
+                                    coroutineScope.launch { pagerState.animateScrollToPage(VeritasHomeTab.STUDY.ordinal) }
+                                },
                                 icon = { color ->
                                     Icon(
-                                        imageVector = if (selectedHomeTab == VeritasHomeTab.STUDY) Icons.Filled.Layers else Icons.Outlined.Layers,
+                                        imageVector = if (activeNavTab == VeritasHomeTab.STUDY) Icons.Filled.Layers else Icons.Outlined.Layers,
                                         contentDescription = "Study",
                                         tint = color,
-                                        modifier = Modifier.size(if (selectedHomeTab == VeritasHomeTab.STUDY) 27.dp else 24.dp)
+                                        modifier = Modifier.size(if (activeNavTab == VeritasHomeTab.STUDY) 27.dp else 24.dp)
                                     )
                                 },
                                 label = "Study",
@@ -1767,7 +1953,7 @@ fun LibraryScreen(
                                                             onManageLists = { manageListsDocument = doc },
                                                             onRename = { onRenameDocument(doc) },
                                                             onShowDetails = { onShowDetails(doc) },
-                                                            onDelete = { onDeleteDocument(doc) }
+                                                            onDelete = { docToDelete = doc }
                                                         )
                                                     }
                                                 }
@@ -2136,7 +2322,7 @@ fun LibraryScreen(
                                 onToggleSelected = {
                                     selectedDocumentIds = if (doc.id in selectedDocumentIds) selectedDocumentIds - doc.id else selectedDocumentIds + doc.id
                                 },
-                                onDelete = { onDeleteDocument(doc) },
+                                onDelete = { docToDelete = doc },
                                 onToggleQueue = { onToggleQueue(doc) },
                                                             onMoveQueueUp = { onMoveQueueUp(doc) },
                                                             onMoveQueueDown = { onMoveQueueDown(doc) },
@@ -2181,7 +2367,7 @@ fun LibraryScreen(
                                 selectedDocumentIds + doc.id
                             }
                         },
-                        onDelete = { onDeleteDocument(doc) },
+                        onDelete = { docToDelete = doc },
                         onToggleQueue = { onToggleQueue(doc) },
                                                             onMoveQueueUp = { onMoveQueueUp(doc) },
                                                             onMoveQueueDown = { onMoveQueueDown(doc) },
@@ -2308,6 +2494,24 @@ fun LibraryScreen(
 
                                     var playingAudioNoteId by remember { mutableStateOf<String?>(null) }
                                     var activeNotePlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+                                    var activeNoteProgress by remember { mutableFloatStateOf(0f) }
+
+                                    LaunchedEffect(playingAudioNoteId, activeNotePlayer) {
+                                        if (playingAudioNoteId != null && activeNotePlayer != null) {
+                                            while (playingAudioNoteId != null && activeNotePlayer != null) {
+                                                try {
+                                                    val cur = activeNotePlayer?.currentPosition ?: 0
+                                                    val dur = activeNotePlayer?.duration ?: 1
+                                                    if (dur > 0) {
+                                                        activeNoteProgress = (cur.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+                                                    }
+                                                } catch (_: Exception) {}
+                                                kotlinx.coroutines.delay(100)
+                                            }
+                                        } else {
+                                            activeNoteProgress = 0f
+                                        }
+                                    }
 
                                     DisposableEffect(Unit) {
                                         onDispose {
@@ -2532,6 +2736,7 @@ fun LibraryScreen(
                                                                         AudioVoiceMemoWaveform(
                                                                             durationLabel = if (noteAudios.size > 1) "Memo ${audioIdx + 1} • $memoDuration" else memoDuration,
                                                                             isPlaying = isPlayingThisAudio,
+                                                                            progress = if (isPlayingThisAudio) activeNoteProgress else 0f,
                                                                             onTogglePlay = {
                                                                                 try {
                                                                                     if (playingAudioNoteId == audioKey) {
@@ -2539,6 +2744,7 @@ fun LibraryScreen(
                                                                                         activeNotePlayer?.release()
                                                                                         activeNotePlayer = null
                                                                                         playingAudioNoteId = null
+                                                                                        activeNoteProgress = 0f
                                                                                     } else {
                                                                                         activeNotePlayer?.stop()
                                                                                         activeNotePlayer?.release()
@@ -2549,6 +2755,7 @@ fun LibraryScreen(
                                                                                                 playingAudioNoteId = null
                                                                                                 activeNotePlayer?.release()
                                                                                                 activeNotePlayer = null
+                                                                                                activeNoteProgress = 0f
                                                                                             }
                                                                                             start()
                                                                                         }
@@ -2558,6 +2765,40 @@ fun LibraryScreen(
                                                                                 } catch (e: Exception) {
                                                                                     e.printStackTrace()
                                                                                     playingAudioNoteId = null
+                                                                                    activeNoteProgress = 0f
+                                                                                }
+                                                                            },
+                                                                            onSeek = { fraction ->
+                                                                                try {
+                                                                                    val clamped = fraction.coerceIn(0f, 1f)
+                                                                                    if (playingAudioNoteId == audioKey && activeNotePlayer != null) {
+                                                                                        val dur = activeNotePlayer?.duration ?: 0
+                                                                                        if (dur > 0) {
+                                                                                            activeNotePlayer?.seekTo((clamped * dur).toInt())
+                                                                                            activeNoteProgress = clamped
+                                                                                        }
+                                                                                    } else {
+                                                                                        activeNotePlayer?.stop()
+                                                                                        activeNotePlayer?.release()
+                                                                                        val player = android.media.MediaPlayer().apply {
+                                                                                            setDataSource(audioPath)
+                                                                                            prepare()
+                                                                                            val dur = duration.coerceAtLeast(1)
+                                                                                            seekTo((clamped * dur).toInt())
+                                                                                            setOnCompletionListener {
+                                                                                                playingAudioNoteId = null
+                                                                                                activeNotePlayer?.release()
+                                                                                                activeNotePlayer = null
+                                                                                                activeNoteProgress = 0f
+                                                                                            }
+                                                                                            start()
+                                                                                        }
+                                                                                        activeNotePlayer = player
+                                                                                        playingAudioNoteId = audioKey
+                                                                                        activeNoteProgress = clamped
+                                                                                    }
+                                                                                } catch (e: Exception) {
+                                                                                    e.printStackTrace()
                                                                                 }
                                                                             }
                                                                         )
@@ -2831,9 +3072,103 @@ fun LibraryScreen(
                                     contentPadding = PaddingValues(top = 10.dp, bottom = 22.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)
                                 ) {
+                                    if (uiState.isGeneratingAiStudy) {
+                                        item(key = "study-generating-banner") {
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(16.dp),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                                ),
+                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(14.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                                                    Text(
+                                                        text = uiState.aiStudyStatusMessage ?: "AI is preparing study materials…",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (detectedClipboardFlashcards.isNotEmpty() || detectedClipboardQuiz.isNotEmpty()) {
+                                        item(key = "study-clipboard-banner") {
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(16.dp),
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f)
+                                                ),
+                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(14.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.AutoAwesome,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(26.dp)
+                                                    )
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = "Study Content on Clipboard",
+                                                            style = MaterialTheme.typography.titleSmall,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                        Text(
+                                                            text = if (detectedClipboardFlashcards.isNotEmpty())
+                                                                "${detectedClipboardFlashcards.size} flashcards ready to import"
+                                                            else
+                                                                "${detectedClipboardQuiz.size} quiz questions ready to import",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                                                        )
+                                                    }
+                                                    Button(
+                                                        onClick = {
+                                                            if (detectedClipboardFlashcards.isNotEmpty()) {
+                                                                onImportFlashcards("Imported Deck", detectedClipboardFlashcards)
+                                                            } else if (detectedClipboardQuiz.isNotEmpty()) {
+                                                                onSaveQuiz(QuizSet(title = "Imported Quiz", questions = detectedClipboardQuiz))
+                                                            }
+                                                            dismissedClipboardSnippet = clipboardManager.getText()?.text?.toString()?.take(60)
+                                                            detectedClipboardFlashcards = emptyList()
+                                                            detectedClipboardQuiz = emptyList()
+                                                        },
+                                                        shape = RoundedCornerShape(50),
+                                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                                                    ) {
+                                                        Text("1-Tap Import", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                                    }
+                                                    IconButton(
+                                                        onClick = {
+                                                            dismissedClipboardSnippet = clipboardManager.getText()?.text?.toString()?.take(60)
+                                                            detectedClipboardFlashcards = emptyList()
+                                                            detectedClipboardQuiz = emptyList()
+                                                        },
+                                                        modifier = Modifier.size(28.dp)
+                                                    ) {
+                                                        Icon(Icons.Filled.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     item(key = "study-hero-daily-review") {
                                         val dueFlashcards = remember(uiState.flashcards) {
-                                            uiState.flashcards.filter { it.recall.isBlank() || it.recall == "again" || it.recall == "hard" }
+                                            uiState.flashcards.filter { SpacedRepetitionScheduler.isDue(it) }
                                         }
                                         val totalFlashcards = remember(uiState.flashcards) { uiState.flashcards.size }
                                         val vocabCount = remember(vocabDocs) { vocabDocs.sumOf { it.third.size } }
@@ -2906,12 +3241,35 @@ fun LibraryScreen(
                                     }
 
                                     item(key = "study-ai-tools-header") {
-                                        Text(
-                                            text = "AI Study Tools",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = "AI Study Tools",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            FilledTonalButton(
+                                                onClick = { showGeminiApiKeyDialog = true },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                                shape = RoundedCornerShape(50)
+                                            ) {
+                                                Icon(
+                                                    Icons.Filled.AutoAwesome,
+                                                    contentDescription = "Gemini Setup",
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    if (GeminiStudyService.hasApiKey(context)) "Gemini Active" else "Setup AI",
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
                                     }
 
                                     item(key = "study-ai-tools-grid") {
@@ -2920,23 +3278,23 @@ fun LibraryScreen(
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             StudyAiToolCard(
-                                                title = "Generate Summary",
-                                                icon = Icons.Filled.Description,
+                                                title = "AI Flashcards",
+                                                icon = Icons.Filled.Layers,
                                                 onClick = {
                                                     val targetDoc = documents.firstOrNull()
-                                                    if (targetDoc != null) {
-                                                        onOpenDocument(targetDoc)
+                                                    if (targetDoc != null && GeminiStudyService.hasApiKey(context)) {
+                                                        onGenerateInAppFlashcards(targetDoc, null)
                                                     } else {
-                                                        selectedHomeTab = VeritasHomeTab.LIBRARY
+                                                        showPasteFlashcards = true
                                                     }
                                                 },
                                                 modifier = Modifier.weight(1f)
                                             )
                                             StudyAiToolCard(
-                                                title = "Quick Quiz",
+                                                title = "AI Quiz Lab",
                                                 icon = Icons.Outlined.EditNote,
                                                 onClick = {
-                                                    showPasteQuiz = true
+                                                    showQuizLabMetrics = true
                                                 },
                                                 modifier = Modifier.weight(1f)
                                             )
@@ -2948,7 +3306,7 @@ fun LibraryScreen(
                                             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            val filterOptions = listOf("Bookmarks", "Booknotes", "Vocab", "Flashcards", "History")
+                                            val filterOptions = listOf("Bookmarks", "Booknotes", "Vocab", "Flashcards", "Quizzes", "History")
                                             filterOptions.forEach { option ->
                                                 val active = annotationFilter == option
                                                 if (active) {
@@ -3089,84 +3447,111 @@ fun LibraryScreen(
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .clickable {
-                                                        expandedVocabDocIds = if (isExpanded) {
-                                                            expandedVocabDocIds - doc.id
-                                                        } else {
-                                                            expandedVocabDocIds + doc.id
-                                                        }
-                                                    }
-                                                    .padding(14.dp),
+                                                    .padding(horizontal = 14.dp, vertical = 10.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Outlined.Book,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(doc.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                                    Text("Vocabulary (${entries.size} word${if (entries.size == 1) "" else "s"})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Row(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .clickable {
+                                                            expandedVocabDocIds = if (isExpanded) {
+                                                                expandedVocabDocIds - doc.id
+                                                            } else {
+                                                                expandedVocabDocIds + doc.id
+                                                            }
+                                                        },
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.Book,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(doc.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                                        Text("Vocabulary (${entries.size} word${if (entries.size == 1) "" else "s"})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                    }
                                                 }
-                                                Icon(
-                                                    imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary
-                                                )
+
+                                                var showBatchMenu by remember { mutableStateOf(false) }
+                                                Box {
+                                                    IconButton(onClick = { showBatchMenu = true }) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.MoreVert,
+                                                            contentDescription = "Batch Actions",
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                    DropdownMenu(
+                                                        expanded = showBatchMenu,
+                                                        onDismissRequest = { showBatchMenu = false }
+                                                    ) {
+                                                        DropdownMenuItem(
+                                                            text = { Text("Share as PDF") },
+                                                            onClick = {
+                                                                showBatchMenu = false
+                                                                val pdf = StudyGuidePdfExporter.generateVocabularyBatchPdf(context, doc.title, entries)
+                                                                if (pdf != null) {
+                                                                    StudyGuidePdfExporter.sharePdfFile(context, pdf, "Share Vocabulary PDF")
+                                                                }
+                                                            },
+                                                            leadingIcon = { Icon(Icons.Outlined.Book, contentDescription = null) }
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = { Text("Copy all") },
+                                                            onClick = {
+                                                                showBatchMenu = false
+                                                                val allText = entries.joinToString("\n\n") { e ->
+                                                                    buildString {
+                                                                        append(e.word)
+                                                                        if (!e.pronunciation.isNullOrBlank()) append(" (${e.pronunciation})")
+                                                                        append("\n").append(e.explanation)
+                                                                        if (!e.contextSentence.isNullOrBlank()) append("\n\"${e.contextSentence}\"")
+                                                                    }
+                                                                }
+                                                                copyTextToClipboard(context, "Vocabulary Batch", allText)
+                                                            },
+                                                            leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
+                                                        )
+                                                        DropdownMenuItem(
+                                                            text = { Text("Delete all", color = MaterialTheme.colorScheme.error) },
+                                                            onClick = {
+                                                                showBatchMenu = false
+                                                                confirmDeleteVocabDocId = doc.id
+                                                            },
+                                                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                                        )
+                                                    }
+                                                }
+
+                                                IconButton(onClick = {
+                                                    expandedVocabDocIds = if (isExpanded) {
+                                                        expandedVocabDocIds - doc.id
+                                                    } else {
+                                                        expandedVocabDocIds + doc.id
+                                                    }
+                                                }) {
+                                                    Icon(
+                                                        imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
                                             }
 
                                             if (isExpanded) {
                                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(horizontal = 14.dp))
                                                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                                     entries.forEach { entry ->
-                                                        Row(
-                                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                                            verticalAlignment = Alignment.CenterVertically
-                                                        ) {
-                                                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                    Text(entry.word, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                                                    if (!entry.pronunciation.isNullOrBlank()) {
-                                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                                        Text(
-                                                                            text = entry.pronunciation,
-                                                                            style = MaterialTheme.typography.bodySmall,
-                                                                            color = MaterialTheme.colorScheme.primary,
-                                                                            fontStyle = FontStyle.Italic
-                                                                        )
-                                                                    }
-                                                                }
-                                                                Text(entry.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                                if (!entry.contextSentence.isNullOrBlank()) {
-                                                                    Box(
-                                                                        modifier = Modifier
-                                                                            .fillMaxWidth()
-                                                                            .padding(vertical = 4.dp)
-                                                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                                                            .padding(8.dp)
-                                                                    ) {
-                                                                        Text(
-                                                                            text = "\"${entry.contextSentence}\"",
-                                                                            style = MaterialTheme.typography.bodySmall,
-                                                                            fontStyle = FontStyle.Italic,
-                                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                                        )
-                                                                    }
-                                                                }
-                                                                Text(
-                                                                    text = entry.source,
-                                                                    color = MaterialTheme.colorScheme.primary,
-                                                                    style = MaterialTheme.typography.labelSmall,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    modifier = Modifier.clickable { onOpenDocumentAt(doc, entry.sentenceIndex) }
-                                                                )
-                                                            }
-                                                            IconButton(onClick = { onRemoveVocabularyWord(doc.id, entry.word) }) {
-                                                                Icon(Icons.Default.Delete, contentDescription = "Delete entry", tint = MaterialTheme.colorScheme.error)
-                                                            }
-                                                        }
+                                                        VocabularyEntryRow(
+                                                            entry = entry,
+                                                            document = doc,
+                                                            onOpenDocumentAt = onOpenDocumentAt,
+                                                            onRemoveVocabularyWord = onRemoveVocabularyWord
+                                                        )
                                                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
                                                     }
                                                 }
@@ -3177,6 +3562,119 @@ fun LibraryScreen(
                             }
                         }
                     }
+                "Quizzes" -> {
+                    val quizzes = uiState.quizzes
+                    if (quizzes.isEmpty()) {
+                        item {
+                            StudyEmptyState(
+                                icon = Icons.Outlined.EditNote,
+                                title = "No quizzes yet",
+                                description = "Take a quiz to test your memory and retention. Create a quiz directly with AI or paste a quiz from ChatGPT, Claude, or Gemini.",
+                                onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
+                                primaryActionLabel = "Open AI Hub",
+                                onPrimaryAction = onOpenAiStudyTools
+                            )
+                        }
+                        item {
+                            Button(
+                                onClick = { showPasteQuiz = true },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                shape = VeritasPackStyle.chipShape()
+                            ) {
+                                Text("Paste Quiz → Start Learning")
+                            }
+                        }
+                    } else {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Saved Quizzes (${quizzes.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    OutlinedButton(
+                                        onClick = { showQuizLabMetrics = true },
+                                        shape = RoundedCornerShape(50),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("Quiz Lab 📊", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                FilledTonalButton(
+                                    onClick = { showPasteQuiz = true },
+                                    shape = RoundedCornerShape(50),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("New Quiz", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                        items(quizzes, key = { it.id }) { quiz ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                shape = VeritasPackStyle.compactShape(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
+                                border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(42.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text("📝", fontSize = 20.sp)
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(quiz.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("${quiz.totalQuestions} Questions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            if (quiz.bestScore >= 0) {
+                                                val calibratedBest = if (quiz.bestScore > quiz.totalQuestions && quiz.totalQuestions > 0) {
+                                                    ((quiz.bestScore.toFloat() / 100f) * quiz.totalQuestions.toFloat()).roundToInt().coerceIn(0, quiz.totalQuestions)
+                                                } else {
+                                                    quiz.bestScore.coerceIn(0, quiz.totalQuestions)
+                                                }
+                                                val isMastered = calibratedBest == quiz.totalQuestions
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (isMastered) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                    modifier = Modifier.padding(start = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (isMastered) "Mastered 🏆" else "Best: $calibratedBest/${quiz.totalQuestions}",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isMastered) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Button(
+                                        onClick = { activePlayingQuiz = quiz },
+                                        shape = RoundedCornerShape(50),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("Play", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                    IconButton(onClick = { quizToDelete = quiz }) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Delete quiz", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 "History" -> {
                     val readingHistory = uiState.readingHistory
                     if (readingHistory.isEmpty()) {
@@ -3382,9 +3880,10 @@ fun LibraryScreen(
                             StudyEmptyState(
                                 icon = Icons.Outlined.Book,
                                 title = "No flashcards yet",
-                                description = "Open a document → Study Tools → 'Create flashcards' to send a prompt to your AI app, then paste its reply here to make a set.",
+                                description = "Open a document → Study Tools → 'Create flashcards' to send a prompt to your AI app, or create flashcard sets directly with AI.",
                                 onGoToLibrary = { selectedHomeTab = VeritasHomeTab.LIBRARY },
-                                onImportFile = onImportFile
+                                primaryActionLabel = "Open AI Hub",
+                                onPrimaryAction = onOpenAiStudyTools
                             )
                         }
                         item {
@@ -3444,3 +3943,763 @@ fun LibraryScreen(
 }
 }
 }
+
+@Composable
+internal fun QuizLabMetricsDialog(
+    quizzes: List<QuizSet>,
+    documents: List<SavedDocument> = emptyList(),
+    onPlayQuiz: (QuizSet) -> Unit,
+    onNewQuiz: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    fun getBookTitle(q: QuizSet): String {
+        val doc = documents.firstOrNull { it.id == q.documentId }
+        if (doc != null && doc.title.isNotBlank()) return doc.title
+        return "General Quiz Set"
+    }
+    fun calibrateScore(q: QuizSet): Int {
+        if (q.bestScore < 0) return -1
+        if (q.totalQuestions <= 0) return 0
+        return if (q.bestScore > q.totalQuestions) {
+            ((q.bestScore.toFloat() / 100f) * q.totalQuestions.toFloat()).roundToInt().coerceIn(0, q.totalQuestions)
+        } else {
+            q.bestScore.coerceIn(0, q.totalQuestions)
+        }
+    }
+
+    val totalQuizzes = quizzes.size
+    val playedQuizzes = quizzes.filter { it.bestScore >= 0 }
+    val playedCount = playedQuizzes.size
+    val totalQuestionsAnswered = playedQuizzes.sumOf { it.totalQuestions }
+    val totalCorrectAnswered = playedQuizzes.sumOf { calibrateScore(it) }
+    val overallAccuracy = if (totalQuestionsAnswered > 0) {
+        ((totalCorrectAnswered.toFloat() / totalQuestionsAnswered.toFloat()) * 100).roundToInt()
+    } else 0
+
+    val masteredCount = playedQuizzes.count { calibrateScore(it) == it.totalQuestions && it.totalQuestions > 0 }
+    val proficientCount = playedQuizzes.count {
+        val score = calibrateScore(it)
+        val pct = if (it.totalQuestions > 0) (score * 100 / it.totalQuestions) else 0
+        score < it.totalQuestions && pct >= 70
+    }
+    val reviewCount = playedQuizzes.count {
+        val score = calibrateScore(it)
+        val pct = if (it.totalQuestions > 0) (score * 100 / it.totalQuestions) else 0
+        pct < 70
+    }
+    val unplayedCount = totalQuizzes - playedCount
+
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredQuizzes = remember(quizzes, searchQuery, documents) {
+        if (searchQuery.isBlank()) quizzes
+        else quizzes.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+            getBookTitle(it).contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    val quizzesByBook = remember(quizzes, documents) {
+        quizzes.groupBy { getBookTitle(it) }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+            ) {
+                // Header Bar
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Icon(
+                                        Icons.Filled.Insights,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        "Quiz Lab & Performance",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Text(
+                                    "Retention, mastery & score calibration",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                onDismiss()
+                                onNewQuiz()
+                            },
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("New Quiz", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+
+                // Dashboard Scrollable Body
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // KPI Overview Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                    ) {
+                        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Overall Learning Metrics",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (overallAccuracy >= 80) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Text(
+                                        text = if (playedCount > 0) "$overallAccuracy% Accuracy" else "No Data Yet",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (overallAccuracy >= 80) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        "$playedCount / $totalQuizzes",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Black,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text("Completed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        "$masteredCount",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color(0xFF10B981)
+                                    )
+                                    Text("Mastered 🏆", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        "$totalCorrectAnswered / $totalQuestionsAnswered",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Black,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                    Text("Questions Right", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+
+                            // Accuracy Progress Gauge
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Retention Gauge", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("$overallAccuracy%", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                                androidx.compose.material3.LinearProgressIndicator(
+                                    progress = { if (totalQuestionsAnswered > 0) (overallAccuracy / 100f).coerceIn(0f, 1f) else 0f },
+                                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                                    color = if (overallAccuracy >= 80) Color(0xFF10B981) else if (overallAccuracy >= 60) Color(0xFFF59E0B) else MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    // Mastery & Score Distribution Chart
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                "Score & Mastery Distribution",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF10B981).copy(alpha = 0.12f)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("$masteredCount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+                                        Text("100% Perfect", style = MaterialTheme.typography.labelSmall, color = Color(0xFF10B981))
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("$proficientCount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        Text("70-99% Passing", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFEF4444).copy(alpha = 0.12f)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("$reviewCount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                                        Text("<70% Review", style = MaterialTheme.typography.labelSmall, color = Color(0xFFEF4444))
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("$unplayedCount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Unplayed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Performance By Book / Document
+                    if (quizzesByBook.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Performance Per Book / Document",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            for ((bookTitle, bookQuizzes) in quizzesByBook) {
+                                val bookPlayed = bookQuizzes.filter { it.bestScore >= 0 }
+                                val bookTotalQ = bookPlayed.sumOf { it.totalQuestions }
+                                val bookCorrectQ = bookPlayed.sumOf { calibrateScore(it) }
+                                val bookAvg = if (bookTotalQ > 0) ((bookCorrectQ.toFloat() / bookTotalQ.toFloat()) * 100).roundToInt() else 0
+                                val totalQuizCount = bookQuizzes.size
+                                val completedCount = bookPlayed.size
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                                    shape = RoundedCornerShape(14.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                bookTitle,
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                "$totalQuizCount quiz${if (totalQuizCount == 1) "" else "zes"} • $completedCount completed",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (bookAvg >= 80) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                text = if (bookPlayed.isNotEmpty()) "$bookAvg% Avg" else "Unplayed",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (bookAvg >= 80) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Complete Quizzes List
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "All Quizzes (${filteredQuizzes.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search quizzes by title or book…") },
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        if (filteredQuizzes.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("No quizzes found", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                    Text("Create quizzes using AI Study Studio to practice here.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                }
+                            }
+                        } else {
+                            filteredQuizzes.forEach { quiz ->
+                                val score = calibrateScore(quiz)
+                                val hasPlayed = quiz.bestScore >= 0
+                                val pct = if (quiz.totalQuestions > 0 && hasPlayed) (score * 100 / quiz.totalQuestions) else 0
+                                val isMastered = hasPlayed && score == quiz.totalQuestions
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                                    shape = RoundedCornerShape(14.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .background(
+                                                    if (isMastered) Color(0xFF10B981).copy(alpha = 0.15f)
+                                                    else if (hasPlayed && pct >= 70) MaterialTheme.colorScheme.primaryContainer
+                                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                                    CircleShape
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(if (isMastered) "🏆" else if (hasPlayed) "📊" else "📝", fontSize = 18.sp)
+                                        }
+
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(
+                                                quiz.title,
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            val bookTitle = getBookTitle(quiz)
+                                            if (bookTitle.isNotBlank() && bookTitle != "General Quiz Set") {
+                                                Text(
+                                                    bookTitle,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text("${quiz.totalQuestions} Questions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                                if (hasPlayed) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = if (isMastered) Color(0xFF10B981).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                    ) {
+                                                        Text(
+                                                            text = if (isMastered) "Mastered 100%" else "Best: $score/${quiz.totalQuestions} ($pct%)",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (isMastered) Color(0xFF10B981) else MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                onDismiss()
+                                                onPlayQuiz(quiz)
+                                            },
+                                            shape = RoundedCornerShape(50),
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(if (hasPlayed) "Retake" else "Play", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun GeminiApiKeyDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var selectedProvider by remember { mutableStateOf(GeminiStudyService.getProvider(context)) }
+    var keyDraft by remember { mutableStateOf(GeminiStudyService.getApiKey(context)) }
+    var modelDraft by remember { mutableStateOf(GeminiStudyService.getModel(context).ifBlank { selectedProvider.defaultModel }) }
+    var endpointDraft by remember { mutableStateOf(GeminiStudyService.getCustomEndpoint(context).ifBlank { selectedProvider.defaultEndpoint }) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text("AI Provider & Key Setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Connect any AI model to generate flashcards, quizzes, and study summaries directly in Veritas Reader.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text("Provider", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AiProvider.entries.forEach { provider ->
+                        FilterChip(
+                            selected = selectedProvider == provider,
+                            onClick = {
+                                selectedProvider = provider
+                                modelDraft = provider.defaultModel
+                                endpointDraft = provider.defaultEndpoint
+                            },
+                            label = { Text(provider.label, fontSize = 12.sp) },
+                            shape = RoundedCornerShape(50)
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = keyDraft,
+                    onValueChange = { keyDraft = it },
+                    label = { Text("${selectedProvider.label} API Key") },
+                    placeholder = {
+                        Text(
+                            when (selectedProvider) {
+                                AiProvider.GEMINI -> "AIzaSy..."
+                                AiProvider.ANTHROPIC -> "sk-ant-..."
+                                else -> "sk-..."
+                            }
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = modelDraft,
+                    onValueChange = { modelDraft = it },
+                    label = { Text("Model Name / ID") },
+                    placeholder = { Text(selectedProvider.defaultModel) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                if (selectedProvider.recommendedModels.isNotEmpty()) {
+                    Text(
+                        "Popular Models:",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        selectedProvider.recommendedModels.forEach { recModel ->
+                            FilterChip(
+                                selected = modelDraft.trim() == recModel,
+                                onClick = { modelDraft = recModel },
+                                label = { Text(recModel, fontSize = 11.sp) },
+                                shape = RoundedCornerShape(50)
+                            )
+                        }
+                    }
+                }
+
+                if (selectedProvider == AiProvider.CUSTOM || selectedProvider == AiProvider.OPENROUTER) {
+                    OutlinedTextField(
+                        value = endpointDraft,
+                        onValueChange = { endpointDraft = it },
+                        label = { Text("API Endpoint URL") },
+                        placeholder = { Text(selectedProvider.defaultEndpoint) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+
+                Text(
+                    when (selectedProvider) {
+                        AiProvider.GEMINI -> "Free tier available at aistudio.google.com."
+                        AiProvider.OPENAI -> "Obtain keys from platform.openai.com."
+                        AiProvider.ANTHROPIC -> "Obtain keys from console.anthropic.com."
+                        AiProvider.GROQ -> "Ultra-fast inference at console.groq.com."
+                        AiProvider.OPENROUTER -> "Access hundreds of models at openrouter.ai."
+                        AiProvider.CUSTOM -> "Any standard OpenAI-compatible API base URL."
+                    } + " Keys are saved locally on your device only.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    GeminiStudyService.saveProvider(context, selectedProvider)
+                    GeminiStudyService.saveApiKey(context, keyDraft.trim())
+                    GeminiStudyService.saveModel(context, modelDraft.trim())
+                    if (selectedProvider == AiProvider.CUSTOM || selectedProvider == AiProvider.OPENROUTER) {
+                        GeminiStudyService.saveCustomEndpoint(context, endpointDraft.trim())
+                    }
+                    Toast.makeText(
+                        context,
+                        if (keyDraft.isNotBlank()) "${selectedProvider.label} API key saved!" else "API key cleared",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    onDismiss()
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun VocabularyEntryRow(
+    entry: VocabularyEntry,
+    document: SavedDocument,
+    onOpenDocumentAt: (SavedDocument, Int) -> Unit,
+    onRemoveVocabularyWord: (String, String) -> Unit
+) {
+    val context = LocalContext.current
+    var itemMenuExpanded by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Vocabulary Word?") },
+            text = { Text("Are you sure you want to remove \"${entry.word}\" from your vocabulary list?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onRemoveVocabularyWord(document.id, entry.word)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(entry.word, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                if (!entry.pronunciation.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = entry.pronunciation,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontStyle = FontStyle.Italic
+                    )
+                }
+            }
+            Text(entry.explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!entry.contextSentence.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = "\"${entry.contextSentence}\"",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Text(
+                text = entry.source,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { onOpenDocumentAt(document, entry.sentenceIndex) }
+            )
+        }
+
+        Box {
+            IconButton(onClick = { itemMenuExpanded = true }) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "Entry Actions",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            DropdownMenu(
+                expanded = itemMenuExpanded,
+                onDismissRequest = { itemMenuExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Share as text") },
+                    onClick = {
+                        itemMenuExpanded = false
+                        shareVocabularyAsWords(
+                            context = context,
+                            bookTitle = document.title,
+                            entry = entry
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) }
+                )
+                DropdownMenuItem(
+                    text = { Text("Share as image") },
+                    onClick = {
+                        itemMenuExpanded = false
+                        shareVocabularyAsImage(
+                            context = context,
+                            bookTitle = document.title,
+                            authorName = "",
+                            entry = entry
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) }
+                )
+                DropdownMenuItem(
+                    text = { Text("Copy") },
+                    onClick = {
+                        itemMenuExpanded = false
+                        val vocabText = buildString {
+                            append(entry.word)
+                            if (!entry.pronunciation.isNullOrBlank()) append(" (${entry.pronunciation})")
+                            append("\n").append(entry.explanation)
+                            if (!entry.contextSentence.isNullOrBlank()) append("\n\"${entry.contextSentence}\"")
+                        }
+                        copyTextToClipboard(context, "Vocabulary Word", vocabText)
+                    },
+                    leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                    onClick = {
+                        itemMenuExpanded = false
+                        showDeleteConfirm = true
+                    },
+                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                )
+            }
+        }
+    }
+}
+

@@ -2,6 +2,7 @@ package com.veritas.reader
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.ImageProvider
@@ -29,13 +30,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
-
 import androidx.glance.appwidget.cornerRadius
-
 import androidx.glance.ColorFilter
 
 @Suppress("RestrictedApi") // Glance's resource-backed ColorProvider is its widget color API.
 object VeritasWidgetColors {
+    val playerBackground = ColorProvider(R.color.widget_player_background)
     val frostedBackground = ColorProvider(R.color.widget_frosted_background)
     val border = ColorProvider(R.color.widget_border)
     val textPrimary = ColorProvider(R.color.widget_text_primary)
@@ -49,6 +49,8 @@ object VeritasWidgetColors {
     val secondaryAccent = ColorProvider(R.color.widget_secondary_accent)
     val streakAccent = ColorProvider(R.color.widget_streak_accent)
     val successAccent = ColorProvider(R.color.widget_success_accent)
+    val amberAccent = ColorProvider(R.color.widget_amber_accent)
+    val cyanAccent = ColorProvider(R.color.widget_cyan_accent)
     val progressTrack = ColorProvider(R.color.widget_progress_track)
 }
 
@@ -60,6 +62,14 @@ class VeritasPlayerWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val activeDocId = PlaybackStateStore.activeDocumentId
+        val coverBitmap = if (!activeDocId.isNullOrBlank()) {
+            val coverFile = CoverExtractor.coverFile(context, activeDocId)
+            if (coverFile != null && coverFile.exists()) {
+                runCatching { BitmapFactory.decodeFile(coverFile.absolutePath) }.getOrNull()
+            } else null
+        } else null
+
         provideContent {
             val size = androidx.glance.LocalSize.current
             val title = PlaybackStateStore.documentTitle.ifBlank { "Veritas Reader" }
@@ -87,22 +97,20 @@ class VeritasPlayerWidget : GlanceAppWidget() {
             val prevParams = actionParametersOf(PlayerActionCallback.ActionKey to PlaybackActions.ACTION_PREVIOUS)
             val nextParams = actionParametersOf(PlayerActionCallback.ActionKey to PlaybackActions.ACTION_NEXT)
 
-            val isCompact = size.width < 180.dp
+            val isCompact = size.width < 185.dp
 
+            // Centered layout with constrained slim vertical height (54dp) matching Samsung One UI system widgets
             Box(
-                modifier = GlanceModifier
-                    .fillMaxSize()
-                    .background(VeritasWidgetColors.border)
-                    .cornerRadius(28.dp),
+                modifier = GlanceModifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = GlanceModifier
-                        .fillMaxSize()
-                        .padding(1.dp)
-                        .cornerRadius(27.dp)
-                        .background(VeritasWidgetColors.frostedBackground)
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .fillMaxWidth()
+                        .height(76.dp)
+                        .cornerRadius(38.dp)
+                        .background(VeritasWidgetColors.playerBackground)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                         .clickable(actionRunCallback<PlayerWidgetClickCallback>()),
                     contentAlignment = Alignment.Center
                 ) {
@@ -110,25 +118,34 @@ class VeritasPlayerWidget : GlanceAppWidget() {
                         modifier = GlanceModifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // App / Document Thumbnail
-                        Box(
-                            modifier = GlanceModifier
-                                .size(40.dp)
-                                .cornerRadius(12.dp)
-                                .background(VeritasWidgetColors.cardElevated),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        // Document Artwork / Thumbnail (prominent 46dp)
+                        if (coverBitmap != null) {
                             Image(
-                                provider = ImageProvider(R.drawable.veritas_reader_icon),
-                                contentDescription = "Veritas",
-                                modifier = GlanceModifier.size(30.dp)
+                                provider = ImageProvider(coverBitmap),
+                                contentDescription = "Cover",
+                                modifier = GlanceModifier.size(46.dp).cornerRadius(14.dp)
                             )
+                        } else {
+                            Box(
+                                modifier = GlanceModifier
+                                    .size(46.dp)
+                                    .cornerRadius(14.dp)
+                                    .background(ImageProvider(R.drawable.ic_widget_book_cover_gradient)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Image(
+                                    provider = ImageProvider(R.drawable.ic_widget_library),
+                                    contentDescription = "Book icon",
+                                    modifier = GlanceModifier.size(24.dp),
+                                    colorFilter = ColorFilter.tint(ColorProvider(Color.White))
+                                )
+                            }
                         }
 
                         Spacer(modifier = GlanceModifier.width(10.dp))
 
                         if (isCompact) {
-                            // 2x1 Compact Capsule
+                            // 2x1 Compact Capsule View
                             Column(
                                 modifier = GlanceModifier.defaultWeight(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -136,31 +153,29 @@ class VeritasPlayerWidget : GlanceAppWidget() {
                                 Text(
                                     text = title,
                                     style = TextStyle(
-                                        fontSize = if (size.width >= 150.dp) 14.sp else 12.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = VeritasWidgetColors.textPrimary
                                     ),
                                     maxLines = 1
                                 )
                                 Spacer(modifier = GlanceModifier.height(2.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = if (isPlaying) "🔊 Playing" else "⏸ Ready",
-                                        style = TextStyle(
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = if (isPlaying) VeritasWidgetColors.successAccent else VeritasWidgetColors.textMuted
-                                        )
+                                Text(
+                                    text = if (isPlaying) "🔊 Playing" else "⏸ Ready",
+                                    style = TextStyle(
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isPlaying) VeritasWidgetColors.successAccent else VeritasWidgetColors.textMuted
                                     )
-                                }
+                                )
                             }
 
                             Spacer(modifier = GlanceModifier.width(8.dp))
 
                             Box(
                                 modifier = GlanceModifier
-                                    .size(38.dp)
-                                    .cornerRadius(19.dp)
+                                    .size(42.dp)
+                                    .cornerRadius(21.dp)
                                     .background(VeritasWidgetColors.playButtonAccent)
                                     .clickable(actionRunCallback<PlayerActionCallback>(playParams)),
                                 contentAlignment = Alignment.Center
@@ -170,92 +185,97 @@ class VeritasPlayerWidget : GlanceAppWidget() {
                                         if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
                                     ),
                                     contentDescription = "Play/Pause",
-                                    modifier = GlanceModifier.size(20.dp),
+                                    modifier = GlanceModifier.size(22.dp),
                                     colorFilter = ColorFilter.tint(VeritasWidgetColors.playIconColor)
                                 )
                             }
                         } else {
-                            // Expanded Layout (3x1, 4x1, 4x2)
+                            // Full 4x1 Horizontal Capsule View (large typography & prominent controls)
                             Column(
-                                modifier = GlanceModifier.defaultWeight()
+                                modifier = GlanceModifier.defaultWeight(),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Document Format Pill Badge
                                     Box(
                                         modifier = GlanceModifier
                                             .cornerRadius(6.dp)
-                                            .background(VeritasWidgetColors.cardBackground)
-                                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                                            .background(VeritasWidgetColors.cyanAccent)
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = docFormat,
                                             style = TextStyle(
-                                                fontSize = 9.sp,
+                                                fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = VeritasWidgetColors.primaryAccent
+                                                color = ColorProvider(Color.White)
                                             )
                                         )
                                     }
                                     Spacer(modifier = GlanceModifier.width(6.dp))
                                     Text(
+                                        text = title,
+                                        style = TextStyle(
+                                            fontSize = if (size.width >= 240.dp) 15.sp else 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = VeritasWidgetColors.textPrimary
+                                        ),
+                                        maxLines = 1
+                                    )
+                                }
+                                Spacer(modifier = GlanceModifier.height(2.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
                                         text = if (isPlaying) "● Playing" else "○ Paused",
                                         style = TextStyle(
-                                            fontSize = 10.sp,
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isPlaying) VeritasWidgetColors.successAccent else VeritasWidgetColors.textMuted
                                         )
                                     )
+                                    Spacer(modifier = GlanceModifier.width(6.dp))
+                                    Text(
+                                        text = "• $progressText",
+                                        style = TextStyle(
+                                            fontSize = 11.sp,
+                                            color = VeritasWidgetColors.textMuted
+                                        ),
+                                        maxLines = 1
+                                    )
                                 }
-                                Spacer(modifier = GlanceModifier.height(2.dp))
-                                Text(
-                                    text = title,
-                                    style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 15.sp else 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = VeritasWidgetColors.textPrimary
-                                    ),
-                                    maxLines = 1
-                                )
-                                Spacer(modifier = GlanceModifier.height(2.dp))
-                                Text(
-                                    text = progressText,
-                                    style = TextStyle(
-                                        fontSize = if (size.width >= 240.dp) 12.sp else 10.sp,
-                                        color = VeritasWidgetColors.textMuted
-                                    ),
-                                    maxLines = 1
-                                )
                             }
 
-                            Spacer(modifier = GlanceModifier.width(10.dp))
+                            Spacer(modifier = GlanceModifier.width(8.dp))
 
+                            // Controls
                             Row(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
                                     modifier = GlanceModifier
-                                        .size(32.dp)
-                                        .cornerRadius(16.dp)
+                                        .size(34.dp)
+                                        .cornerRadius(17.dp)
                                         .background(VeritasWidgetColors.cardBackground)
                                         .clickable(actionRunCallback<PlayerActionCallback>(prevParams)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Image(
-                                        provider = ImageProvider(R.drawable.ic_m3_chevron_left),
+                                        provider = ImageProvider(R.drawable.ic_widget_previous),
                                         contentDescription = "Previous",
-                                        modifier = GlanceModifier.size(20.dp),
+                                        modifier = GlanceModifier.size(18.dp),
                                         colorFilter = ColorFilter.tint(VeritasWidgetColors.textPrimary)
                                     )
                                 }
-                                
-                                Spacer(modifier = GlanceModifier.width(6.dp))
-                                
+
+                                Spacer(modifier = GlanceModifier.width(8.dp))
+
                                 Box(
                                     modifier = GlanceModifier
-                                        .size(42.dp)
-                                        .cornerRadius(21.dp)
+                                        .size(44.dp)
+                                        .cornerRadius(22.dp)
                                         .background(VeritasWidgetColors.playButtonAccent)
                                         .clickable(actionRunCallback<PlayerActionCallback>(playParams)),
                                     contentAlignment = Alignment.Center
@@ -265,25 +285,25 @@ class VeritasPlayerWidget : GlanceAppWidget() {
                                             if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
                                         ),
                                         contentDescription = "Play/Pause",
-                                        modifier = GlanceModifier.size(22.dp),
+                                        modifier = GlanceModifier.size(24.dp),
                                         colorFilter = ColorFilter.tint(VeritasWidgetColors.playIconColor)
                                     )
                                 }
-                                
-                                Spacer(modifier = GlanceModifier.width(6.dp))
-                                
+
+                                Spacer(modifier = GlanceModifier.width(8.dp))
+
                                 Box(
                                     modifier = GlanceModifier
-                                        .size(32.dp)
-                                        .cornerRadius(16.dp)
+                                        .size(34.dp)
+                                        .cornerRadius(17.dp)
                                         .background(VeritasWidgetColors.cardBackground)
                                         .clickable(actionRunCallback<PlayerActionCallback>(nextParams)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Image(
-                                        provider = ImageProvider(R.drawable.ic_m3_chevron_right),
+                                        provider = ImageProvider(R.drawable.ic_widget_next),
                                         contentDescription = "Next",
-                                        modifier = GlanceModifier.size(20.dp),
+                                        modifier = GlanceModifier.size(18.dp),
                                         colorFilter = ColorFilter.tint(VeritasWidgetColors.textPrimary)
                                     )
                                 }
@@ -317,7 +337,7 @@ class PlayerActionCallback : ActionCallback {
         val action = parameters[ActionKey] ?: return
         val intent = Intent(context, PlaybackService::class.java).setAction(action)
         context.startService(intent)
-        // Force widgets to refresh soon
+        // Force widgets to refresh immediately
         updateVeritasWidgets(context)
     }
 
@@ -329,9 +349,7 @@ class PlayerActionCallback : ActionCallback {
 /**
  * Widget refreshes are fire-and-forget and outlive whatever triggered them — a receiver,
  * a service callback, a screen leaving composition. They belong to the process, so they
- * get a named process-lifetime scope rather than GlobalScope: a SupervisorJob keeps one
- * failing widget from tearing down the others, and the scope is greppable when a refresh
- * misbehaves.
+ * get a named process-lifetime scope rather than GlobalScope.
  */
 private val widgetRefreshScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -340,7 +358,7 @@ fun updateVeritasWidgets(context: Context) {
     widgetRefreshScope.launch {
         runCatching { VeritasPlayerWidget().updateAll(appContext) }
         runCatching { QuickNoteWidget().updateAll(appContext) }
-        runCatching { PinnedNoteWidget().updateAll(appContext) }
+        runCatching { FlashcardWidget().updateAll(appContext) }
         runCatching { QuickCaptureWidget().updateAll(appContext) }
         runCatching { ReadingProgressWidget().updateAll(appContext) }
         runCatching { StudyDashboardWidget().updateAll(appContext) }

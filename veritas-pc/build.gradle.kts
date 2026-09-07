@@ -18,6 +18,8 @@ kotlin {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.8.0")
                 implementation("org.json:json:20240303")
                 implementation("org.apache.pdfbox:pdfbox:2.0.30")
+                implementation("net.java.dev.jna:jna:5.14.0")
+                implementation("net.java.dev.jna:jna-platform:5.14.0")
             }
         }
     }
@@ -25,11 +27,11 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "com.veritas.reader.MainKt"
+        mainClass = "com.veritas.desktop.MainKt"
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe)
             packageName = "VeritasReader"
-            packageVersion = "1.1.0"
+            packageVersion = "2.0.0"
         }
     }
 }

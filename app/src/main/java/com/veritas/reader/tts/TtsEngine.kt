@@ -9,7 +9,7 @@ interface TtsEngine {
      * Synthesize a single sentence into raw PCM 16-bit ShortArray audio samples.
      * Returns null if synthesis fails or engine is not ready.
      */
-    suspend fun synthesize(sentence: String): ShortArray?
+    suspend fun synthesize(sentence: String, rate: Float = 1.0f, pitch: Float = 1.0f): ShortArray?
 
     /**
      * Returns whether the engine is initialized and ready to synthesize audio.

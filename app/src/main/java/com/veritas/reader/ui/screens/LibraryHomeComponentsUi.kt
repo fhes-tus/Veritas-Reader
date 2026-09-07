@@ -56,7 +56,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -219,7 +221,7 @@ internal fun HomeQuickActions(
                     }
                 },
             shape = VeritasPackStyle.cardShape(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             colors = CardDefaults.cardColors(
                 containerColor = if (disabled) {
                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f * VeritasPackStyle.surfaceAlpha())
@@ -912,12 +914,38 @@ internal fun AnnotationDocumentCard(
     
     var expanded by rememberSaveable(document.id) { mutableStateOf(false) }
     var expandedNoteKeys by remember { mutableStateOf(setOf<String>()) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete all notes?") },
+            text = { Text("This will permanently remove all ${noteAnnotations.size + if (hasDocumentNote) 1 else 0} notes for \"${document.title}\".") },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        val keysToDelete = noteAnnotations.map { it.stableKey }.toSet() + if (hasDocumentNote) setOf(documentNoteKey) else emptySet()
+                        onDeleteAnnotations(keysToDelete)
+                        showDeleteConfirmDialog = false
+                    }
+                ) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = VeritasPackStyle.cardShape(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
         border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
@@ -925,36 +953,109 @@ internal fun AnnotationDocumentCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(14.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.EditNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        text = document.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { expanded = !expanded },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.EditNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
                     )
-                    Text(
-                        text = "${noteAnnotations.size + if (hasDocumentNote) 1 else 0} note${if (noteAnnotations.size + (if (hasDocumentNote) 1 else 0) == 1) "" else "s"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = document.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${noteAnnotations.size + if (hasDocumentNote) 1 else 0} note${if (noteAnnotations.size + (if (hasDocumentNote) 1 else 0) == 1) "" else "s"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                var showBatchMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { showBatchMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "Batch Actions",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showBatchMenu,
+                        onDismissRequest = { showBatchMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Share as PDF") },
+                            onClick = {
+                                showBatchMenu = false
+                                val pdf = StudyGuidePdfExporter.generateNotesBatchPdf(
+                                    context = context,
+                                    documentTitle = document.title,
+                                    documentNote = documentNote,
+                                    notes = noteAnnotations,
+                                    sentenceTextLookup = sentenceTextLookup
+                                )
+                                if (pdf != null) {
+                                    StudyGuidePdfExporter.sharePdfFile(context, pdf, "Share Notes PDF")
+                                }
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.EditNote, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Copy all") },
+                            onClick = {
+                                showBatchMenu = false
+                                val allText = buildString {
+                                    append("=== ").append(document.title).append(" ===\n\n")
+                                    if (documentNote.isNotBlank()) {
+                                        append("DOCUMENT NOTE:\n").append(documentNote).append("\n\n")
+                                    }
+                                    noteAnnotations.forEach { ann ->
+                                        append("• ").append(ann.note)
+                                        val ctx = sentenceTextLookup(ann.chunkIndex)
+                                        if (!ctx.isNullOrBlank()) {
+                                            append("\n  Context: \"").append(ctx).append("\"")
+                                        }
+                                        append("\n\n")
+                                    }
+                                }
+                                copyTextToClipboard(context, "Notes Batch", allText)
+                            },
+                            leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete all", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                showBatchMenu = false
+                                showDeleteConfirmDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                        )
+                    }
+                }
+
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
-                Icon(
-                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.primary
-                )
             }
 
             if (expanded) {
@@ -1151,7 +1252,8 @@ fun EmptyLibraryCard(onImportFile: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = VeritasPackStyle.surfaceAlpha())),
         shape = VeritasPackStyle.cardShape(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             BrandMark(compact = true)
@@ -1234,7 +1336,8 @@ fun DocumentCard(
                 )
             },
         shape = VeritasPackStyle.compactShape(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = VeritasPackStyle.surfaceAlpha())
@@ -1462,7 +1565,7 @@ fun DocumentTileCard(
                 MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = if (selected) {
             BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
         } else {
@@ -1814,11 +1917,11 @@ internal fun RowScope.BottomNavItem(
                         alpha = pillProgress.coerceIn(0f, 1f)
                     }
                     .background(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
                         shape = RoundedCornerShape(50)
                     )
             )
-            icon(if (selected) MaterialTheme.colorScheme.onPrimary else contentColor)
+            icon(if (selected) MaterialTheme.colorScheme.primary else contentColor)
         }
     }
 }
@@ -2021,8 +2124,11 @@ internal fun StudyEmptyState(
     title: String,
     description: String,
     onGoToLibrary: () -> Unit,
-    onImportFile: () -> Unit
+    primaryActionLabel: String = "Import file",
+    onPrimaryAction: () -> Unit = {},
+    onImportFile: (() -> Unit)? = null
 ) {
+    val actualPrimaryAction = onImportFile ?: onPrimaryAction
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -2052,8 +2158,8 @@ internal fun StudyEmptyState(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(onClick = onImportFile) {
-                    Text("Import file")
+                Button(onClick = actualPrimaryAction) {
+                    Text(primaryActionLabel)
                 }
                 OutlinedButton(onClick = onGoToLibrary) {
                     Text("Go to Library")
@@ -2151,7 +2257,30 @@ internal fun FlashcardSetTile(
     onDelete: () -> Unit
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var showDeleteDeckConfirm by remember { mutableStateOf(false) }
     val counts = set.recallCounts
+
+    if (showDeleteDeckConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDeckConfirm = false },
+            title = { Text("Delete Flashcard Deck?") },
+            text = { Text("Are you sure you want to delete \"${set.name}\" and all of its ${set.cards.size} cards? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteDeckConfirm = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDeckConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
     // Cover-sized tile matching the library grid (portrait 0.75 aspect). Tap anywhere
     // opens the viewer (no "View cards" button).
     Card(
@@ -2183,7 +2312,7 @@ internal fun FlashcardSetTile(
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(text = { Text("Rename") }, onClick = { menuOpen = false; onRename() })
-                        DropdownMenuItem(text = { Text("Delete set") }, onClick = { menuOpen = false; onDelete() })
+                        DropdownMenuItem(text = { Text("Delete set") }, onClick = { menuOpen = false; showDeleteDeckConfirm = true })
                     }
                 }
             }
@@ -2265,6 +2394,9 @@ internal fun FlashcardViewerDialog(
     var order by remember(cards) { mutableStateOf(cards) }
     var index by remember { mutableStateOf(0) }
     var flipped by remember { mutableStateOf(false) }
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var showDeleteCardConfirm by remember { mutableStateOf(false) }
 
     if (order.isEmpty()) {
         LaunchedEffect(Unit) { onDismiss() }
@@ -2273,9 +2405,55 @@ internal fun FlashcardViewerDialog(
     val safeIndex = index.coerceIn(0, order.lastIndex)
     val card = order[safeIndex]
 
+    val animatedRotation by animateFloatAsState(
+        targetValue = if (flipped) 180f else 0f,
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+        label = "flashcardFlip"
+    )
+    val isShowingBack = animatedRotation > 90f
+
+    val animatedDragX by animateFloatAsState(
+        targetValue = dragOffsetX,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "flashcardDragX"
+    )
+    val animatedDragY by animateFloatAsState(
+        targetValue = dragOffsetY,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "flashcardDragY"
+    )
+
     fun goTo(next: Int) {
         index = next.coerceIn(0, order.lastIndex)
         flipped = false
+        dragOffsetX = 0f
+        dragOffsetY = 0f
+    }
+
+    if (showDeleteCardConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteCardConfirm = false },
+            title = { Text("Delete Flashcard?") },
+            text = { Text("Are you sure you want to delete this card? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteCardConfirm = false
+                        val removedId = card.id
+                        val remaining = order.filterNot { it.id == removedId }
+                        onDeleteCard(removedId)
+                        order = remaining
+                        if (remaining.isNotEmpty()) index = safeIndex.coerceIn(0, remaining.lastIndex)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteCardConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -2293,79 +2471,166 @@ internal fun FlashcardViewerDialog(
                     TextButton(onClick = onDismiss) { Text("Exit card") }
                 }
 
-                // Card is centered in the free space with a squarer aspect ratio so
-                // text isn't marooned in a tall card. Corner radius stays the theme
-                // pack's shape (VeritasPackStyle.cardShape()).
+                // Card is centered with 3D flip rotation effect & smooth swipe gestures
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1.1f)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { flipped = !flipped },
-                    shape = VeritasPackStyle.cardShape(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                ) {
-                    Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-                        // Scrollable so long answers never overflow the fixed-aspect card;
-                        // the corner icons below stay fixed (outside this scroll).
-                        Box(
-                            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                // Prettify equations (x², √, ×, π…) so cards read as math.
-                                text = MathText.beautify(if (flipped) card.back else card.front),
-                                style = MaterialTheme.typography.headlineSmall,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        // Subtle per-card delete — present but not distracting.
-                        IconButton(
-                            onClick = {
-                                val removedId = card.id
-                                val remaining = order.filterNot { it.id == removedId }
-                                onDeleteCard(removedId)
-                                order = remaining
-                                if (remaining.isNotEmpty()) index = safeIndex.coerceIn(0, remaining.lastIndex)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1.05f)
+                            .graphicsLayer {
+                                rotationY = animatedRotation
+                                cameraDistance = 12f * density
+                                translationX = animatedDragX
+                                translationY = animatedDragY
+                                rotationZ = (animatedDragX / 35f).coerceIn(-10f, 10f)
+                            }
+                            .pointerInput(safeIndex) {
+                                detectTapGestures(
+                                    onTap = { flipped = !flipped }
+                                )
+                            }
+                            .pointerInput(safeIndex) {
+                                var accumulatedX = 0f
+                                var accumulatedY = 0f
+                                detectDragGestures(
+                                    onDragStart = {
+                                        accumulatedX = 0f
+                                        accumulatedY = 0f
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        accumulatedX += dragAmount.x
+                                        accumulatedY += dragAmount.y
+                                        dragOffsetX = accumulatedX.coerceIn(-300f, 300f)
+                                        dragOffsetY = accumulatedY.coerceIn(-300f, 80f)
+                                    },
+                                    onDragEnd = {
+                                        val threshold = 80f
+                                        when {
+                                            accumulatedY < -threshold && kotlin.math.abs(accumulatedY) > kotlin.math.abs(accumulatedX) -> {
+                                                // Swipe Up: Skip card
+                                                goTo(safeIndex + 1)
+                                            }
+                                            accumulatedX < -threshold -> {
+                                                // Swipe Left: Next card
+                                                if (safeIndex < order.lastIndex) goTo(safeIndex + 1)
+                                            }
+                                            accumulatedX > threshold -> {
+                                                // Swipe Right: Previous card
+                                                if (safeIndex > 0) goTo(safeIndex - 1)
+                                            }
+                                        }
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
+                                    },
+                                    onDragCancel = {
+                                        dragOffsetX = 0f
+                                        dragOffsetY = 0f
+                                    }
+                                )
                             },
-                            modifier = Modifier.align(Alignment.TopEnd)
+                        shape = VeritasPackStyle.cardShape(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isShowingBack)
+                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        ),
+                        border = BorderStroke(
+                            1.5.dp,
+                            if (isShowingBack) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    if (isShowingBack) rotationY = 180f
+                                }
+                                .padding(24.dp)
                         ) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isShowingBack)
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                ) {
+                                    Text(
+                                        text = if (isShowingBack) "ANSWER · TAP TO FLIP" else "QUESTION · TAP TO FLIP",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isShowingBack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .verticalScroll(rememberScrollState()),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = MathText.beautify(if (isShowingBack) card.back else card.front),
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        textAlign = TextAlign.Center,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+
+                            // Subtle per-card delete with confirmation
+                            IconButton(
+                                onClick = { showDeleteCardConfirm = true },
+                                modifier = Modifier.align(Alignment.TopEnd)
+                            ) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete this card",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            // Flip affordance icon
                             Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Delete this card",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                modifier = Modifier.size(18.dp)
+                                Icons.Filled.Autorenew,
+                                contentDescription = "Tap card to flip",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                modifier = Modifier.align(Alignment.BottomEnd).size(22.dp)
                             )
                         }
-                        // Flip affordance.
-                        Icon(
-                            Icons.Filled.Autorenew,
-                            contentDescription = "Tap card to flip",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                            modifier = Modifier.align(Alignment.BottomEnd).size(22.dp)
-                        )
                     }
-                }
                 }
 
                 Text(
-                    "Rate your recall",
+                    "Swipe ← / → to move • Swipe ↑ to skip • Tap to flip",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 6.dp, bottom = 4.dp)
+                )
+
+                Text(
+                    "Rate your recall (Spaced Repetition)",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp)
                 )
-                // All four recall buttons, sized to fit one centered row without clipping.
+
+                // All four recall buttons with SM-2 interval hints
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     FLASHCARD_RECALL_META.forEach { (key, label, color) ->
                         val selected = card.recall == key
+                        val intervalHint = com.veritas.reader.SpacedRepetitionScheduler.previewNextInterval(card, key)
                         Button(
                             onClick = {
                                 onRate(card.id, key)
@@ -2373,19 +2638,30 @@ internal fun FlashcardViewerDialog(
                                 if (safeIndex < order.lastIndex) goTo(safeIndex + 1)
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (selected) color else color.copy(alpha = 0.5f)
+                                containerColor = if (selected) color else color.copy(alpha = 0.65f)
                             ),
-                            shape = RoundedCornerShape(50),
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.weight(1f).height(52.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
                         ) {
-                            Text(
-                                if (selected) "✓$label" else label,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    if (selected) "✓$label" else label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    intervalHint,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }
@@ -2570,11 +2846,37 @@ internal fun BookmarkDocumentCard(
     onDeleteAnnotations: (Set<String>) -> Unit
 ) {
     var expanded by rememberSaveable(document.id) { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Delete all bookmarks?") },
+            text = { Text("This will permanently remove all ${groups.size} bookmarks for \"${document.title}\".") },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        onDeleteAnnotations(groups.flatMap { it.annotations.map { a -> a.stableKey } }.toSet())
+                        showDeleteConfirmDialog = false
+                    }
+                ) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
     
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = VeritasPackStyle.cardShape(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())),
         border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
@@ -2582,36 +2884,99 @@ internal fun BookmarkDocumentCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(14.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Bookmark,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        text = document.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { expanded = !expanded },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Bookmark,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
                     )
-                    Text(
-                        text = "${groups.size} bookmark${if (groups.size == 1) "" else "s"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            text = document.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${groups.size} bookmark${if (groups.size == 1) "" else "s"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                var showBatchMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { showBatchMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "Batch Actions",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showBatchMenu,
+                        onDismissRequest = { showBatchMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Share as PDF") },
+                            onClick = {
+                                showBatchMenu = false
+                                val allBookmarks = groups.flatMap { it.annotations }
+                                val pdf = StudyGuidePdfExporter.generateBookmarksBatchPdf(
+                                    context = context,
+                                    documentTitle = document.title,
+                                    bookmarks = allBookmarks,
+                                    sentenceTextLookup = sentenceTextLookup
+                                )
+                                if (pdf != null) {
+                                    StudyGuidePdfExporter.sharePdfFile(context, pdf, "Share Bookmarks PDF")
+                                }
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.Bookmark, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Copy all") },
+                            onClick = {
+                                showBatchMenu = false
+                                val allText = groups.joinToString("\n\n") { g ->
+                                    val text = (g.startSentence..g.endSentence).mapNotNull { sentenceTextLookup(it) }.joinToString(" ")
+                                    "• $text [Sentence ${g.startSentence + 1}]"
+                                }
+                                copyTextToClipboard(context, "Bookmarks Batch", allText)
+                            },
+                            leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete all", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                showBatchMenu = false
+                                showDeleteConfirmDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                        )
+                    }
+                }
+
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
-                Icon(
-                    imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.primary
-                )
             }
 
             if (expanded) {
@@ -2783,7 +3148,20 @@ internal fun BookmarkGroupCard(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Share") },
+                                    text = { Text("Share as text") },
+                                    onClick = {
+                                        showMenu = false
+                                        val fullText = sentencesText.joinToString(" ")
+                                        shareBookmarkAsWords(
+                                            context = context,
+                                            bookTitle = cleanTitle,
+                                            text = fullText
+                                        )
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share as image") },
                                     onClick = {
                                         showMenu = false
                                         val fullText = sentencesText.joinToString(" ")
@@ -2794,7 +3172,8 @@ internal fun BookmarkGroupCard(
                                             highlightedText = fullText,
                                             highlightColorHex = group.highlightColor ?: "#FFE082"
                                         )
-                                    }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Copy") },
@@ -2802,14 +3181,16 @@ internal fun BookmarkGroupCard(
                                         showMenu = false
                                         val fullText = sentencesText.joinToString(" ")
                                         copyTextToClipboard(context, "Bookmark Text", fullText)
-                                    }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                                     onClick = {
                                         showMenu = false
                                         onDeleteGroup()
-                                    }
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
                                 )
                             }
                         }
@@ -2869,6 +3250,8 @@ internal fun NoteGroupCard(
     val recordingState by com.veritas.reader.VoiceNoteRecorder.recordingState.collectAsState()
     val activeAudioPath by com.veritas.reader.VoiceNoteRecorder.activeAudioPath.collectAsState()
     val isPlayingThis = recordingState == com.veritas.reader.VoiceRecordingState.PLAYING && activeAudioPath == group.audioPath
+    val playbackProgress by com.veritas.reader.VoiceNoteRecorder.playbackProgress.collectAsState()
+    val playbackPositionMs by com.veritas.reader.VoiceNoteRecorder.playbackPositionMs.collectAsState()
     
     val highlightColor = remember(group.highlightColor) {
         runCatching { Color(android.graphics.Color.parseColor(group.highlightColor)) }
@@ -3024,14 +3407,32 @@ internal fun NoteGroupCard(
 
                     if (!group.audioPath.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(6.dp))
+                        val currentPositionLabel = if (isPlayingThis && playbackPositionMs > 0) {
+                            val curSec = playbackPositionMs / 1000
+                            String.format(Locale.US, "%d:%02d", curSec / 60, curSec % 60)
+                        } else "0:00"
+                        val dynamicDurationLabel = if (isPlayingThis) {
+                            "$currentPositionLabel / $memoDuration"
+                        } else {
+                            if (group.noteText.isNotBlank()) "Voice Memo • $memoDuration" else "Voice Memo ($memoDuration)"
+                        }
                         AudioVoiceMemoWaveform(
-                            durationLabel = if (group.noteText.isNotBlank()) "Voice Memo • $memoDuration" else "Voice Memo ($memoDuration)",
+                            durationLabel = dynamicDurationLabel,
                             isPlaying = isPlayingThis,
+                            progress = if (isPlayingThis) playbackProgress else 0f,
                             onTogglePlay = {
                                 if (isPlayingThis) {
                                     com.veritas.reader.VoiceNoteRecorder.stopPlayback()
                                 } else {
                                     com.veritas.reader.VoiceNoteRecorder.playAudio(group.audioPath)
+                                }
+                            },
+                            onSeek = { fraction ->
+                                if (isPlayingThis) {
+                                    com.veritas.reader.VoiceNoteRecorder.seekTo(fraction)
+                                } else {
+                                    com.veritas.reader.VoiceNoteRecorder.playAudio(group.audioPath)
+                                    com.veritas.reader.VoiceNoteRecorder.seekTo(fraction)
                                 }
                             }
                         )
@@ -3072,7 +3473,21 @@ internal fun NoteGroupCard(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Share") },
+                                    text = { Text("Share as text") },
+                                    onClick = {
+                                        showMenu = false
+                                        val contextText = sentencesText.joinToString(" ")
+                                        shareNoteAsWords(
+                                            context = context,
+                                            bookTitle = cleanTitle,
+                                            sentenceText = contextText,
+                                            noteText = group.noteText
+                                        )
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share as image") },
                                     onClick = {
                                         showMenu = false
                                         val fullText = sentencesText.joinToString(" ") + "\n\nNote: " + group.noteText
@@ -3083,7 +3498,8 @@ internal fun NoteGroupCard(
                                             highlightedText = fullText,
                                             highlightColorHex = group.highlightColor ?: "#FFE082"
                                         )
-                                    }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.Image, contentDescription = null) }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Copy") },
@@ -3091,16 +3507,18 @@ internal fun NoteGroupCard(
                                         showMenu = false
                                         val fullText = sentencesText.joinToString(" ") + "\n\nNote: " + group.noteText
                                         copyTextToClipboard(context, "Note & Context Text", fullText)
-                                    }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.ContentPaste, contentDescription = null) }
                                 )
-                                 DropdownMenuItem(
-                                     text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                     onClick = {
-                                         showMenu = false
-                                         onDeleteGroup()
-                                     }
-                                 )
-                             }
+                                DropdownMenuItem(
+                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        showMenu = false
+                                        onDeleteGroup()
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                )
+                            }
                          }
                      }
                  }
@@ -3122,7 +3540,7 @@ internal fun StudyDailyReviewHeroCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Row(
@@ -3228,7 +3646,7 @@ internal fun StudyAiToolCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
     ) {
         Column(
@@ -3321,9 +3739,16 @@ internal fun StudyActiveDeckItem(
 internal fun AudioVoiceMemoWaveform(
     durationLabel: String,
     isPlaying: Boolean,
+    progress: Float = 0f,
     onTogglePlay: () -> Unit,
+    onSeek: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    var waveformWidthPx by remember { mutableStateOf(1f) }
+    val heights = remember {
+        listOf(8, 14, 22, 12, 18, 26, 16, 28, 20, 12, 24, 18, 10, 16, 22, 14, 20, 28, 16, 10, 24, 18, 12, 8)
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -3350,27 +3775,75 @@ internal fun AudioVoiceMemoWaveform(
             )
         }
 
-        Row(
-            modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(2.5.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(34.dp)
+                .onGloballyPositioned { coordinates ->
+                    waveformWidthPx = coordinates.size.width.toFloat().coerceAtLeast(1f)
+                }
+                .pointerInput(onSeek) {
+                    if (onSeek != null) {
+                        detectTapGestures { offset ->
+                            val frac = (offset.x / waveformWidthPx).coerceIn(0f, 1f)
+                            onSeek(frac)
+                        }
+                    }
+                }
+                .pointerInput(onSeek) {
+                    if (onSeek != null) {
+                        detectDragGestures { change, _ ->
+                            change.consume()
+                            val frac = (change.position.x / waveformWidthPx).coerceIn(0f, 1f)
+                            onSeek(frac)
+                        }
+                    }
+                },
+            contentAlignment = Alignment.CenterStart
         ) {
-            val heights = listOf(8, 14, 22, 10, 18, 26, 16, 28, 20, 12, 24, 18, 10, 16, 22, 14, 8)
-            heights.forEachIndexed { i, h ->
-                val barColor = if (i < 8) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .height(h.dp)
-                        .background(barColor, RoundedCornerShape(1.5.dp))
-                )
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val unplayedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f)
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val canvasW = size.width
+                val canvasH = size.height
+                val barW = 2.5.dp.toPx()
+                val barGap = 2.dp.toPx()
+                val step = barW + barGap
+                val count = (canvasW / step).toInt().coerceAtLeast(12)
+                val startX = (canvasW - (count * step - barGap)) / 2f
+                val centerY = canvasH / 2f
+                val progressX = (progress * canvasW).coerceIn(0f, canvasW)
+
+                for (i in 0 until count) {
+                    val x = startX + i * step + barW / 2f
+                    val normalizedIdx = i.toFloat() / count.toFloat()
+                    val waveBase = kotlin.math.sin(normalizedIdx * Math.PI.toFloat())
+                    val ripple = kotlin.math.sin(i * 0.85f) * 0.28f + kotlin.math.cos(i * 1.6f) * 0.18f
+                    val heightRatio = (waveBase * 0.65f + ripple + 0.35f).coerceIn(0.18f, 0.95f)
+                    val currentH = if (isPlaying && x <= progressX) {
+                        val animWave = kotlin.math.sin((System.currentTimeMillis() / 150.0 + i * 0.5).toDouble()).toFloat() * 0.15f
+                        ((heightRatio + animWave) * (canvasH - 4.dp.toPx())).coerceIn(4.dp.toPx(), canvasH - 2.dp.toPx())
+                    } else {
+                        (heightRatio * (canvasH - 4.dp.toPx())).coerceIn(4.dp.toPx(), canvasH - 2.dp.toPx())
+                    }
+                    val halfH = currentH / 2f
+                    val isPlayed = x <= progressX
+                    drawLine(
+                        color = if (isPlayed) primaryColor else unplayedColor,
+                        start = androidx.compose.ui.geometry.Offset(x, centerY - halfH),
+                        end = androidx.compose.ui.geometry.Offset(x, centerY + halfH),
+                        strokeWidth = barW,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                    )
+                }
             }
         }
 
         Text(
             text = durationLabel,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Medium
         )
     }
 }

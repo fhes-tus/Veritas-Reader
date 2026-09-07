@@ -4,6 +4,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.veritas.reader.ui.screens.VeritasNoteEditing
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NoteEditingLogicTest {
@@ -156,5 +157,37 @@ class NoteEditingLogicTest {
     fun newlineOnNonListLineIsUntouched() {
         val out = enter("just text", "just text\n", 10)
         assertEquals("just text\n", out.text)
+    }
+
+    // ── parseNoteBlocks & serializeNoteBlocks ─────────────────────────────
+
+    @Test
+    fun parseNoteBlocksExtractsAttachmentsWithoutExtraWhitespace() {
+        val input = "Hello world\n![image](/path/img.jpg)\nNext paragraph"
+        val blocks = VeritasNoteEditing.parseNoteBlocks(input)
+        assertEquals(3, blocks.size)
+        assertTrue(blocks[0] is com.veritas.reader.ui.screens.NoteBlock.Text)
+        assertEquals("Hello world", (blocks[0] as com.veritas.reader.ui.screens.NoteBlock.Text).value.text)
+        assertTrue(blocks[1] is com.veritas.reader.ui.screens.NoteBlock.Image)
+        assertEquals("/path/img.jpg", (blocks[1] as com.veritas.reader.ui.screens.NoteBlock.Image).path)
+        assertTrue(blocks[2] is com.veritas.reader.ui.screens.NoteBlock.Text)
+        assertEquals("Next paragraph", (blocks[2] as com.veritas.reader.ui.screens.NoteBlock.Text).value.text)
+    }
+
+    @Test
+    fun serializeNoteBlocksRoundtripDoesNotAccumulateNewlines() {
+        val original = "First line\n![image](/data/img.png)\n[audio](/data/memo.3gp)\n[video](/data/clip.mp4)\nLast line"
+        val parsed1 = VeritasNoteEditing.parseNoteBlocks(original)
+        val serialized1 = VeritasNoteEditing.serializeNoteBlocks(parsed1)
+        assertEquals(original, serialized1)
+
+        // Multiple cycles must NOT grow whitespace or blank lines
+        val parsed2 = VeritasNoteEditing.parseNoteBlocks(serialized1)
+        val serialized2 = VeritasNoteEditing.serializeNoteBlocks(parsed2)
+        assertEquals(original, serialized2)
+
+        val parsed3 = VeritasNoteEditing.parseNoteBlocks(serialized2)
+        val serialized3 = VeritasNoteEditing.serializeNoteBlocks(parsed3)
+        assertEquals(original, serialized3)
     }
 }

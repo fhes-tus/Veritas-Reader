@@ -44,183 +44,163 @@ class QuickCaptureWidget : GlanceAppWidget() {
             Box(
                 modifier = GlanceModifier
                     .fillMaxSize()
-                    .background(VeritasWidgetColors.border)
-                    .cornerRadius(28.dp),
+                    .cornerRadius(24.dp)
+                    .background(VeritasWidgetColors.widgetBackground)
+                    .padding(12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = GlanceModifier
-                        .fillMaxSize()
-                        .padding(1.dp)
-                        .cornerRadius(27.dp)
-                        .background(VeritasWidgetColors.frostedBackground)
-                        .padding(10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isCompact) {
-                        // 2x1 Layout: Modern Capsule with quick action buttons
+                if (isCompact) {
+                    // 2x1 Layout: Modern Google Keep style capsule bar
+                    val newNoteParams = actionParametersOf(QuickCaptureActionCallback.ActionKey to MainActivity.ACTION_NEW_NOTE)
+                    val checklistParams = actionParametersOf(QuickCaptureActionCallback.ActionKey to MainActivity.ACTION_NEW_CHECKLIST_NOTE)
+                    val readingParams = actionParametersOf(QuickCaptureActionCallback.ActionKey to MainActivity.ACTION_ACTIVE_READING)
+
+                    Row(
+                        modifier = GlanceModifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = GlanceModifier
+                                .size(36.dp)
+                                .cornerRadius(12.dp)
+                                .background(VeritasWidgetColors.cardElevated),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                provider = ImageProvider(R.drawable.veritas_reader_icon),
+                                contentDescription = "Veritas",
+                                modifier = GlanceModifier.size(26.dp)
+                            )
+                        }
+                        Spacer(modifier = GlanceModifier.width(10.dp))
+                        Text(
+                            text = "Take a note...",
+                            style = TextStyle(
+                                fontSize = if (size.width >= 140.dp) 14.sp else 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = VeritasWidgetColors.textMuted
+                            ),
+                            maxLines = 1,
+                            modifier = GlanceModifier.defaultWeight().clickable(actionRunCallback<QuickCaptureActionCallback>(newNoteParams))
+                        )
+
+                        Spacer(modifier = GlanceModifier.width(8.dp))
+
+                        // + Note (Amber Action Button)
+                        Box(
+                            modifier = GlanceModifier
+                                .size(34.dp)
+                                .cornerRadius(17.dp)
+                                .background(VeritasWidgetColors.playButtonAccent)
+                                .clickable(actionRunCallback<QuickCaptureActionCallback>(newNoteParams)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                provider = ImageProvider(R.drawable.ic_widget_notes),
+                                contentDescription = "New Note",
+                                modifier = GlanceModifier.size(18.dp),
+                                colorFilter = ColorFilter.tint(VeritasWidgetColors.playIconColor)
+                            )
+                        }
+
+                        Spacer(modifier = GlanceModifier.width(6.dp))
+
+                        // Checklist button
+                        Box(
+                            modifier = GlanceModifier
+                                .size(34.dp)
+                                .cornerRadius(17.dp)
+                                .background(VeritasWidgetColors.cardBackground)
+                                .clickable(actionRunCallback<QuickCaptureActionCallback>(checklistParams)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                provider = ImageProvider(R.drawable.ic_widget_checklist),
+                                contentDescription = "New Checklist",
+                                modifier = GlanceModifier.size(18.dp),
+                                colorFilter = ColorFilter.tint(VeritasWidgetColors.textPrimary)
+                            )
+                        }
+
+                        Spacer(modifier = GlanceModifier.width(6.dp))
+
+                        // Reading / Book button
+                        Box(
+                            modifier = GlanceModifier
+                                .size(34.dp)
+                                .cornerRadius(17.dp)
+                                .background(VeritasWidgetColors.cardBackground)
+                                .clickable(actionRunCallback<QuickCaptureActionCallback>(readingParams)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                provider = ImageProvider(R.drawable.ic_widget_reading),
+                                contentDescription = "Resume Reading",
+                                modifier = GlanceModifier.size(18.dp),
+                                colorFilter = ColorFilter.tint(VeritasWidgetColors.textPrimary)
+                            )
+                        }
+                    }
+                } else {
+                    // >= 2x2 Grid Visual Layout: Clean Material 3 Quick Actions
+                    Column(
+                        modifier = GlanceModifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Header
                         Row(
-                            modifier = GlanceModifier.fillMaxWidth(),
+                            modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = GlanceModifier
-                                    .size(38.dp)
-                                    .cornerRadius(12.dp)
-                                    .background(VeritasWidgetColors.cardElevated),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Image(
-                                    provider = ImageProvider(R.drawable.veritas_reader_icon),
-                                    contentDescription = "Veritas",
-                                    modifier = GlanceModifier.size(28.dp)
-                                )
-                            }
-                            Spacer(modifier = GlanceModifier.width(8.dp))
                             Text(
-                                text = "Veritas",
+                                text = "Quick Capture",
                                 style = TextStyle(
-                                    fontSize = if (size.width >= 140.dp) 15.sp else 13.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = VeritasWidgetColors.textPrimary
                                 ),
-                                maxLines = 1,
                                 modifier = GlanceModifier.defaultWeight()
                             )
-                            
-                            val newNoteParams = actionParametersOf(QuickCaptureActionCallback.ActionKey to MainActivity.ACTION_NEW_NOTE)
-                            Box(
-                                modifier = GlanceModifier
-                                    .cornerRadius(16.dp)
-                                    .background(VeritasWidgetColors.playButtonAccent)
-                                    .clickable(actionRunCallback<QuickCaptureActionCallback>(newNoteParams))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "+ Note",
-                                    style = TextStyle(
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = VeritasWidgetColors.playIconColor
-                                    )
-                                )
-                            }
-                            
-                            Spacer(modifier = GlanceModifier.width(4.dp))
-                            
-                            Box(
-                                modifier = GlanceModifier
-                                    .size(34.dp)
-                                    .cornerRadius(17.dp)
-                                    .background(VeritasWidgetColors.cardBackground)
-                                    .clickable(actionRunCallback<LaunchWidgetMenuActivityCallback>()),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Image(
-                                    provider = ImageProvider(R.drawable.ic_widget_import),
-                                    contentDescription = "More",
-                                    modifier = GlanceModifier.size(18.dp),
-                                    colorFilter = ColorFilter.tint(VeritasWidgetColors.primaryAccent)
-                                )
-                            }
                         }
-                    } else {
-                        // >= 2x2 Grid Visual Layout with Modern Tiles
-                        Column(
-                            modifier = GlanceModifier.fillMaxSize(),
+
+                        Spacer(modifier = GlanceModifier.height(8.dp))
+
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Header
-                            Row(
-                                modifier = GlanceModifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Quick Actions",
-                                    style = TextStyle(
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = VeritasWidgetColors.textPrimary
-                                    ),
-                                    modifier = GlanceModifier.defaultWeight()
-                                )
-                                Box(
-                                    modifier = GlanceModifier
-                                        .cornerRadius(8.dp)
-                                        .background(VeritasWidgetColors.cardBackground)
-                                        .clickable(actionRunCallback<LaunchWidgetMenuActivityCallback>())
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "Menu ▾",
-                                        style = TextStyle(
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = VeritasWidgetColors.primaryAccent
-                                        )
-                                    )
-                                }
-                            }
-                            
-                            Spacer(modifier = GlanceModifier.height(6.dp))
-
-                            Row(
-                                modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ActionCard(
-                                    iconRes = R.drawable.ic_widget_notes,
-                                    label = "Text Note",
-                                    action = MainActivity.ACTION_SHOW_NOTES,
-                                    modifier = GlanceModifier.defaultWeight()
-                                )
-                                Spacer(modifier = GlanceModifier.width(6.dp))
-                                ActionCard(
-                                    iconRes = R.drawable.ic_widget_checklist,
-                                    label = "Checklist",
-                                    action = MainActivity.ACTION_NEW_CHECKLIST_NOTE,
-                                    modifier = GlanceModifier.defaultWeight()
-                                )
-                            }
-                            Spacer(modifier = GlanceModifier.height(6.dp))
-                            Row(
-                                modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ActionCard(
-                                    iconRes = R.drawable.ic_widget_reminder,
-                                    label = "Reminder",
-                                    action = MainActivity.ACTION_NEW_REMINDER_NOTE,
-                                    modifier = GlanceModifier.defaultWeight()
-                                )
-                                Spacer(modifier = GlanceModifier.width(6.dp))
-                                ActionCard(
-                                    iconRes = R.drawable.ic_widget_reading,
-                                    label = "Read Now",
-                                    action = MainActivity.ACTION_ACTIVE_READING,
-                                    modifier = GlanceModifier.defaultWeight()
-                                )
-                            }
-                            Spacer(modifier = GlanceModifier.height(6.dp))
-                            Row(
-                                modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ActionCard(
-                                    iconRes = R.drawable.ic_widget_library,
-                                    label = "Library",
-                                    action = MainActivity.ACTION_OPEN_LIBRARY,
-                                    modifier = GlanceModifier.defaultWeight()
-                                )
-                                Spacer(modifier = GlanceModifier.width(6.dp))
-                                ActionCard(
-                                    iconRes = R.drawable.ic_widget_import,
-                                    label = "Import Doc",
-                                    action = MainActivity.ACTION_IMPORT_DOCUMENTS,
-                                    modifier = GlanceModifier.defaultWeight()
-                                )
-                            }
+                            ActionCard(
+                                iconRes = R.drawable.ic_widget_notes,
+                                label = "Text Note",
+                                action = MainActivity.ACTION_NEW_NOTE,
+                                modifier = GlanceModifier.defaultWeight()
+                            )
+                            Spacer(modifier = GlanceModifier.width(8.dp))
+                            ActionCard(
+                                iconRes = R.drawable.ic_widget_checklist,
+                                label = "Checklist",
+                                action = MainActivity.ACTION_NEW_CHECKLIST_NOTE,
+                                modifier = GlanceModifier.defaultWeight()
+                            )
+                        }
+                        Spacer(modifier = GlanceModifier.height(8.dp))
+                        Row(
+                            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ActionCard(
+                                iconRes = R.drawable.ic_widget_reading,
+                                label = "Read Now",
+                                action = MainActivity.ACTION_ACTIVE_READING,
+                                modifier = GlanceModifier.defaultWeight()
+                            )
+                            Spacer(modifier = GlanceModifier.width(8.dp))
+                            ActionCard(
+                                iconRes = R.drawable.ic_widget_library,
+                                label = "Library",
+                                action = MainActivity.ACTION_OPEN_LIBRARY,
+                                modifier = GlanceModifier.defaultWeight()
+                            )
                         }
                     }
                 }

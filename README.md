@@ -1,6 +1,6 @@
 # Veritas Reader Android
 
-[![Release](https://img.shields.io/badge/Release-v2.2.0-orange.svg)](https://github.com/fhes-tus/Veritas-Reader/releases)
+[![Release](https://img.shields.io/badge/Release-v2.3.0-orange.svg)](https://github.com/fhes-tus/Veritas-Reader/releases)
 [![Android API Target](https://img.shields.io/badge/Target-Android%2016%20(API%2036)-green.svg)](https://developer.android.com/)
 [![Android API Min](https://img.shields.io/badge/Min%20SDK-API%2028-blue.svg)](https://developer.android.com/)
 [![Kotlin Version](https://img.shields.io/badge/Kotlin-2.4.0-purple.svg)](https://kotlinlang.org/)
@@ -10,15 +10,15 @@ Veritas Reader is a modern, high-fidelity Android reading and text-to-speech (TT
 
 ---
 
-## 📥 Downloads (v2.2.0)
+## 📥 Downloads (v2.3.0)
 
 Choose the APK package suitable for your device from the [Releases](https://github.com/fhes-tus/Veritas-Reader/releases) page:
 
 | Package | Size | Target Devices | Description |
 | :--- | :--- | :--- | :--- |
-| **`Veritas_Reader_v2.2.0_arm64.apk`** | **~54 MB** | **64-bit ARM** *(Recommended)* | Optimized build for ~99% of modern Android devices (Snapdragon, MediaTek, Tensor, Exynos). |
-| **`Veritas_Reader_v2.2.0_universal.apk`** | **~75 MB** | **All Devices** | Universal package containing all native binary architectures. |
-| **`Veritas_Reader_v2.2.0_armeabi-v7a.apk`** | **~45 MB** | **32-bit ARM** | Lightweight package for legacy 32-bit Android phones and tablets. |
+| **`Veritas_Reader_v2.3.0_arm64.apk`** | **~54 MB** | **64-bit ARM** *(Recommended)* | Optimized build for ~99% of modern Android devices (Snapdragon, MediaTek, Tensor, Exynos). |
+| **`Veritas_Reader_v2.3.0_universal.apk`** | **~75 MB** | **All Devices** | Universal package containing all native binary architectures. |
+| **`Veritas_Reader_v2.3.0_armeabi-v7a.apk`** | **~45 MB** | **32-bit ARM** | Lightweight package for legacy 32-bit Android phones and tablets. |
 
 ---
 

@@ -202,12 +202,6 @@ fun SettingsHubDialog(
                         settingsFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT),
                         "Record sound file", "Render current reading into audio file",
                         Icons.Outlined.GraphicEq, onStartRecord
-                    ),
-                    SettingsRowSpec(
-                        "Background playback",
-                        if (isBatteryOptimizationIgnored(LocalContext.current)) "Battery optimization unrestricted (Optimal)" else "Tap to allow uninterrupted background playback",
-                        Icons.Outlined.PowerSettingsNew,
-                        { requestIgnoreBatteryOptimizations(context) }
                     )
                 ))
 
@@ -220,6 +214,12 @@ fun SettingsHubDialog(
                     SettingsRowSpec(
                         "Accessibility", "Reading goal, reduce motion & contrast",
                         Icons.Outlined.Accessibility, onOpenAccessibility
+                    ),
+                    SettingsRowSpec(
+                        "Background playback",
+                        if (isBatteryOptimizationIgnored(LocalContext.current)) "Battery optimization unrestricted (Optimal)" else "Open phone battery optimization settings",
+                        Icons.Outlined.PowerSettingsNew,
+                        { requestIgnoreBatteryOptimizations(context) }
                     )
                 ))
 
@@ -2857,12 +2857,12 @@ private fun isBatteryOptimizationIgnored(context: Context): Boolean {
 
 private fun requestIgnoreBatteryOptimizations(context: Context) {
     runCatching {
+        val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        context.startActivity(intent)
+    }.recoverCatching {
         val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
             data = Uri.parse("package:${context.packageName}")
         }
-        context.startActivity(intent)
-    }.recoverCatching {
-        val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
         context.startActivity(intent)
     }.recoverCatching {
         val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {

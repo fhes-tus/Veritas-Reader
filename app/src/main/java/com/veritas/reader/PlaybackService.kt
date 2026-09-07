@@ -40,9 +40,17 @@ import android.os.Vibrator
 import java.io.File
 import java.util.UUID
 import kotlin.math.min
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
+
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
 
     private val TAG_TTS = "VeritasSystemTts"
     private lateinit var repository: DocumentRepository
@@ -138,20 +146,30 @@ class PlaybackService : MediaSessionService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        val action = intent?.action
-        if (action == PlaybackActions.ACTION_PLAY || action == PlaybackActions.ACTION_SPEAK_SELECTION) {
-            startForegroundNow()
+        // Satisfy the Android foreground service requirement immediately (Android 12, 14, 15, 16)
+        startForegroundNow()
+
+        if (intent == null) {
+            // Process was killed and restarted by system via START_STICKY.
+            // If nothing is playing or queued, tear down cleanly after meeting system foreground requirement.
+            if (!PlaybackStateStore.isPlaying && activeDocument == null && PlaybackStateStore.activeDocumentId == null) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
         }
+
+        val action = intent?.action
         when (action) {
-            PlaybackActions.ACTION_PLAY -> handlePlay(intent.extras)
+            PlaybackActions.ACTION_PLAY -> handlePlay(intent?.extras)
             PlaybackActions.ACTION_PAUSE -> pauseSpeech()
             PlaybackActions.ACTION_STOP -> stopSpeechAndService()
             PlaybackActions.ACTION_NEXT -> moveBy(1)
             PlaybackActions.ACTION_PREVIOUS -> moveBy(-1)
-            PlaybackActions.ACTION_JUMP_TO -> handleJump(intent.extras)
-            PlaybackActions.ACTION_SPEAK_SELECTION -> handleSpeakSelection(intent.extras)
-            PlaybackActions.ACTION_UPDATE_PLAYBACK_SETTINGS -> handlePlaybackSettingsUpdate(intent.extras)
-            PlaybackActions.ACTION_SET_SLEEP_TIMER -> handleSetSleepTimer(intent.extras)
+            PlaybackActions.ACTION_JUMP_TO -> handleJump(intent?.extras)
+            PlaybackActions.ACTION_SPEAK_SELECTION -> handleSpeakSelection(intent?.extras)
+            PlaybackActions.ACTION_UPDATE_PLAYBACK_SETTINGS -> handlePlaybackSettingsUpdate(intent?.extras)
+            PlaybackActions.ACTION_SET_SLEEP_TIMER -> handleSetSleepTimer(intent?.extras)
             PlaybackActions.ACTION_CANCEL_SLEEP_TIMER -> cancelSleepTimer("Sleep timer cancelled.")
             // ACTION_MEDIA_BUTTON is intentionally NOT handled here. MediaSessionService's
             // super.onStartCommand() already routes hardware/Bluetooth media keys through the
@@ -241,6 +259,12 @@ class PlaybackService : MediaSessionService() {
             ?.coerceIn(0.5f, 2.0f) ?: PlaybackStateStore.rate
         PlaybackStateStore.pitch = extras?.getFloat(PlaybackActions.EXTRA_PITCH, PlaybackStateStore.pitch)
             ?.coerceIn(0.7f, 1.4f) ?: PlaybackStateStore.pitch
+        activeDocument?.let { repository.saveDocVoiceMemory(it.id, PlaybackStateStore.rate, PlaybackStateStore.pitch) }
+        lastSavedRate = PlaybackStateStore.rate
+        lastSavedPitch = PlaybackStateStore.pitch
+        if (VoiceManager.isVeritasEngine(activeEnginePackage)) {
+            veritasAudioBuffer?.flush()
+        }
         if (PlaybackStateStore.isPlaying) {
             speakCurrent()
         } else {
@@ -865,10 +889,10 @@ class PlaybackService : MediaSessionService() {
         refreshForegroundNotification()
         if (VoiceManager.isVeritasEngine(activeEnginePackage)) {
             val veritasBuffer = veritasBufferFor(repository.loadVoiceSettings())
-            veritasBuffer.prebufferAhead(chunks.size, index, 4) { chunkIndex ->
+            veritasBuffer.prebufferAhead(chunks.size, index, 4, effectiveRate, effectivePitch) { chunkIndex ->
                 SpeechSanitizer.forSpeech(repository.applyPronunciationRules(chunks[chunkIndex]))
             }
-            veritasBuffer.playSentencePcm(index, speakText) { success ->
+            veritasBuffer.playSentencePcm(index, speakText, effectiveRate, effectivePitch) { success ->
                 if (success) {
                     advanceAfterSection()
                 } else {
@@ -901,13 +925,16 @@ class PlaybackService : MediaSessionService() {
     private fun speakSelectionText(rawText: String) {
         val text = repository.applyPronunciationRules(rawText.trim())
         if (text.isBlank()) return
+        val narrationSettings = repository.loadNarrationSettings()
+        val effectiveRate = NarrationAnalyzer.effectiveRate(PlaybackStateStore.rate, narrationSettings, text)
+        val effectivePitch = NarrationAnalyzer.effectivePitch(PlaybackStateStore.pitch, narrationSettings, text)
         if (VoiceManager.isVeritasEngine(activeEnginePackage)) {
             val speakText = SpeechSanitizer.forSpeech(text)
             if (speakText.isBlank()) return
             PlaybackStateStore.statusMessage = "Reading selected text."
             updateMediaSessionState()
             refreshForegroundNotification()
-            veritasBufferFor(repository.loadVoiceSettings()).playSentencePcm(-1, speakText) { success ->
+            veritasBufferFor(repository.loadVoiceSettings()).playSentencePcm(-1, speakText, effectiveRate, effectivePitch) { success ->
                 if (success) {
                     PlaybackStateStore.statusMessage = "Finished selected text."
                 } else {
@@ -918,9 +945,6 @@ class PlaybackService : MediaSessionService() {
             }
             return
         }
-        val narrationSettings = repository.loadNarrationSettings()
-        val effectiveRate = NarrationAnalyzer.effectiveRate(PlaybackStateStore.rate, narrationSettings, text)
-        val effectivePitch = NarrationAnalyzer.effectivePitch(PlaybackStateStore.pitch, narrationSettings, text)
         tts?.let { VoiceConfigurator.apply(it, repository.loadVoiceSettings()) }
         tts?.setSpeechRate(effectiveRate)
         tts?.setPitch(effectivePitch)
@@ -1624,20 +1648,52 @@ class PlaybackService : MediaSessionService() {
         return PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     }
 
+    private var defaultAppArtwork: Bitmap? = null
+    private var isCoverLoading = false
+
+    private fun getDefaultArtwork(): Bitmap {
+        return defaultAppArtwork ?: run {
+            val resBmp = BitmapFactory.decodeResource(resources, R.drawable.veritas_reader_icon)
+                ?: createBitmap(512, 512).also {
+                    Canvas(it).drawColor(Color.rgb(18, 23, 27))
+                }
+            val squared = squareFitBitmap(resBmp)
+            defaultAppArtwork = squared
+            squared
+        }
+    }
+
     private fun currentNotificationArtwork(): Bitmap {
         val documentId = activeDocument?.id ?: PlaybackStateStore.activeDocumentId
+        if (documentId == null) return getDefaultArtwork()
         notificationArtwork?.takeIf { artworkDocumentId == documentId }?.let { return it }
 
-        val document = activeDocument ?: documentId?.let { repository.findDocument(it) }
-        val source = document?.let { loadNotificationCover(it) }
-            ?: BitmapFactory.decodeResource(resources, R.drawable.veritas_reader_icon)
-            ?: createBitmap(512, 512).also {
-                Canvas(it).drawColor(Color.rgb(18, 23, 27))
+        // Fast fallback: return existing artwork or default immediately without blocking the main thread
+        val fallback = notificationArtwork ?: getDefaultArtwork()
+
+        if (!isCoverLoading) {
+            val document = activeDocument ?: repository.findDocument(documentId)
+            if (document != null) {
+                isCoverLoading = true
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        val source = loadNotificationCover(document)
+                        val artwork = if (source != null) squareFitBitmap(source) else getDefaultArtwork()
+                        withContext(Dispatchers.Main) {
+                            artworkDocumentId = documentId
+                            notificationArtwork = artwork
+                            isCoverLoading = false
+                            refreshForegroundNotification()
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            isCoverLoading = false
+                        }
+                    }
+                }
             }
-        val artwork = squareFitBitmap(source)
-        artworkDocumentId = documentId
-        notificationArtwork = artwork
-        return artwork
+        }
+        return fallback
     }
 
     private fun loadNotificationCover(document: SavedDocument): Bitmap? {
@@ -1709,6 +1765,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        serviceJob.cancel()
         pendingSpeak = false
         pendingSelectionText = null
         cancelSleepTimerCallback()

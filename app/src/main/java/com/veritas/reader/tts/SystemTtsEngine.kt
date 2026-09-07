@@ -55,8 +55,10 @@ class SystemTtsEngine(
 
     override fun isReady(): Boolean = isInitialized
 
-    override suspend fun synthesize(sentence: String): ShortArray? = withContext(Dispatchers.IO) {
+    override suspend fun synthesize(sentence: String, rate: Float, pitch: Float): ShortArray? = withContext(Dispatchers.IO) {
         if (!initDeferred.await()) return@withContext null
+        tts?.setSpeechRate(rate)
+        tts?.setPitch(pitch)
 
         val tempWav = File(context.cacheDir, "sys_tts_${System.currentTimeMillis()}.wav")
         val synthDeferred = CompletableDeferred<Boolean>()

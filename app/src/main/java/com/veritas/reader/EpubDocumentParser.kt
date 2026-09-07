@@ -8,7 +8,8 @@ import java.util.zip.ZipInputStream
 data class EpubChapter(
     val number: Int,
     val title: String,
-    val paragraphs: List<String>
+    val paragraphs: List<String>,
+    val images: List<ByteArray> = emptyList()
 )
 
 data class EpubBook(
@@ -21,17 +22,22 @@ object EpubDocumentParser {
 
     fun parse(bytes: ByteArray, defaultTitle: String): EpubBook {
         val entries = linkedMapOf<String, String>()
+        val imageEntries = linkedMapOf<String, ByteArray>()
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 if (!entry.isDirectory) {
                     val normalizedName = entry.name.trimStart('/')
                     val lower = normalizedName.lowercase(Locale.getDefault())
-                    val shouldRead = lower == "meta-inf/container.xml" ||
+                    val shouldReadText = lower == "meta-inf/container.xml" ||
                             lower.endsWith(".opf") || lower.endsWith(".xhtml") ||
                             lower.endsWith(".html") || lower.endsWith(".htm")
-                    if (shouldRead) {
+                    val isImage = lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
+                            lower.endsWith(".png") || lower.endsWith(".webp") || lower.endsWith(".gif")
+                    if (shouldReadText) {
                         entries[normalizedName] = zip.readBytes().toString(Charsets.UTF_8)
+                    } else if (isImage) {
+                        imageEntries[normalizedName] = zip.readBytes()
                     }
                 }
             }
@@ -60,13 +66,15 @@ object EpubDocumentParser {
 
         for (path in orderedContentPaths) {
             val rawHtml = entries[path] ?: entries.entries.firstOrNull { it.key.equals(path, ignoreCase = true) }?.value ?: continue
-            val (chapterTitle, paragraphs) = extractChapterContent(rawHtml, chapterIndex)
-            if (paragraphs.isNotEmpty()) {
+            val baseDir = path.substringBeforeLast('/', missingDelimiterValue = "")
+            val (chapterTitle, paragraphs, chapterImages) = extractChapterContent(rawHtml, chapterIndex, baseDir, imageEntries)
+            if (paragraphs.isNotEmpty() || chapterImages.isNotEmpty()) {
                 chapters.add(
                     EpubChapter(
                         number = chapterIndex,
                         title = chapterTitle,
-                        paragraphs = paragraphs
+                        paragraphs = if (paragraphs.isNotEmpty()) paragraphs else listOf("Visual section"),
+                        images = chapterImages
                     )
                 )
                 chapterIndex++
@@ -143,7 +151,12 @@ object EpubDocumentParser {
         return lower.endsWith(".xhtml") || lower.endsWith(".html") || lower.endsWith(".htm")
     }
 
-    private fun extractChapterContent(html: String, defaultNum: Int): Pair<String, List<String>> {
+    private fun extractChapterContent(
+        html: String,
+        defaultNum: Int,
+        baseDir: String = "",
+        imageEntries: Map<String, ByteArray> = emptyMap()
+    ): Triple<String, List<String>, List<ByteArray>> {
         var chapterTitle = "Chapter $defaultNum"
 
         val titleMatch = Regex("""<title[^>]*>(.*?)</title>""", RegexOption.IGNORE_CASE).find(html)
@@ -161,7 +174,20 @@ object EpubDocumentParser {
             .map { it.trim().replace(Regex("""\s+"""), " ") }
             .filter { it.isNotBlank() && it != chapterTitle }
 
-        return chapterTitle to paragraphs
+        val images = mutableListOf<ByteArray>()
+        if (imageEntries.isNotEmpty()) {
+            val imgRegex = Regex("""<img\b[^>]*src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            imgRegex.findAll(html).forEach { match ->
+                val src = match.groupValues[1]
+                val resolved = resolveZipPath(baseDir, src)
+                val imgBytes = imageEntries[resolved] ?: imageEntries.entries.firstOrNull { it.key.endsWith(src.substringAfterLast('/'), ignoreCase = true) }?.value
+                if (imgBytes != null && imgBytes.isNotEmpty()) {
+                    images.add(imgBytes)
+                }
+            }
+        }
+
+        return Triple(chapterTitle, paragraphs, images)
     }
 
     private fun cleanHtmlText(raw: String): String {

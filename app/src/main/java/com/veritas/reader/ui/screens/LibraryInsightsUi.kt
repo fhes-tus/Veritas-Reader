@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Timer
@@ -243,15 +245,16 @@ internal fun HomeSidebarDialog(
                             ) {
                                 BrandMark(compact = false)
                                 Column {
+                                    val displayName = if (name.isNotBlank() && name != "Reader") name else "Veritas Reader"
+                                    val subtitle = if (name.isNotBlank() && name != "Reader") "Veritas Reader" else "Personal Library"
                                     Text(
-                                        "Veritas Reader",
+                                        displayName,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Black,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    val welcomeLabel = if (name.isNotBlank() && name != "Reader") name else "Personal Library"
                                     Text(
-                                        welcomeLabel,
+                                        subtitle,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -273,12 +276,12 @@ internal fun HomeSidebarDialog(
 
                         // 2. Dynamic Reader Tier Status Badge
                         val streak = snapshot.currentStreak
-                        val tierTitle = when {
-                            streak >= 30 -> "🏆 Master Reader"
-                            streak >= 14 -> "⚡ Habit Champion"
-                            streak >= 7 -> "🔥 7-Day Flame"
-                            streak >= 3 -> "✨ Consistency Pro"
-                            else -> "🌱 Daily Habit"
+                        val (tierTitle, tierIcon) = when {
+                            streak >= 30 -> Pair("Master Reader", Icons.Filled.EmojiEvents)
+                            streak >= 14 -> Pair("Habit Champion", Icons.Filled.Bolt)
+                            streak >= 7 -> Pair("7-Day Flame", Icons.Filled.LocalFireDepartment)
+                            streak >= 3 -> Pair("Consistency Pro", Icons.Filled.AutoAwesome)
+                            else -> Pair("Daily Habit", Icons.Filled.Spa)
                         }
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -298,7 +301,7 @@ internal fun HomeSidebarDialog(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.AutoAwesome,
+                                        imageVector = tierIcon,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(18.dp)
@@ -363,13 +366,6 @@ internal fun HomeSidebarDialog(
                             subtitle = "Recent sessions and timestamps",
                             icon = Icons.Outlined.History,
                             onClick = onOpenReadingHistory
-                        )
-
-                        SidebarAction(
-                            title = "Settings Hub",
-                            subtitle = "Display themes, voice studio, AI & accessibility",
-                            icon = Icons.Filled.Settings,
-                            onClick = onOpenSettings
                         )
 
                         Spacer(modifier = Modifier.weight(1f))
@@ -640,6 +636,8 @@ internal fun ReadingStatsDashboardDialog(
         }
     }
 
+    var isCompletionsExpanded by rememberSaveable { mutableStateOf(true) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
@@ -819,7 +817,7 @@ internal fun ReadingStatsDashboardDialog(
 
                 // Heatmap and Distribution Donut Charts
                 item {
-                    CalendarHeatMap(snapshot.activeDateKeys)
+                    CalendarHeatMap(snapshot.activeDateKeys, snapshot.openedDateKeys)
                 }
 
                 item {
@@ -860,70 +858,112 @@ internal fun ReadingStatsDashboardDialog(
                 }
 
                 item {
-                    Text(
-                        "Recent completions",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                if (snapshot.recentCompletions.isEmpty()) {
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = VeritasPackStyle.cardShape(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { isCompletionsExpanded = !isCompletionsExpanded }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                "Finish a book or document and it will be celebrated here.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(16.dp)
+                                "Recent completions",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (snapshot.recentCompletions.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.padding(start = 2.dp)
+                                ) {
+                                    Text(
+                                        "${snapshot.recentCompletions.size}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(
+                            onClick = { isCompletionsExpanded = !isCompletionsExpanded },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isCompletionsExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                contentDescription = if (isCompletionsExpanded) "Collapse" else "Expand",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                } else {
-                    items(snapshot.recentCompletions, key = { it.documentId }) { completion ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = VeritasPackStyle.cardShape(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                }
+
+                if (isCompletionsExpanded) {
+                    if (snapshot.recentCompletions.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = VeritasPackStyle.cardShape(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                                border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
                             ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.size(36.dp)
+                                Text(
+                                    "Finish a book or document and it will be celebrated here.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        items(snapshot.recentCompletions, key = { it.documentId }) { completion ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = VeritasPackStyle.cardShape(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                                border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Check,
-                                            contentDescription = "Completed",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Check,
+                                                contentDescription = "Completed",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            completion.title,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            "Completed ${formatUpdated(completion.completedAt)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        completion.title,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        "Completed ${formatUpdated(completion.completedAt)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
                             }
                         }
@@ -976,7 +1016,10 @@ internal fun ReadingStatsDashboardDialog(
 }
 
 @Composable
-internal fun CalendarHeatMap(activeDateKeys: Set<String>) {
+internal fun CalendarHeatMap(
+    activeDateKeys: Set<String>,
+    openedDateKeys: Set<String> = emptySet()
+) {
     val context = LocalContext.current
     val currentCal = remember { Calendar.getInstance() }
     val currentYear = currentCal.get(Calendar.YEAR)
@@ -1209,18 +1252,21 @@ internal fun CalendarHeatMap(activeDateKeys: Set<String>) {
                                     Spacer(modifier = Modifier.weight(1f))
                                 } else {
                                     val isActive = activeDateKeys.contains(day.dateKey)
+                                    val isOpened = openedDateKeys.contains(day.dateKey)
                                     val isToday = day.dateKey == todayKey
                                     val isFuture = day.dateKey > todayKey
                                     val isSelected = selectedDayData?.dateKey == day.dateKey
 
                                     val cellBg = when {
                                         isActive -> MaterialTheme.colorScheme.primary
+                                        isOpened -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
                                         isFuture -> Color.Transparent
                                         else -> MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f)
                                     }
 
                                     val textColor = when {
                                         isActive -> MaterialTheme.colorScheme.onPrimary
+                                        isOpened -> MaterialTheme.colorScheme.primary
                                         isFuture -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                                         isToday -> MaterialTheme.colorScheme.primary
                                         else -> MaterialTheme.colorScheme.onSurface
@@ -1229,6 +1275,7 @@ internal fun CalendarHeatMap(activeDateKeys: Set<String>) {
                                     val borderStroke = when {
                                         isSelected -> BorderStroke(2.dp, MaterialTheme.colorScheme.tertiary)
                                         isToday -> BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                                        isOpened && !isActive -> BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
                                         isFuture -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
                                         !isActive -> BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.10f))
                                         else -> null
@@ -1249,7 +1296,11 @@ internal fun CalendarHeatMap(activeDateKeys: Set<String>) {
                                                 if (!isFuture) {
                                                     selectedDayData = day
                                                     val formattedDate = SimpleDateFormat("MMMM dd, yyyy", Locale.US).format(Date(day.timeMillis))
-                                                    val msg = if (isActive) "Logged reading on $formattedDate! 📖" else "No activity logged on $formattedDate."
+                                                    val msg = when {
+                                                        isActive -> "Logged reading on $formattedDate! 📖"
+                                                        isOpened -> "Veritas Reader opened on $formattedDate ⚡"
+                                                        else -> "No activity logged on $formattedDate."
+                                                    }
                                                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                                 }
                                             },
@@ -1275,6 +1326,7 @@ internal fun CalendarHeatMap(activeDateKeys: Set<String>) {
                 val inspectedDay = selectedDayData ?: validDays.firstOrNull { it.dateKey == todayKey }
                 if (inspectedDay != null && inspectedDay.dateKey.isNotBlank()) {
                     val isInspectedActive = activeDateKeys.contains(inspectedDay.dateKey)
+                    val isInspectedOpened = openedDateKeys.contains(inspectedDay.dateKey)
                     val dateFormatted = remember(inspectedDay) {
                         SimpleDateFormat("EEEE, MMMM dd, yyyy", Locale.US).format(Date(inspectedDay.timeMillis))
                     }
@@ -1297,7 +1349,7 @@ internal fun CalendarHeatMap(activeDateKeys: Set<String>) {
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                if (isInspectedActive) "🔥" else "📅",
+                                if (isInspectedActive) "🔥" else if (isInspectedOpened) "⚡" else "📅",
                                 style = MaterialTheme.typography.titleSmall
                             )
                             Column {
@@ -1308,7 +1360,11 @@ internal fun CalendarHeatMap(activeDateKeys: Set<String>) {
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (isInspectedActive) "Active reading session logged" else "No reading activity recorded",
+                                    text = when {
+                                        isInspectedActive -> "Active reading session logged"
+                                        isInspectedOpened -> "Veritas Reader opened"
+                                        else -> "No reading activity recorded"
+                                    },
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1403,9 +1459,11 @@ internal fun CalendarHeatMap(activeDateKeys: Set<String>) {
                                                         Spacer(modifier = Modifier.weight(1f))
                                                     } else {
                                                         val isActive = activeDateKeys.contains(day.dateKey)
+                                                        val isOpened = openedDateKeys.contains(day.dateKey)
                                                         val isFuture = day.dateKey > todayKey
                                                         val miniBg = when {
                                                             isActive -> MaterialTheme.colorScheme.primary
+                                                            isOpened -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
                                                             isFuture -> Color.Transparent
                                                             else -> MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.4f)
                                                         }

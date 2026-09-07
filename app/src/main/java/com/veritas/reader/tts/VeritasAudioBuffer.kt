@@ -50,9 +50,11 @@ class VeritasAudioBuffer(
     // observed walking the same window, all queued on synthesisMutex ahead of the
     // sentence the user was actually waiting to hear.
     private var prebufferJob: Job? = null
+    private var lastBufferRate: Float = 1.0f
+    private var lastBufferPitch: Float = 1.0f
 
-    fun prebufferAhead(chunks: List<String>, currentIndex: Int, windowSize: Int = 4) {
-        prebufferAhead(chunks.size, currentIndex, windowSize) { index ->
+    fun prebufferAhead(chunks: List<String>, currentIndex: Int, windowSize: Int = 4, rate: Float = 1.0f, pitch: Float = 1.0f) {
+        prebufferAhead(chunks.size, currentIndex, windowSize, rate, pitch) { index ->
             chunks.getOrNull(index).orEmpty()
         }
     }
@@ -61,8 +63,15 @@ class VeritasAudioBuffer(
         chunkCount: Int,
         currentIndex: Int,
         windowSize: Int = 4,
+        rate: Float = 1.0f,
+        pitch: Float = 1.0f,
         textAt: (Int) -> String
     ) {
+        if (rate != lastBufferRate || pitch != lastBufferPitch) {
+            lastBufferRate = rate
+            lastBufferPitch = pitch
+            pcmCache.clear()
+        }
         prebufferJob?.cancel()
         prebufferJob = scope.launch {
             val (startIndex, targetEnd) = prebufferWindow(chunkCount, currentIndex, windowSize)
@@ -73,9 +82,9 @@ class VeritasAudioBuffer(
                 if (!pcmCache.containsKey(i)) {
                     val rawText = textAt(i).trim()
                     if (rawText.isNotBlank()) {
-                        val pcm = synthesizeAndCache(i, rawText)
+                        val pcm = synthesizeAndCache(i, rawText, rate, pitch)
                         if (pcm != null && pcm.isNotEmpty()) {
-                            Log.d(TAG, "Pre-buffered sentence $i (${pcm.size} samples)")
+                            Log.d(TAG, "Pre-buffered sentence $i (${pcm.size} samples, rate=$rate, pitch=$pitch)")
                         }
                     }
                 }
@@ -83,9 +92,20 @@ class VeritasAudioBuffer(
         }
     }
 
-    fun playSentencePcm(index: Int, text: String, onComplete: (success: Boolean) -> Unit) {
+    fun playSentencePcm(
+        index: Int,
+        text: String,
+        rate: Float = 1.0f,
+        pitch: Float = 1.0f,
+        onComplete: (success: Boolean) -> Unit
+    ) {
         scope.launch(Dispatchers.IO) {
             isPlaying = true
+            if (rate != lastBufferRate || pitch != lastBufferPitch) {
+                lastBufferRate = rate
+                lastBufferPitch = pitch
+                pcmCache.clear()
+            }
             var pcm = pcmCache[index]
             if (pcm == null) {
                 // kotlinx Mutex is FIFO-fair, so the sentence being waited on would
@@ -95,7 +115,7 @@ class VeritasAudioBuffer(
                 prebufferJob?.cancelAndJoin()
                 val rawText = text.trim()
                 if (rawText.isNotBlank()) {
-                    pcm = synthesizeAndCache(index, rawText)
+                    pcm = synthesizeAndCache(index, rawText, rate, pitch)
                 }
             }
 
@@ -114,6 +134,14 @@ class VeritasAudioBuffer(
             }
 
             val played = try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    runCatching {
+                        val params = android.media.PlaybackParams().apply {
+                            setPitch(pitch.coerceIn(0.5f, 2.0f))
+                        }
+                        track.playbackParams = params
+                    }
+                }
                 if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
                     track.play()
                 }
@@ -150,11 +178,11 @@ class VeritasAudioBuffer(
         }
     }
 
-    private suspend fun synthesizeAndCache(index: Int, text: String): ShortArray? = synthesisMutex.withLock {
+    private suspend fun synthesizeAndCache(index: Int, text: String, rate: Float = 1.0f, pitch: Float = 1.0f): ShortArray? = synthesisMutex.withLock {
         pcmCache[index]?.let { return@withLock it }
         if (!beginSynthesis()) return@withLock null
         val pcm = try {
-            engine.synthesize(text)?.takeIf { it.isNotEmpty() }
+            engine.synthesize(text, rate, pitch)?.takeIf { it.isNotEmpty() }
         } finally {
             endSynthesis()
         }

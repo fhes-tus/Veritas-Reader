@@ -9,9 +9,21 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageDestination
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDNamedDestination
+import com.tom_roush.pdfbox.pdmodel.interactive.action.PDActionGoTo
+import com.tom_roush.pdfbox.pdmodel.interactive.action.PDActionURI
+import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import android.os.Bundle
@@ -87,6 +99,10 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private var panelSpeedLabel: TextView? = null
     private var panelPitchLabel: TextView? = null
     private var keepAwakeTimerJob: Job? = null
+    private var pdfTocItems: List<PdfTocItem> = emptyList()
+    private var pdfLinksByPage: Map<Int, List<PdfLinkItem>> = emptyMap()
+    private var allDocumentLinks: List<PdfLinkItem> = emptyList()
+    private var isExtractingToc = false
 
     private var isLightTheme = false
     private var colorPrimary = 0
@@ -146,6 +162,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         document = metadata
         buildLayout(metadata.title.ifBlank { getString(R.string.app_name) })
         loadHighlightTextAsync(metadata)
+        loadPdfMetadataAndLinks(uri)
         runCatching {
             var fragment = supportFragmentManager.findFragmentByTag(VIEWER_TAG) as? PdfViewerFragment
             if (fragment == null) {
@@ -257,6 +274,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         }
         toolbar.addView(pill)
 
+        toolbar.addView(iconButton(R.drawable.ic_m3_toc) { showTableOfContentsDialog() })
         toolbar.addView(iconButton(R.drawable.ic_m3_search) { toggleSearch() })
         toolbar.addView(iconButton(R.drawable.ic_m3_rotate_right) { rotateViewer() })
         toolbar.addView(iconButton(R.drawable.ic_m3_more_vert) { showTopMenu(toolbar) })
@@ -1090,8 +1108,14 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         ))
 
         // Navigation
+        items.add(OverflowMenuItem(title = "Navigation", isHeader = true))
+        items.add(OverflowMenuItem(
+            title = "Table of Contents",
+            subtitle = if (pdfTocItems.isNotEmpty()) "${pdfTocItems.size} chapters & sections" else "Chapters, sections & links",
+            iconRes = R.drawable.ic_m3_toc,
+            action = ::showTableOfContentsDialog
+        ))
         if (pageCount > 1) {
-            items.add(OverflowMenuItem(title = "Navigation", isHeader = true))
             items.add(OverflowMenuItem(
                 title = "Jump to Page...",
                 subtitle = "Go to 1–$pageCount",
@@ -1652,9 +1676,11 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 val dx = event.x - tapDownX
                 val dy = event.y - tapDownY
                 val moved = tapMoved || (dx * dx + dy * dy) > (slop * slop)
-                // A clean tap anywhere on the document toggles the chrome.
+                // A clean tap anywhere on the document checks links or toggles chrome.
                 if (!moved && quickTap) {
-                    toggleChromeFromDocumentTap()
+                    if (!handleLinkTap(view, event.x, event.y)) {
+                        toggleChromeFromDocumentTap()
+                    }
                 }
             }
             MotionEvent.ACTION_CANCEL -> tapMoved = false
@@ -2087,6 +2113,508 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     private val Int.dp: Int
         get() = (this * resources.displayMetrics.density).toInt()
 
+
+    private fun loadPdfMetadataAndLinks(uri: Uri) {
+        if (isExtractingToc) return
+        isExtractingToc = true
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                PDFBoxResourceLoader.init(applicationContext)
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    PDDocument.load(stream).use { pdDoc ->
+                        val toc = extractTocFromPdf(pdDoc)
+                        val links = extractLinksFromPdf(pdDoc)
+                        val allLinks = links.values.flatten()
+                        withContext(Dispatchers.Main) {
+                            pdfTocItems = toc
+                            pdfLinksByPage = links
+                            allDocumentLinks = allLinks
+                        }
+                    }
+                }
+            }
+            isExtractingToc = false
+        }
+    }
+
+    private fun extractTocFromPdf(pdDocument: PDDocument): List<PdfTocItem> {
+        val outline = pdDocument.documentCatalog.documentOutline ?: return emptyList()
+        val result = mutableListOf<PdfTocItem>()
+
+        fun walkOutline(node: PDOutlineNode, level: Int) {
+            var current: PDOutlineItem? = node.firstChild
+            while (current != null) {
+                val title = current.title.orEmpty().trim()
+                val targetPage = resolveDestinationPage(current, pdDocument)
+                if (title.isNotBlank() && targetPage != null && targetPage >= 0) {
+                    result.add(
+                        PdfTocItem(
+                            title = title,
+                            pageNumber = targetPage + 1,
+                            pageIndex = targetPage,
+                            level = level
+                        )
+                    )
+                }
+                if (current.hasChildren()) {
+                    walkOutline(current, level + 1)
+                }
+                current = current.nextSibling
+            }
+        }
+
+        walkOutline(outline, 0)
+        return result
+    }
+
+    private fun resolveDestinationPage(item: PDOutlineItem, pdDoc: PDDocument): Int? {
+        return runCatching {
+            var dest = item.destination
+            if (dest == null && item.action is PDActionGoTo) {
+                dest = (item.action as PDActionGoTo).destination
+            }
+            if (dest is PDPageDestination) {
+                val p = dest.page
+                if (p != null) {
+                    val idx = pdDoc.pages.indexOf(p)
+                    if (idx >= 0) return idx
+                }
+                val pageNumber = dest.pageNumber
+                if (pageNumber >= 0) return pageNumber
+            } else if (dest is PDNamedDestination) {
+                val pageDest = pdDoc.documentCatalog.findNamedDestinationPage(dest)
+                if (pageDest is PDPageDestination) {
+                    val p = pageDest.page
+                    if (p != null) {
+                        val idx = pdDoc.pages.indexOf(p)
+                        if (idx >= 0) return idx
+                    }
+                }
+            }
+            null
+        }.getOrNull()
+    }
+
+    private fun extractLinksFromPdf(pdDocument: PDDocument): Map<Int, List<PdfLinkItem>> {
+        val linksMap = mutableMapOf<Int, MutableList<PdfLinkItem>>()
+        try {
+            pdDocument.pages.forEachIndexed { pageIdx, page ->
+                val pageLinks = mutableListOf<PdfLinkItem>()
+                val mediaBox = page.mediaBox ?: page.cropBox
+                val pageHeight = mediaBox?.height ?: 0f
+                val pageWidth = mediaBox?.width ?: 0f
+
+                for (ann in page.annotations) {
+                    if (ann is PDAnnotationLink) {
+                        val rect = ann.rectangle ?: continue
+                        val action = ann.action
+                        var dest = ann.destination
+                        if (dest == null && action is PDActionGoTo) {
+                            dest = action.destination
+                        }
+                        var uriString: String? = null
+                        var targetPage: Int? = null
+                        if (action is PDActionURI) {
+                            uriString = action.uri
+                        } else if (dest is PDPageDestination) {
+                            val p = dest.page
+                            if (p != null) {
+                                val idx = pdDocument.pages.indexOf(p)
+                                if (idx >= 0) targetPage = idx
+                            } else if (dest.pageNumber >= 0) {
+                                targetPage = dest.pageNumber
+                            }
+                        } else if (dest is PDNamedDestination) {
+                            val named = pdDocument.documentCatalog.findNamedDestinationPage(dest)
+                            if (named is PDPageDestination) {
+                                val p = named.page
+                                if (p != null) {
+                                    val idx = pdDocument.pages.indexOf(p)
+                                    if (idx >= 0) targetPage = idx
+                                }
+                            }
+                        }
+
+                        if (!uriString.isNullOrBlank() || targetPage != null) {
+                            val left = rect.lowerLeftX / (if (pageWidth > 0f) pageWidth else 1f)
+                            val top = (pageHeight - rect.upperRightY) / (if (pageHeight > 0f) pageHeight else 1f)
+                            val right = rect.upperRightX / (if (pageWidth > 0f) pageWidth else 1f)
+                            val bottom = (pageHeight - rect.lowerLeftY) / (if (pageHeight > 0f) pageHeight else 1f)
+                            val label = when {
+                                !uriString.isNullOrBlank() -> uriString
+                                targetPage != null -> "Jump to Page ${targetPage + 1}"
+                                else -> "Link"
+                            }
+                            pageLinks.add(
+                                PdfLinkItem(
+                                    pageNumber = pageIdx + 1,
+                                    bounds = RectF(left, top, right, bottom),
+                                    label = label,
+                                    url = uriString,
+                                    targetPageIndex = targetPage
+                                )
+                            )
+                        }
+                    }
+                }
+                if (pageLinks.isNotEmpty()) {
+                    linksMap[pageIdx] = pageLinks
+                }
+            }
+        } catch (_: Throwable) {}
+        return linksMap
+    }
+
+    private fun buildFallbackToc(pageCount: Int): List<PdfTocItem> {
+        val model = readerTextModel
+        if (model != null && model.parts.size > 1) {
+            return model.parts.mapIndexed { idx, part ->
+                val firstSentence = model.sentences.getOrNull(part.sentenceStartIndex)
+                val pageNum = part.pageRange.startPage.takeIf { it > 0 } ?: (firstSentence?.pageNumber ?: ((idx * pageCount) / model.parts.size + 1))
+                val titleSnippet = firstSentence?.text?.take(40)?.replace("\n", " ")?.trim()
+                val partTitle = if (!titleSnippet.isNullOrBlank()) "Part ${idx + 1}: $titleSnippet..." else "Part ${idx + 1}"
+                PdfTocItem(
+                    title = partTitle,
+                    pageNumber = pageNum,
+                    pageIndex = (pageNum - 1).coerceIn(0, pageCount - 1),
+                    level = 0
+                )
+            }
+        }
+        if (pageCount > 1) {
+            val step = maxOf(1, pageCount / 5)
+            val list = mutableListOf<PdfTocItem>()
+            for (p in 1..pageCount step step) {
+                val name = when (p) {
+                    1 -> "Document Start (Page 1)"
+                    else -> "Page $p"
+                }
+                list.add(PdfTocItem(name, p, p - 1, 0))
+            }
+            if (list.none { it.pageNumber == pageCount }) {
+                list.add(PdfTocItem("Document End (Page $pageCount)", pageCount, pageCount - 1, 0))
+            }
+            return list
+        }
+        return listOf(PdfTocItem("Page 1", 1, 0, 0))
+    }
+
+    private fun handleLinkTap(view: View, tapX: Float, tapY: Float): Boolean {
+        val visiblePage = runCatching { pdfView?.firstVisiblePage }.getOrNull() ?: return false
+        val pageLinks = pdfLinksByPage[visiblePage] ?: return false
+        if (pageLinks.isEmpty()) return false
+
+        val w = view.width.toFloat()
+        val h = view.height.toFloat()
+        if (w <= 0f || h <= 0f) return false
+        val normX = tapX / w
+        val normY = tapY / h
+
+        val hit = pageLinks.firstOrNull { link ->
+            val paddingX = 0.04f
+            val paddingY = 0.04f
+            normX >= (link.bounds.left - paddingX) &&
+            normX <= (link.bounds.right + paddingX) &&
+            normY >= (link.bounds.top - paddingY) &&
+            normY <= (link.bounds.bottom + paddingY)
+        } ?: return false
+
+        if (!hit.url.isNullOrBlank()) {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(hit.url)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching {
+                startActivity(intent)
+                Toast.makeText(this, "Opening link: ${hit.url}", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(this, "Could not open link: ${hit.url}", Toast.LENGTH_SHORT).show()
+            }
+            return true
+        }
+
+        if (hit.targetPageIndex != null) {
+            pdfView?.scrollToPage(hit.targetPageIndex)
+            Toast.makeText(this, "Jumped to page ${hit.targetPageIndex + 1}", Toast.LENGTH_SHORT).show()
+            return true
+        }
+
+        return false
+    }
+
+    private fun showTableOfContentsDialog() {
+        showChrome(keepVisible = true)
+        val pageCount = runCatching { pdfView?.pdfDocument?.pageCount }.getOrNull() ?: 1
+        val currentPage = (pdfView?.firstVisiblePage ?: 0) + 1
+
+        val allTocItems = if (pdfTocItems.isNotEmpty()) pdfTocItems else buildFallbackToc(pageCount)
+        val displayedToc = allTocItems
+        val displayedLinks = allDocumentLinks
+
+        val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20.dp, 16.dp, 20.dp, 16.dp)
+        }
+
+        // Header Title Row
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 10.dp)
+        }
+        val title = TextView(this).apply {
+            text = "Table of Contents"
+            setTextColor(colorTextPrimary)
+            textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val pageBadge = TextView(this).apply {
+            text = "Current: Page $currentPage"
+            setTextColor(colorPrimary)
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            background = rounded(colorSyncBackground, 6.dp)
+            setPadding(8.dp, 3.dp, 8.dp, 3.dp)
+        }
+        headerRow.addView(title)
+        headerRow.addView(pageBadge)
+        rootLayout.addView(headerRow)
+
+        // Search bar
+        val searchBox = EditText(this).apply {
+            hint = "Search chapters & links..."
+            setHintTextColor(colorTextSecondary)
+            setTextColor(colorTextPrimary)
+            textSize = 13.5f
+            background = rounded(colorSyncBackground, 10.dp)
+            setPadding(12.dp, 8.dp, 12.dp, 8.dp)
+            maxLines = 1
+        }
+        rootLayout.addView(searchBox)
+
+        // Tab Row: Chapters vs Links
+        var selectedTab = 0 // 0 = Chapters, 1 = Links
+        val tabRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 10.dp, 0, 8.dp)
+        }
+        val chaptersTab = TextView(this).apply {
+            text = "📑 Chapters (${allTocItems.size})"
+            textSize = 12.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(colorPrimary)
+            background = rounded(colorSyncBackground, 8.dp)
+            setPadding(12.dp, 6.dp, 12.dp, 6.dp)
+        }
+        val linksTab = TextView(this).apply {
+            text = "🔗 Links (${allDocumentLinks.size})"
+            textSize = 12.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(colorTextSecondary)
+            background = rounded(colorSurfaceVariant, 8.dp)
+            setPadding(12.dp, 6.dp, 12.dp, 6.dp)
+        }
+        tabRow.addView(chaptersTab)
+        tabRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(8.dp, 1) })
+        tabRow.addView(linksTab)
+        rootLayout.addView(tabRow)
+
+        // Content list container
+        val listContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val scroll = ScrollView(this).apply {
+            val maxH = (resources.displayMetrics.heightPixels * 0.45f).toInt()
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, maxH)
+            isVerticalScrollBarEnabled = true
+            addView(listContainer)
+        }
+        rootLayout.addView(scroll)
+
+        var dialogRef: androidx.appcompat.app.AlertDialog? = null
+
+        fun renderContent() {
+            listContainer.removeAllViews()
+            val query = searchBox.text.toString().trim().lowercase()
+
+            if (selectedTab == 0) {
+                val filtered = if (query.isBlank()) displayedToc else displayedToc.filter {
+                    it.title.lowercase().contains(query) || "page ${it.pageNumber}".contains(query)
+                }
+                if (filtered.isEmpty()) {
+                    listContainer.addView(TextView(this@VeritasPdfViewerActivity).apply {
+                        text = "No matching chapters found"
+                        setTextColor(colorTextSecondary)
+                        textSize = 13f
+                        gravity = Gravity.CENTER
+                        setPadding(0, 24.dp, 0, 24.dp)
+                    })
+                } else {
+                    filtered.forEach { item ->
+                        val isCurrent = item.pageNumber == currentPage
+                        val itemRow = LinearLayout(this@VeritasPdfViewerActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            setPadding((12 + item.level * 16).dp, 10.dp, 12.dp, 10.dp)
+                            isClickable = true
+                            isFocusable = true
+                            background = if (isCurrent) {
+                                rounded(colorSyncBackground, 10.dp)
+                            } else {
+                                StateListDrawable().apply {
+                                    addState(intArrayOf(android.R.attr.state_pressed), rounded(colorSyncBackground, 10.dp))
+                                }
+                            }
+                            setOnClickListener {
+                                pdfView?.scrollToPage(item.pageIndex)
+                                dialogRef?.dismiss()
+                                Toast.makeText(this@VeritasPdfViewerActivity, "Jumped to ${item.title} (Page ${item.pageNumber})", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+
+                        val titleView = TextView(this@VeritasPdfViewerActivity).apply {
+                            text = if (item.level > 0) "• ${item.title}" else item.title
+                            setTextColor(if (isCurrent) colorPrimary else colorTextPrimary)
+                            textSize = if (item.level == 0) 14f else 13f
+                            typeface = if (item.level == 0) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                            maxLines = 2
+                            ellipsize = TextUtils.TruncateAt.END
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                                marginEnd = 8.dp
+                            }
+                        }
+                        val pageChip = TextView(this@VeritasPdfViewerActivity).apply {
+                            text = "p. ${item.pageNumber}"
+                            setTextColor(if (isCurrent) colorPrimary else colorTextSecondary)
+                            textSize = 11f
+                            typeface = Typeface.DEFAULT_BOLD
+                            setPadding(6.dp, 2.dp, 6.dp, 2.dp)
+                            background = rounded(if (isCurrent) colorBackground else colorSurfaceVariant, 6.dp)
+                        }
+                        itemRow.addView(titleView)
+                        itemRow.addView(pageChip)
+                        listContainer.addView(itemRow)
+                    }
+                }
+            } else {
+                // Links Tab
+                val filtered = if (query.isBlank()) displayedLinks else displayedLinks.filter {
+                    it.label.lowercase().contains(query) || (it.url?.lowercase()?.contains(query) == true)
+                }
+                if (filtered.isEmpty()) {
+                    listContainer.addView(TextView(this@VeritasPdfViewerActivity).apply {
+                        text = if (allDocumentLinks.isEmpty()) "No hyperlinks detected in this document" else "No matching links found"
+                        setTextColor(colorTextSecondary)
+                        textSize = 13f
+                        gravity = Gravity.CENTER
+                        setPadding(0, 24.dp, 0, 24.dp)
+                    })
+                } else {
+                    filtered.forEach { link ->
+                        val itemRow = LinearLayout(this@VeritasPdfViewerActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                            isClickable = true
+                            isFocusable = true
+                            background = StateListDrawable().apply {
+                                addState(intArrayOf(android.R.attr.state_pressed), rounded(colorSyncBackground, 10.dp))
+                            }
+                            setOnClickListener {
+                                dialogRef?.dismiss()
+                                if (!link.url.isNullOrBlank()) {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link.url)).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    runCatching {
+                                        startActivity(intent)
+                                        Toast.makeText(this@VeritasPdfViewerActivity, "Opening link: ${link.url}", Toast.LENGTH_SHORT).show()
+                                    }.onFailure {
+                                        Toast.makeText(this@VeritasPdfViewerActivity, "Could not open link: ${link.url}", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else if (link.targetPageIndex != null) {
+                                    pdfView?.scrollToPage(link.targetPageIndex)
+                                    Toast.makeText(this@VeritasPdfViewerActivity, "Jumped to page ${link.targetPageIndex + 1}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
+                        val icon = ImageView(this@VeritasPdfViewerActivity).apply {
+                            setImageResource(if (!link.url.isNullOrBlank()) R.drawable.ic_m3_open_in_new else R.drawable.ic_m3_jump_page)
+                            setColorFilter(colorPrimary)
+                            layoutParams = LinearLayout.LayoutParams(20.dp, 20.dp).apply {
+                                marginEnd = 10.dp
+                            }
+                        }
+                        val linkCol = LinearLayout(this@VeritasPdfViewerActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        }
+                        val linkTitle = TextView(this@VeritasPdfViewerActivity).apply {
+                            text = link.label
+                            setTextColor(colorTextPrimary)
+                            textSize = 13f
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                        }
+                        val linkSub = TextView(this@VeritasPdfViewerActivity).apply {
+                            text = if (!link.url.isNullOrBlank()) "Web Link • Found on Page ${link.pageNumber}" else "Jump to Page ${(link.targetPageIndex ?: 0) + 1} • On Page ${link.pageNumber}"
+                            setTextColor(colorTextSecondary)
+                            textSize = 10.5f
+                        }
+                        linkCol.addView(linkTitle)
+                        linkCol.addView(linkSub)
+
+                        itemRow.addView(icon)
+                        itemRow.addView(linkCol)
+                        listContainer.addView(itemRow)
+                    }
+                }
+            }
+        }
+
+        chaptersTab.setOnClickListener {
+            selectedTab = 0
+            chaptersTab.setTextColor(colorPrimary)
+            chaptersTab.background = rounded(colorSyncBackground, 8.dp)
+            linksTab.setTextColor(colorTextSecondary)
+            linksTab.background = rounded(colorSurfaceVariant, 8.dp)
+            renderContent()
+        }
+
+        linksTab.setOnClickListener {
+            selectedTab = 1
+            linksTab.setTextColor(colorPrimary)
+            linksTab.background = rounded(colorSyncBackground, 8.dp)
+            chaptersTab.setTextColor(colorTextSecondary)
+            chaptersTab.background = rounded(colorSurfaceVariant, 8.dp)
+            renderContent()
+        }
+
+        searchBox.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                renderContent()
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+
+        renderContent()
+
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setView(rootLayout)
+            .setPositiveButton("Jump to Page...") { _, _ ->
+                showJumpToPageDialog()
+            }
+            .setNegativeButton("Close", null)
+            .create()
+        dialogRef = dialog
+        dialog.window?.setBackgroundDrawable(ColorDrawable(colorSurface))
+        dialog.show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(colorPrimary)
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(colorTextSecondary)
+    }
+
     companion object {
         private const val EXTRA_DOCUMENT_ID = "document_id"
         private const val VIEWER_TAG = "veritas_pdf_viewer"
@@ -2098,3 +2626,19 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         }
     }
 }
+
+
+data class PdfTocItem(
+    val title: String,
+    val pageNumber: Int,
+    val pageIndex: Int,
+    val level: Int = 0
+)
+
+data class PdfLinkItem(
+    val pageNumber: Int,
+    val bounds: RectF,
+    val label: String,
+    val url: String? = null,
+    val targetPageIndex: Int? = null
+)

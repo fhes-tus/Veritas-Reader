@@ -54,7 +54,7 @@ fun sendSelectionSpeechIntent(context: Context, selection: String) {
     val intent = Intent(context, PlaybackService::class.java)
         .setAction(PlaybackActions.ACTION_SPEAK_SELECTION)
         .putExtra(PlaybackActions.EXTRA_SELECTION_TEXT, cleanSelection)
-    context.startService(intent)
+    ContextCompat.startForegroundService(context, intent)
 }
 
 fun isPackageInstalled(context: Context, packageName: String): Boolean {
@@ -462,6 +462,212 @@ fun shareBookmarkAsImage(
     }
 }
 
+fun shareVocabularyAsWords(context: Context, bookTitle: String, entry: VocabularyEntry) {
+    val text = buildString {
+        append(entry.word)
+        if (!entry.pronunciation.isNullOrBlank()) append(" (${entry.pronunciation})")
+        append("\n")
+        append(entry.explanation)
+        if (!entry.contextSentence.isNullOrBlank()) {
+            append("\n\nContext:\n\"${entry.contextSentence}\"")
+        }
+        append("\n\nFrom: $bookTitle")
+    }
+    sharePlainText(context, "Vocabulary: ${entry.word}", text)
+}
+
+fun shareBookmarkAsWords(context: Context, bookTitle: String, text: String, note: String? = null) {
+    val shareText = buildString {
+        append("“$text”\n\n— $bookTitle")
+        if (!note.isNullOrBlank()) {
+            append("\n\nNote: $note")
+        }
+    }
+    sharePlainText(context, "Bookmark from $bookTitle", shareText)
+}
+
+fun shareNoteAsWords(context: Context, bookTitle: String, sentenceText: String?, noteText: String) {
+    val shareText = buildString {
+        if (!sentenceText.isNullOrBlank()) {
+            append("“$sentenceText”\n\n")
+        }
+        append("Note:\n$noteText\n\n— $bookTitle")
+    }
+    sharePlainText(context, "Note from $bookTitle", shareText)
+}
+
+fun shareVocabularyAsImage(
+    context: Context,
+    bookTitle: String,
+    authorName: String,
+    entry: VocabularyEntry
+) {
+    val width = 1080
+    val height = 1350
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val bgPaint = Paint().apply {
+        shader = LinearGradient(
+            0f, 0f, 0f, height.toFloat(),
+            intArrayOf(0xFFF8FAFC.toInt(), 0xFFE2E8F0.toInt()),
+            null,
+            Shader.TileMode.CLAMP
+        )
+    }
+    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+
+    val wordPaint = TextPaint().apply {
+        color = 0xFF0F172A.toInt()
+        textSize = 56f
+        typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+        isAntiAlias = true
+    }
+
+    val pronPaint = TextPaint().apply {
+        color = 0xFF6366F1.toInt()
+        textSize = 34f
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.ITALIC)
+        isAntiAlias = true
+    }
+
+    val tagPaint = TextPaint().apply {
+        color = 0xFF64748B.toInt()
+        textSize = 26f
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        isAntiAlias = true
+    }
+
+    val defPaint = TextPaint().apply {
+        color = 0xFF334155.toInt()
+        textSize = 36f
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+        isAntiAlias = true
+    }
+
+    val quotePaint = TextPaint().apply {
+        color = 0xFF1E293B.toInt()
+        textSize = 32f
+        typeface = Typeface.create("serif", Typeface.ITALIC)
+        isAntiAlias = true
+    }
+
+    var y = 140f
+    canvas.drawText("VERITAS VOCABULARY", 100f, y, tagPaint)
+    y += 70f
+    canvas.drawText(entry.word, 100f, y, wordPaint)
+    if (!entry.pronunciation.isNullOrBlank()) {
+        val wordW = wordPaint.measureText(entry.word)
+        canvas.drawText(entry.pronunciation, 100f + wordW + 24f, y - 4f, pronPaint)
+    }
+    y += 50f
+
+    val linePaint = Paint().apply {
+        color = 0xFFCBD5E1.toInt()
+        strokeWidth = 2f
+        style = Paint.Style.STROKE
+    }
+    canvas.drawLine(100f, y, width - 100f, y, linePaint)
+    y += 50f
+
+    // Explanation StaticLayout
+    val contentWidth = width - 200
+    val defLayout = StaticLayout.Builder.obtain(entry.explanation, 0, entry.explanation.length, defPaint, contentWidth)
+        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+        .setLineSpacing(10f, 1.25f)
+        .build()
+
+    canvas.save()
+    canvas.translate(100f, y)
+    defLayout.draw(canvas)
+    canvas.restore()
+    y += defLayout.height + 60f
+
+    // Context quote card
+    if (!entry.contextSentence.isNullOrBlank()) {
+        val contextLayout = StaticLayout.Builder.obtain("“${entry.contextSentence}”", 0, entry.contextSentence.length + 2, quotePaint, contentWidth - 40)
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setLineSpacing(8f, 1.2f)
+            .setMaxLines(7)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .build()
+
+        val cardH = contextLayout.height + 60f
+        val boxPaint = Paint().apply {
+            color = 0xFFFFFFFF.toInt()
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        canvas.drawRoundRect(100f, y, width - 100f, y + cardH, 16f, 16f, boxPaint)
+
+        val accentBar = Paint().apply {
+            color = 0xFF6366F1.toInt()
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        canvas.drawRoundRect(100f, y, 112f, y + cardH, 4f, 4f, accentBar)
+
+        canvas.save()
+        canvas.translate(130f, y + 30f)
+        contextLayout.draw(canvas)
+        canvas.restore()
+
+        y += cardH + 40f
+    }
+
+    // Footer
+    canvas.drawLine(100f, 1120f, width - 100f, 1120f, linePaint)
+
+    val bookTitlePaint = TextPaint().apply {
+        color = 0xFF0F172A.toInt()
+        textSize = 34f
+        isAntiAlias = true
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+    }
+
+    val authorPaint = TextPaint().apply {
+        color = 0xFF475569.toInt()
+        textSize = 30f
+        isAntiAlias = true
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.ITALIC)
+    }
+
+    val brandingPaint = TextPaint().apply {
+        color = 0xFF94A3B8.toInt()
+        textSize = 26f
+        isAntiAlias = true
+        textAlign = Paint.Align.RIGHT
+        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+    }
+
+    val bookTitleClean = if (bookTitle.length > 50) bookTitle.take(47) + "..." else bookTitle
+    val hasAuthor = authorName.isNotBlank() && authorName != "Veritas Reader"
+    if (hasAuthor) {
+        canvas.drawText(bookTitleClean, 100f, 1180f, bookTitlePaint)
+        canvas.drawText("by $authorName", 100f, 1225f, authorPaint)
+    } else {
+        canvas.drawText(bookTitleClean, 100f, 1200f, bookTitlePaint)
+    }
+    canvas.drawText("Shared via Veritas Reader", width - 100f, 1270f, brandingPaint)
+
+    val shareDir = File(context.cacheDir, "shares").apply { mkdirs() }
+    val shareFile = File(shareDir, "Veritas_Vocab_${System.currentTimeMillis()}.png")
+    try {
+        FileOutputStream(shareFile).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFile)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Share Vocabulary Card"))
+    } catch (e: Exception) {
+        shareVocabularyAsWords(context, bookTitle, entry)
+    }
+}
+
 fun shareNoteText(context: Context, noteText: String) {
     val pm = context.packageManager
     val sendIntent = Intent(Intent.ACTION_SEND).apply {
@@ -568,7 +774,7 @@ fun shareToAi(
         ShareScope.ENTIRE_DOCUMENT -> "Veritas - $sanitizedTitle - Entire Document.md"
     }
     
-    val prompt = "Attached is the document '$bookTitle'. Please analyze the contents. Note that page boundaries are marked with [[VERITAS_PAGE:X]] where X is the page number. Citations should refer to these page numbers."
+    val prompt = "Attached is the document text from '$bookTitle'. Please analyze the contents."
     val textBody = if (noPrompt) markdownText else "$prompt\n\n$markdownText"
     
     if (!noPrompt) {
@@ -636,9 +842,8 @@ internal fun buildMarkdownForSentences(sentences: List<ReaderSentence>): String 
     if (sentences.isEmpty()) return ""
     val output = StringBuilder()
     val ordered = sentences.groupBy { it.pageNumber.coerceAtLeast(1) }.toSortedMap()
-    ordered.forEach { (pageNumber, pageSentences) ->
+    ordered.forEach { (_, pageSentences) ->
         if (output.isNotBlank()) output.append("\n\n")
-        output.append("[[VERITAS_PAGE:$pageNumber]]\n\n")
         val pageText = StringBuilder()
         pageSentences.forEachIndexed { index, sentence ->
             if (pageText.isNotBlank()) {

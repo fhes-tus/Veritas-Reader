@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Book
@@ -178,6 +179,8 @@ import com.veritas.reader.ui.screens.UpdateAvailableDialog
 import com.veritas.reader.ui.screens.ReleaseNotesDialog
 import com.veritas.reader.ui.screens.ClassicsCatalogDialog
 import com.veritas.reader.ui.screens.OceanOfPdfBrowserDialog
+import com.veritas.reader.ui.screens.BookCatalogBrowserDialog
+import com.veritas.reader.ui.screens.VeritasHomeTab
 import com.veritas.reader.ui.screens.VoiceStudioDialog
 import com.veritas.reader.ReaderMode
 import kotlinx.coroutines.delay
@@ -205,6 +208,7 @@ class MainActivity : ComponentActivity() {
     var onHardwarePlayPause: (() -> Unit)? = null
     var onHardwareNext: (() -> Unit)? = null
     var onHardwarePrevious: (() -> Unit)? = null
+    var onIncomingShare: ((String, Uri?, Boolean) -> Unit)? = null
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -212,6 +216,23 @@ class MainActivity : ComponentActivity() {
         val widgetAction = intent.getStringExtra(EXTRA_WIDGET_ACTION)
         val noteId = intent.getStringExtra(EXTRA_NOTE_ID)
         val documentId = intent.getStringExtra(EXTRA_DOCUMENT_ID)
+        val incomingAction = intent.action
+        val isShareToNotes = intent.component?.className?.endsWith("ShareToNotesActivity") == true
+        val sharedText = intent.takeIf { incomingAction == Intent.ACTION_SEND }
+            ?.getStringExtra(Intent.EXTRA_TEXT)
+            .orEmpty()
+        val sharedUri = when (incomingAction) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+                }
+            }
+            else -> null
+        }
 
         if (widgetAction == ACTION_CONTINUE_READING && !documentId.isNullOrBlank()) {
             PlaybackStateStore.activeDocumentId = documentId
@@ -228,6 +249,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        if (sharedText.isNotBlank() || sharedUri != null) {
+            onIncomingShare?.invoke(sharedText, sharedUri, isShareToNotes)
+        }
+
         intent.action = null
         intent.data = null
         intent.removeExtra(Intent.EXTRA_TEXT)
@@ -235,11 +260,18 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra(EXTRA_WIDGET_ACTION)
         intent.removeExtra(EXTRA_NOTE_ID)
         intent.removeExtra(EXTRA_DOCUMENT_ID)
+        updateVeritasWidgets(this)
     }
 
     override fun onStart() {
         super.onStart()
         viewModel.onAppForegrounded()
+        updateVeritasWidgets(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateVeritasWidgets(this)
     }
 
     override fun onStop() {
@@ -386,6 +418,7 @@ class MainActivity : ComponentActivity() {
         AutoBackupWorker.schedule(this)
         // Evening streak-protection nudge (worker checks the setting itself).
         StreakReminderWorker.schedule(this)
+        updateVeritasWidgets(this)
 
         val incomingAction = intent?.action
         val openVoiceStudioOnStart = intent?.getBooleanExtra(EXTRA_OPEN_VOICE_STUDIO, false) == true
@@ -439,11 +472,23 @@ class MainActivity : ComponentActivity() {
             it.removeExtra(EXTRA_DOCUMENT_ID)
         }
 
+        val isShareToNotes = intent?.component?.className?.endsWith("ShareToNotesActivity") == true
+
+        // Synchronously load saved reader settings and initialize theme state before setContent
+        // to guarantee zero-flash frame-1 rendering in the user's chosen theme, font, and pack.
+        val initialSettings = DocumentRepository(this).loadReaderSettings()
+        VeritasThemeState.themeId = initialSettings.themeId
+        VeritasThemeState.themePackId = initialSettings.themePackId
+        VeritasThemeState.adaptiveCover = initialSettings.adaptiveCover
+        VeritasThemeState.uiFontId = initialSettings.uiFontId
+        VeritasThemeState.reduceMotion = initialSettings.reduceMotion
+
         setContent {
             VeritasTheme {
                 VeritasReaderApp(
                     initialSharedText = sharedText,
                     initialSharedUri = sharedUri,
+                    isShareToNotes = isShareToNotes,
                     openVoiceStudioOnStart = openVoiceStudioOnStart,
                     widgetAction = widgetAction,
                     noteId = noteId
@@ -466,6 +511,8 @@ class MainActivity : ComponentActivity() {
         const val ACTION_EDIT_NOTE = "edit_note"
         const val ACTION_CONTINUE_READING = "continue_reading"
         const val ACTION_SHOW_STUDY_DASHBOARD = "show_study_dashboard"
+        const val ACTION_SHOW_READER_TRACKER = "show_reader_tracker"
+        const val ACTION_SHOW_FLASHCARDS = "show_flashcards"
         const val ACTION_NEW_CHECKLIST_NOTE = "new_checklist_note"
         const val ACTION_NEW_REMINDER_NOTE = "new_reminder_note"
         const val ACTION_NEW_IMAGE_NOTE = "new_image_note"
@@ -1285,6 +1332,7 @@ internal fun readableImportMimeTypes(): Array<String> = arrayOf(
 internal fun VeritasReaderApp(
     initialSharedText: String,
     initialSharedUri: Uri?,
+    isShareToNotes: Boolean = false,
     openVoiceStudioOnStart: Boolean,
     widgetAction: String? = null,
     noteId: String? = null
@@ -1294,6 +1342,65 @@ internal fun VeritasReaderApp(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
     var showStorageTools by remember { mutableStateOf(false) }
+    var pendingShareChooser by remember { mutableStateOf<Pair<String, Uri?>?>(null) }
+
+    fun openInNotes(text: String, uri: Uri?) {
+        val noteId = java.util.UUID.randomUUID().toString()
+        val noteTitle = if (text.isNotBlank()) {
+            text.lineSequence().firstOrNull { it.isNotBlank() }?.take(50)?.trim() ?: ""
+        } else ""
+        val savedImagePath = if (uri != null) {
+            runCatching {
+                val notesMediaDir = File(context.filesDir, "notes_media").apply { if (!exists()) mkdirs() }
+                val destFile = File(notesMediaDir, "img_${System.currentTimeMillis()}.jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                destFile.absolutePath
+            }.getOrNull() ?: uri.toString()
+        } else null
+
+        viewModel.updateState {
+            it.copy(
+                showGeneralNotesEditor = true,
+                generalNoteEditorTarget = GeneralNote(
+                    id = noteId,
+                    title = noteTitle,
+                    content = text,
+                    updatedAt = System.currentTimeMillis(),
+                    imageUrl = savedImagePath
+                )
+            )
+        }
+    }
+
+    fun importToReader(text: String, uri: Uri?) {
+        if (uri != null) {
+            viewModel.prepareImport(uri)
+        } else if (text.isNotBlank()) {
+            if (WebArticleExtractor.looksLikeUrl(text)) {
+                viewModel.importWebArticle(text.trim())
+            } else {
+                viewModel.updateState { it.copy(draftText = text) }
+            }
+        }
+    }
+
+    DisposableEffect(context) {
+        val activity = context as? MainActivity
+        activity?.onIncomingShare = { text, uri, toNotes ->
+            if (toNotes) {
+                openInNotes(text, uri)
+            } else {
+                pendingShareChooser = Pair(text, uri)
+            }
+        }
+        onDispose {
+            activity?.onIncomingShare = null
+        }
+    }
     val documentRepository = remember(context) { DocumentRepository(context.applicationContext) }
     val folderPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -1384,11 +1491,12 @@ internal fun VeritasReaderApp(
 
     LaunchedEffect(Unit) {
         if (!uiState.handledInitialShare) {
-            if (initialSharedText.isNotBlank()) {
-                viewModel.updateState { it.copy(draftText = initialSharedText) }
-            }
-            if (initialSharedUri != null) {
-                viewModel.prepareImport(initialSharedUri)
+            if (isShareToNotes) {
+                if (initialSharedText.isNotBlank() || initialSharedUri != null) {
+                    openInNotes(initialSharedText, initialSharedUri)
+                }
+            } else if (initialSharedText.isNotBlank() || initialSharedUri != null) {
+                pendingShareChooser = Pair(initialSharedText, initialSharedUri)
             }
             if (openVoiceStudioOnStart) {
                 viewModel.updateState { it.copy(showVoiceStudio = true) }
@@ -1408,7 +1516,7 @@ internal fun VeritasReaderApp(
                     viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null) }
                 }
                 MainActivity.ACTION_SHOW_NOTES -> {
-                    viewModel.returnToLibrary()
+                    viewModel.navigateToHomeTab(VeritasHomeTab.NOTES)
                 }
                 MainActivity.ACTION_NEW_CHECKLIST_NOTE -> {
                     viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null, noteEditorChecklistOnStart = true) }
@@ -1420,7 +1528,11 @@ internal fun VeritasReaderApp(
                     viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null, noteEditorImageOnStart = true) }
                 }
                 MainActivity.ACTION_OPEN_LIBRARY -> {
-                    viewModel.returnToLibrary()
+                    viewModel.navigateToHomeTab(VeritasHomeTab.LIBRARY)
+                }
+                MainActivity.ACTION_SHOW_STUDY_DASHBOARD,
+                MainActivity.ACTION_SHOW_FLASHCARDS -> {
+                    viewModel.navigateToHomeTab(VeritasHomeTab.STUDY)
                 }
                 MainActivity.ACTION_IMPORT_DOCUMENTS -> {
                     viewModel.returnToLibrary()
@@ -1518,6 +1630,8 @@ internal fun VeritasReaderApp(
 
     BackHandler(enabled = true) {
         when {
+            uiState.showUserManual -> viewModel.updateState { it.copy(showUserManual = false) }
+            uiState.showAccessibilitySettings -> viewModel.updateState { it.copy(showAccessibilitySettings = false) }
             uiState.showTextEditor -> viewModel.dismissTextEditor()
             uiState.showFileBrowser && uiState.fileBrowserBackStack.isNotEmpty() -> viewModel.goUpFileBrowserDirectory()
             uiState.navStack.isNotEmpty() -> viewModel.navigateBack()
@@ -1620,6 +1734,7 @@ internal fun VeritasReaderApp(
                         )
                     },
                     onDeleteAnnotations = { keys -> viewModel.deleteAnnotations(keys) },
+                    onClearTargetHomeTab = { viewModel.clearTargetHomeTab() },
                     onWriteGeneralNote = { viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null) } },
                     onEditGeneralNote = { note -> viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = note) } },
                     onRemoveVocabularyWord = { docId, word -> viewModel.removeVocabularyWord(docId, word) },
@@ -1634,7 +1749,13 @@ internal fun VeritasReaderApp(
                     onRenameFlashcardSet = viewModel::renameFlashcardSet,
                     onDeleteFlashcardSet = viewModel::deleteFlashcardSet,
                     onSaveReaderSettings = { viewModel.saveReaderSettings(it) },
-                    onSearchLibraryContent = viewModel::searchLibraryContent
+                    onSearchLibraryContent = viewModel::searchLibraryContent,
+                    onSaveQuiz = viewModel::saveQuiz,
+                    onDeleteQuiz = viewModel::deleteQuiz,
+                    onRecordQuizScore = viewModel::recordQuizScore,
+                    onGenerateInAppFlashcards = { doc, prompt -> viewModel.generateInAppFlashcards(doc, prompt) },
+                    onGenerateInAppQuiz = { doc, prompt -> viewModel.generateInAppQuiz(doc, prompt) },
+                    onOpenAiStudyTools = { viewModel.updateState { it.copy(showAiStudyTools = true) } }
                 )
                 val areQuestsIncomplete = !uiState.questTourDone || !uiState.questImportDone || !uiState.questSpeedDone || !uiState.questBookmarkDone
                 if (areQuestsIncomplete && !uiState.questChecklistDismissed) {
@@ -2551,6 +2672,53 @@ internal fun VeritasReaderApp(
                     },
                     onImportFlashcards = { name, cards ->
                         viewModel.importFlashcards(document.id ?: "pasted", name, cards)
+                    },
+                    onGenerateInAppFlashcards = { scopeText, count, onComplete ->
+                        viewModel.generateInAppFlashcards(
+                            document = document,
+                            count = count,
+                            scopeText = scopeText,
+                            setName = "${document.title} Flashcards",
+                            onComplete = onComplete
+                        )
+                    },
+                    onGenerateInAppQuiz = { scopeText, count, onComplete ->
+                        viewModel.generateInAppQuiz(
+                            document = document,
+                            count = count,
+                            scopeText = scopeText,
+                            quizTitle = "${document.title} Quiz",
+                            onComplete = onComplete
+                        )
+                    },
+                    onGenerateInAppSummary = { scopeText, onComplete ->
+                        viewModel.generateInAppStudySummary(
+                            document = document,
+                            scopeText = scopeText,
+                            onComplete = onComplete
+                        )
+                    },
+                    onGenerateInAppExplanation = { scopeText, targetPassage, onComplete ->
+                        viewModel.generateInAppExplanation(
+                            document = document,
+                            scopeText = scopeText,
+                            targetPassage = targetPassage,
+                            onComplete = onComplete
+                        )
+                    },
+                    onGenerateInAppStudyGuide = { scopeText, onComplete ->
+                        viewModel.generateInAppStudyGuide(
+                            document = document,
+                            scopeText = scopeText,
+                            onComplete = onComplete
+                        )
+                    },
+                    onSaveQuiz = { quiz ->
+                        viewModel.saveQuiz(quiz)
+                    },
+                    onOpenStudyHub = {
+                        viewModel.updateState { it.copy(showAiStudyTools = false, showAiCenter = false) }
+                        viewModel.navigateToHomeTab(VeritasHomeTab.STUDY)
                     }
                 )
             }
@@ -2569,6 +2737,24 @@ internal fun VeritasReaderApp(
                             exportedAudioFile = null
                         )
                     }
+                }
+            )
+        }
+
+        pendingShareChooser?.let { (text, uri) ->
+            ShareTargetChooserDialog(
+                sharedText = text,
+                sharedUri = uri,
+                onImportToReader = {
+                    pendingShareChooser = null
+                    importToReader(text, uri)
+                },
+                onAddToNotes = {
+                    pendingShareChooser = null
+                    openInNotes(text, uri)
+                },
+                onDismiss = {
+                    pendingShareChooser = null
                 }
             )
         }
@@ -2630,8 +2816,20 @@ internal fun VeritasReaderApp(
                 onOpenOceanOfPdf = { query ->
                     viewModel.updateState {
                         it.copy(
-                            showOceanOfPdfBrowser = true,
-                            oceanOfPdfQuery = query
+                            showBookBrowser = true,
+                            bookBrowserUrl = "https://oceanofpdf.com/",
+                            bookBrowserTitle = "Ocean of PDF",
+                            bookBrowserQuery = query
+                        )
+                    }
+                },
+                onOpenBookBrowser = { url, name, query ->
+                    viewModel.updateState {
+                        it.copy(
+                            showBookBrowser = true,
+                            bookBrowserUrl = url,
+                            bookBrowserTitle = name,
+                            bookBrowserQuery = query
                         )
                     }
                 },
@@ -2641,14 +2839,28 @@ internal fun VeritasReaderApp(
             )
         }
 
-        if (uiState.showOceanOfPdfBrowser) {
-            OceanOfPdfBrowserDialog(
-                initialQuery = uiState.oceanOfPdfQuery,
+        if (uiState.showBookBrowser || uiState.showOceanOfPdfBrowser) {
+            val url = uiState.bookBrowserUrl.ifBlank { "https://oceanofpdf.com/" }
+            val name = uiState.bookBrowserTitle.ifBlank { "Free Books" }
+            val query = uiState.bookBrowserQuery.ifBlank { uiState.oceanOfPdfQuery }
+            BookCatalogBrowserDialog(
+                initialUrl = url,
+                siteName = name,
+                initialQuery = query,
                 onImportDownloadedFile = { file, title ->
                     viewModel.importDownloadedBook(file, title)
                 },
                 onDismiss = {
-                    viewModel.updateState { it.copy(showOceanOfPdfBrowser = false, oceanOfPdfQuery = "") }
+                    viewModel.updateState {
+                        it.copy(
+                            showBookBrowser = false,
+                            showOceanOfPdfBrowser = false,
+                            bookBrowserUrl = "",
+                            bookBrowserTitle = "",
+                            bookBrowserQuery = "",
+                            oceanOfPdfQuery = ""
+                        )
+                    }
                 }
             )
         }
@@ -3306,5 +3518,160 @@ internal fun VeritasReaderApp(
             )
         }
     }
+}
+
+@Composable
+private fun ShareTargetChooserDialog(
+    sharedText: String,
+    sharedUri: Uri?,
+    onImportToReader: () -> Unit,
+    onAddToNotes: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                BrandMark(compact = true)
+                Text(
+                    text = "Share to Veritas",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Choose how to save or open this content in Veritas:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                val preview = sharedText.trim().ifBlank { sharedUri?.lastPathSegment.orEmpty() }
+                if (preview.isNotBlank()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Text(
+                            text = preview,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+
+                Card(
+                    onClick = onImportToReader,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Book,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Import to Read",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Read with TTS narration, word tracking, and study tools",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Card(
+                    onClick = onAddToNotes,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Filled.EditNote,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Add to Notes",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Save to your notebook as a reference, checklist, or study note",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(24.dp)
+    )
 }
 

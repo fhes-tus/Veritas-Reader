@@ -39,23 +39,13 @@ class QuickNoteWidget : GlanceAppWidget() {
 
         provideContent {
             val size = androidx.glance.LocalSize.current
-            val borderModifier = GlanceModifier
-                .fillMaxSize()
-                .background(VeritasWidgetColors.border)
-                .cornerRadius(28.dp)
-
-            Box(
-                modifier = borderModifier,
-                contentAlignment = Alignment.Center
+            Column(
+                modifier = GlanceModifier
+                    .fillMaxSize()
+                    .cornerRadius(24.dp)
+                    .background(VeritasWidgetColors.widgetBackground)
+                    .padding(12.dp)
             ) {
-                Column(
-                    modifier = GlanceModifier
-                        .fillMaxSize()
-                        .padding(1.dp)
-                        .cornerRadius(27.dp)
-                        .background(VeritasWidgetColors.frostedBackground)
-                        .padding(12.dp)
-                ) {
                     // Header
                     Row(
                         modifier = GlanceModifier.fillMaxWidth(),
@@ -191,7 +181,6 @@ class QuickNoteWidget : GlanceAppWidget() {
                         }
                     }
                 }
-            }
         }
     }
 }

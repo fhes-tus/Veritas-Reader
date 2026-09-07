@@ -4,6 +4,24 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ---
 
+## [2.3.0] - 2026-09-07
+
+### Added
+*   **In-App Free Book Repositories & Downloader:** Full in-app browsing and automatic download interception for 5 global digital book repositories: *Project Gutenberg*, *Standard Ebooks*, *Open Library*, *ManyBooks*, and *Ocean of PDF*. Downloads (EPUB, PDF, TXT) are automatically sandboxed and imported directly into the Veritas reading library without leaving the app.
+*   **Study Guide PDF Exporter:** Automatic generation and export of styled PDF study guides from flashcard sets, study notes, and document highlights.
+*   **PDF Table of Contents (TOC) Extraction:** Interactive outline drawer allowing instant chapter and section navigation within PDF documents.
+*   **Glance AppWidget Android 16 Redesign:** Rebuilt Flashcard, Study Dashboard, Quick Capture, and Player widgets with responsive Glance Column layouts, zero-latency touch callbacks, and multi-deck review support.
+
+### Changed
+*   **Sandboxed Web Security:** Enforced strict enterprise-grade sandbox policies across all in-app browsers (`allowFileAccess = false`, `allowContentAccess = false`, `safeBrowsingEnabled = true`, blocking non-HTTP/HTTPS schemes).
+*   **Study Hub Navigation Pipeline:** Refactored home tab routing with dedicated `targetHomeTab` navigation, eliminating race conditions when jumping from AI Study Studio or home widgets directly into Study Hub.
+
+### Fixed
+*   **Library Tab Swipe Stabilization:** Eliminated circular state feedback oscillations between page state and navigation tab selections, and removed top bar height animations during horizontal swiping for smooth, glitch-free swiping.
+*   **Flashcard Widget Touch Unresponsiveness:** Resolved `Null RemoteViews` errors on Android 16 / One UI 8 by eliminating AdapterView/RemoteViewsFactory dependencies, guaranteeing immediate touch responses for deck selection, card flipping, and grading.
+
+---
+
 ## [2.2.0] - 2026-08-22
 
 ### Added

@@ -2,6 +2,7 @@ package com.veritas.reader.ui
 
 import android.net.Uri
 import com.veritas.reader.*
+import com.veritas.reader.ui.screens.VeritasHomeTab
 import java.io.File
 
 data class VeritasPendingImport(
@@ -30,6 +31,10 @@ data class ReaderUiState(
     val librarySearchHits: List<LibrarySearchHit> = emptyList(),
     val librarySearchInProgress: Boolean = false,
     val flashcards: List<FlashcardProgress> = emptyList(),
+    val quizzes: List<QuizSet> = emptyList(),
+    val activeQuizSet: QuizSet? = null,
+    val isGeneratingAiStudy: Boolean = false,
+    val aiStudyStatusMessage: String? = null,
     val draftText: String = "",
     val activeDocument: ReaderDocument? = null,
     val deleteTarget: SavedDocument? = null,
@@ -152,5 +157,10 @@ data class ReaderUiState(
     val readingInterest: String = "Books & Novels",
     val showClassicsCatalog: Boolean = false,
     val showOceanOfPdfBrowser: Boolean = false,
-    val oceanOfPdfQuery: String = ""
+    val oceanOfPdfQuery: String = "",
+    val showBookBrowser: Boolean = false,
+    val bookBrowserUrl: String = "",
+    val bookBrowserTitle: String = "",
+    val bookBrowserQuery: String = "",
+    val targetHomeTab: VeritasHomeTab? = null
 )

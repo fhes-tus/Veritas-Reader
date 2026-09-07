@@ -2102,6 +2102,38 @@ private fun PresentationSlideCanvas(
                     },
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    val totalLines = slide.contentLines.size
+                    val totalImages = slideImages.size
+                    val imagesAfterLine = remember(totalLines, totalImages) {
+                        val map = mutableMapOf<Int, MutableList<Int>>()
+                        if (totalLines == 0) {
+                            map[-1] = (0 until totalImages).toMutableList()
+                        } else if (totalImages > 0) {
+                            for (imgIdx in 0 until totalImages) {
+                                val target = ((imgIdx + 1) * totalLines / (totalImages + 1)).coerceIn(0, totalLines - 1)
+                                map.getOrPut(target) { mutableListOf() }.add(imgIdx)
+                            }
+                        }
+                        map
+                    }
+
+                    // Render images before lines if slide has no text
+                    imagesAfterLine[-1]?.forEach { imgIdx ->
+                        val bmp = slideImages.getOrNull(imgIdx)
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "Slide Image",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 220.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .padding(vertical = 4.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                    }
+
                     slide.contentLines.forEachIndexed { lineIdx, line ->
                         val isHighlighted = isPlaying &&
                             slide.number == activeSentencePage &&
@@ -2134,22 +2166,19 @@ private fun PresentationSlideCanvas(
                                 )
                             }
                         }
-                    }
 
-                    // Embedded Slide Images
-                    if (slideImages.isNotEmpty()) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            slideImages.forEach { bmp ->
+                        // Inline slide image rendered directly between lines/paragraphs
+                        imagesAfterLine[lineIdx]?.forEach { imgIdx ->
+                            val bmp = slideImages.getOrNull(imgIdx)
+                            if (bmp != null) {
                                 Image(
                                     bitmap = bmp.asImageBitmap(),
                                     contentDescription = "Slide Image",
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(max = 200.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
+                                        .heightIn(max = 220.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .padding(vertical = 4.dp),
                                     contentScale = ContentScale.Fit
                                 )
                             }
@@ -2300,6 +2329,41 @@ private fun EpubBookCanvas(
                     },
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    val totalParas = chapter.paragraphs.size
+                    val totalImages = chapter.images.size
+                    val imagesAfterPara = remember(totalParas, totalImages) {
+                        val map = mutableMapOf<Int, MutableList<Int>>()
+                        if (totalParas == 0) {
+                            map[-1] = (0 until totalImages).toMutableList()
+                        } else if (totalImages > 0) {
+                            for (imgIdx in 0 until totalImages) {
+                                val target = ((imgIdx + 1) * totalParas / (totalImages + 1)).coerceIn(0, totalParas - 1)
+                                map.getOrPut(target) { mutableListOf() }.add(imgIdx)
+                            }
+                        }
+                        map
+                    }
+
+                    // Render images before text if empty paragraphs
+                    imagesAfterPara[-1]?.forEach { imgIdx ->
+                        val bytes = chapter.images.getOrNull(imgIdx)
+                        if (bytes != null) {
+                            val bmp = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                            if (bmp != null) {
+                                Image(
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = "Chapter Illustration",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 240.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .padding(vertical = 6.dp),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
+                        }
+                    }
+
                     chapter.paragraphs.forEachIndexed { paraIdx, para ->
                         val isHighlighted = isPlaying &&
                             chapter.number == activeSentencePage &&
@@ -2332,6 +2396,26 @@ private fun EpubBookCanvas(
                                     color = contentColor,
                                     modifier = Modifier.weight(1f)
                                 )
+                            }
+                        }
+
+                        // Inline chapter image placed naturally between paragraphs
+                        imagesAfterPara[paraIdx]?.forEach { imgIdx ->
+                            val bytes = chapter.images.getOrNull(imgIdx)
+                            if (bytes != null) {
+                                val bmp = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp.asImageBitmap(),
+                                        contentDescription = "Chapter Illustration",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 240.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .padding(vertical = 6.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
                             }
                         }
                     }
@@ -2551,6 +2635,28 @@ private fun DocxDocumentCanvas(
                                     }
                                 }
                             }
+                            is DocxBlock.Image -> {
+                                val bitmap = remember(block.imageBytes) {
+                                    BitmapFactory.decodeByteArray(block.imageBytes, 0, block.imageBytes.size)?.asImageBitmap()
+                                }
+                                if (bitmap != null) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Image(
+                                            bitmap = bitmap,
+                                            contentDescription = block.description ?: "Document Image",
+                                            modifier = Modifier
+                                                .fillMaxWidth(0.92f)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                            contentScale = ContentScale.FillWidth
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2650,6 +2756,7 @@ internal fun docxBlockPlainText(block: DocxBlock): String = when (block) {
     is DocxBlock.Paragraph -> block.text
     is DocxBlock.Bullet -> block.text
     is DocxBlock.Table -> block.rows.joinToString(" ") { row -> row.joinToString(" ") }
+    is DocxBlock.Image -> ""
 }
 
 /** Quiet time before the reader's chrome collapses on its own. */

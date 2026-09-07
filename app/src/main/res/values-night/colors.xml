@@ -1,17 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="widget_frosted_background">#E6181926</color>
-    <color name="widget_border">#28FFFFFF</color>
+    <!-- Semi-opaque frosted dark glass container background -->
+    <color name="widget_frosted_background">#D916181F</color>
+    <color name="widget_background">#D916181F</color>
+    <color name="widget_player_background">#B81E2230</color>
+    <color name="widget_border">#26FFFFFF</color>
+
+    <!-- Typography -->
     <color name="widget_text_primary">#FFF8FAFC</color>
     <color name="widget_text_muted">#FF94A3B8</color>
-    <color name="widget_card_background">#FF24273A</color>
-    <color name="widget_card_elevated">#FF313244</color>
-    <color name="widget_background">#FF181825</color>
-    <color name="widget_play_button_accent">#FF818CF8</color>
-    <color name="widget_play_icon_color">#FF0F172A</color>
-    <color name="widget_primary_accent">#FFA5B4FC</color>
-    <color name="widget_secondary_accent">#FFF472B6</color>
-    <color name="widget_streak_accent">#FFFB923C</color>
-    <color name="widget_success_accent">#FF34D399</color>
+
+    <!-- Surfaces -->
+    <color name="widget_card_background">#FF222530</color>
+    <color name="widget_card_elevated">#FF2D313F</color>
     <color name="widget_progress_track">#FF334155</color>
+
+    <!-- Accents & Buttons -->
+    <color name="widget_play_button_accent">#FF3B82F6</color>
+    <color name="widget_play_icon_color">#FFFFFFFF</color>
+    <color name="widget_primary_accent">#FF3B82F6</color>
+    <color name="widget_secondary_accent">#FFA78BFA</color>
+    <color name="widget_streak_accent">#FFF97316</color>
+    <color name="widget_success_accent">#FF10B981</color>
+    <color name="widget_amber_accent">#FFF59E0B</color>
+    <color name="widget_cyan_accent">#FF22D3EE</color>
 </resources>

@@ -28,8 +28,7 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".preview"
-            resValue("string", "app_name", "Veritas Preview")
+            signingConfig = signingConfigs.getByName("release")
         }
         release {
             isMinifyEnabled = true
@@ -53,8 +52,8 @@ android {
         applicationId = "com.veritas.reader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 31
-        versionName = "2.2.0"
+        versionCode = 32
+        versionName = "2.3.0"
 
         ndk {
             abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a"))

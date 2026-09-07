@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <corners android:radius="30dp" />
-    <gradient
-        android:angle="135"
-        android:startColor="#5FFFFFFF"
-        android:centerColor="#36FFFFFF"
-        android:endColor="#1E101418" />
+    <corners android:radius="38dp" />
+    <solid android:color="@color/widget_player_background" />
     <stroke
         android:width="1dp"
-        android:color="#40FFFFFF" />
+        android:color="@color/widget_border" />
 </shape>

@@ -2,6 +2,7 @@ package com.veritas.reader
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.ClipboardManager
 import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
@@ -103,6 +104,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import com.veritas.reader.ui.screens.GeminiApiKeyDialog
+import com.veritas.reader.ui.screens.FlashcardViewerDialog
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -785,6 +788,7 @@ internal fun ScopeSelector(
                 val isSelected = selectedScope == scope
                 val label = when (scope) {
                     AiPromptScope.CURRENT_SENTENCE -> "Sentence"
+                    AiPromptScope.CURRENT_PAGE -> "Page"
                     AiPromptScope.CURRENT_SECTION -> "Section"
                     AiPromptScope.CUSTOM_PAGE_RANGE -> "Page range"
                     AiPromptScope.WHOLE_DOCUMENT -> "Whole doc"
@@ -990,82 +994,98 @@ internal fun TaskExpandableCard(
 internal fun AiAppStudyDialog(
     document: ReaderDocument,
     currentIndex: Int,
-    templates: List<AiPromptTemplate>,
-    history: List<AiPromptHistoryEntry>,
+    templates: List<AiPromptTemplate> = emptyList(),
+    history: List<AiPromptHistoryEntry> = emptyList(),
     askAiSettings: AskAiSettings? = null,
     onUpdateAskAiSettings: ((AskAiSettings) -> Unit)? = null,
     onDismiss: () -> Unit,
     onSendToAiApp: (AiPromptType, String, AiPromptScope, IntRange?) -> Unit,
-    onSaveTemplate: (String, String) -> Unit,
-    onDeleteTemplate: (String) -> Unit,
-    onClearHistory: () -> Unit,
+    onSaveTemplate: (String, String) -> Unit = { _, _ -> },
+    onDeleteTemplate: (String) -> Unit = {},
+    onClearHistory: () -> Unit = {},
     onCopyText: (String, String) -> Unit,
     onSaveAiResultAsNote: (String) -> Unit,
-    onImportFlashcards: (String, List<Flashcard>) -> Unit
+    onImportFlashcards: (String, List<Flashcard>) -> Unit,
+    onGenerateInAppFlashcards: ((String, Int, (Boolean, String) -> Unit) -> Unit)? = null,
+    onGenerateInAppQuiz: ((String, Int, (Boolean, String, QuizSet?) -> Unit) -> Unit)? = null,
+    onGenerateInAppSummary: ((String, (Boolean, String) -> Unit) -> Unit)? = null,
+    onGenerateInAppExplanation: ((String, String, (Boolean, String) -> Unit) -> Unit)? = null,
+    onGenerateInAppStudyGuide: ((String, (Boolean, String) -> Unit) -> Unit)? = null,
+    onSaveQuiz: ((QuizSet) -> Unit)? = null,
+    onOpenStudyHub: (() -> Unit)? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var customPrompt by remember { mutableStateOf("") }
-    var templateTitle by remember { mutableStateOf("Custom study prompt") }
-    var aiResultDraft by remember { mutableStateOf("") }
-    var selectedTab by remember { mutableStateOf("Tasks") }
-    var showPasteFlashcards by remember { mutableStateOf(false) }
-    var showPasteQuiz by remember { mutableStateOf(false) }
-    var activeQuizQuestions by remember { mutableStateOf<List<QuizQuestion>?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    val clipboard = remember { context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager }
 
-    if (showPasteFlashcards) {
-        PasteFlashcardsDialog(
-            onImport = { name, cards -> onImportFlashcards(name, cards); showPasteFlashcards = false },
-            onDismiss = { showPasteFlashcards = false }
-        )
-    }
-    if (showPasteQuiz) {
-        PasteQuizDialog(onDismiss = { showPasteQuiz = false })
-    }
-    activeQuizQuestions?.let { questions ->
-        QuizPlayerDialog(questions = questions, onDismiss = { activeQuizQuestions = null })
-    }
-
-    val expandedTask = remember { mutableStateOf<String?>(null) }
-
-    val summarizeWholeDocPrompt = remember { mutableStateOf("Summarize the whole document clearly. Give a short overview first, then the main points, then any important conclusions or action items.") }
-    val longDocSummaryPrompt = remember { mutableStateOf("This is part of a long-document workflow. Summarize this section or page range only, give 3-6 key points, define difficult terms, and end with a short note saying what the user should send next.") }
-    val extractKeypointsPrompt = remember { mutableStateOf("Extract the key points from this document. Group related ideas together and keep the wording clear for revision.") }
-    val explainSentencePrompt = remember { mutableStateOf("Explain the current section in simple language. Identify the main idea, difficult terms, and why the section matters in the document.") }
-    val studyNotesPrompt = remember { mutableStateOf("Turn this document into organized study notes. Use headings, bullet points, definitions, examples, likely exam areas, and a short final revision checklist.") }
-    val simplifyPrompt = remember { mutableStateOf("Rewrite and explain the document in simpler language without removing important meaning. Define difficult words and give short examples where useful.") }
-    val quizPrompt = remember { mutableStateOf("Create an exam-style multiple-choice revision quiz from this document. Format every question EXACTLY like this, with one blank line between questions:\nQ: <question>\nA) <option>\nB) <option>\nC) <option>\nD) <option>\nAnswer: <letter>\nExplanation: <one short sentence>") }
-    val flashcardsPrompt = remember { mutableStateOf("Create flashcards from this document. Focus on definitions, processes, comparisons, and important facts. Reply as plain text only (no tables, no attachments) with every card formatted EXACTLY like this, one blank line between cards:\nQ: <question>\nA: <concise answer>") }
-    val translatePrompt = remember { mutableStateOf("Translate this document accurately while preserving technical terms. Include a short glossary table of key concepts at the end.") }
-
-    val extractKeypointsScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
-    val studyNotesScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
-    val simplifyScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
-    val quizScope = remember { mutableStateOf(AiPromptScope.CUSTOM_PAGE_RANGE) }
-    val flashcardsScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
-    val translateScope = remember { mutableStateOf(AiPromptScope.WHOLE_DOCUMENT) }
-
-    val longDocStartPage = remember { mutableStateOf("1") }
-    val longDocEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
-    val extractKeypointsStartPage = remember { mutableStateOf("1") }
-    val extractKeypointsEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
-    val studyNotesStartPage = remember { mutableStateOf("1") }
-    val studyNotesEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
-    val simplifyStartPage = remember { mutableStateOf("1") }
-    val simplifyEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
-    val quizStartPage = remember { mutableStateOf("1") }
-    val quizEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
-    val flashcardsStartPage = remember { mutableStateOf("1") }
-    val flashcardsEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
-    val translateStartPage = remember { mutableStateOf("1") }
-    val translateEndPage = remember { mutableStateOf(document.pageCount.coerceAtLeast(1).toString()) }
-
-    val safeIndex =
-        if (document.chunks.isEmpty()) 0 else currentIndex.coerceIn(0, document.chunks.lastIndex)
-    val estimatedTextLength = document.chunks.sumOf { it.length }
+    val safeIndex = if (document.chunks.isEmpty()) 0 else currentIndex.coerceIn(0, document.chunks.lastIndex)
     val currentPage = remember(document, currentIndex) {
         val model = ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
         val sentence = model.sentences.getOrNull(currentIndex)
         sentence?.pageNumber?.coerceAtLeast(1) ?: 1
+    }
+
+    var selectedScope by remember { mutableStateOf(AiPromptScope.CURRENT_PAGE) }
+    var customStartPage by remember { mutableStateOf(currentPage.toString()) }
+    var customEndPage by remember { mutableStateOf(minOf(currentPage + 2, document.pageCount.coerceAtLeast(1)).toString()) }
+
+    var showGeminiSetup by remember { mutableStateOf(false) }
+    var showAssistantChooser by remember { mutableStateOf(false) }
+    var showPasteFlashcards by remember { mutableStateOf(false) }
+    var showPasteQuiz by remember { mutableStateOf(false) }
+    var showManualTools by remember { mutableStateOf(false) }
+    var manualInputDraft by remember { mutableStateOf("") }
+
+    var isGenerating by remember { mutableStateOf(false) }
+    var generatingStatus by remember { mutableStateOf("Generating with AI...") }
+
+    var activeResultPreview by remember { mutableStateOf<ModernStudyResultPreview?>(null) }
+    var activeQuizQuestions by remember { mutableStateOf<List<QuizQuestion>?>(null) }
+    var activeStudyDeckCards by remember { mutableStateOf<Pair<String, List<Flashcard>>?>(null) }
+
+    // Clipboard auto-detection
+    var detectedClipboardText by remember { mutableStateOf<String?>(null) }
+    var detectedCards by remember { mutableStateOf<List<Flashcard>>(emptyList()) }
+    var detectedQuiz by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
+    var bannerDismissed by remember { mutableStateOf(false) }
+
+    fun checkClipboard() {
+        val clip = clipboard.primaryClip
+        if (clip != null && clip.itemCount > 0) {
+            val text = clip.getItemAt(0).text?.toString().orEmpty().trim()
+            if (text.length > 20 && text != detectedClipboardText) {
+                val quiz = AiResultParser.parseQuiz(text)
+                val isLikelyQuiz = quiz.isNotEmpty() || AiResultParser.isLikelyQuiz(text)
+                val cards = if (isLikelyQuiz) emptyList() else AiResultParser.parseFlashcards(text)
+                if (cards.isNotEmpty() || quiz.isNotEmpty() || (text.length > 50 && !text.startsWith("You are an expert"))) {
+                    detectedClipboardText = text
+                    detectedCards = cards
+                    detectedQuiz = quiz
+                    bannerDismissed = false
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        checkClipboard()
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                checkClipboard()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val hasGeminiKey = remember(context, showGeminiSetup) {
+        GeminiStudyService.hasApiKey(context)
     }
 
     val installedAiList = remember(context) { installedAiOptions(context) }
@@ -1084,12 +1104,82 @@ internal fun AiAppStudyDialog(
         }
     }
 
+    val currentRange = remember(selectedScope, customStartPage, customEndPage, document.pageCount) {
+        if (selectedScope == AiPromptScope.CUSTOM_PAGE_RANGE) {
+            val start = customStartPage.toIntOrNull() ?: 1
+            val end = customEndPage.toIntOrNull() ?: document.pageCount
+            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
+        } else null
+    }
+
+    val scopeSentences = remember(document, currentIndex, selectedScope, currentRange) {
+        AiPromptLauncher.getSelectedSentences(document, currentIndex, selectedScope, currentRange)
+    }
+
+    val scopeText = remember(scopeSentences) {
+        AiPromptLauncher.extractTextForScope(document, currentIndex, selectedScope, currentRange)
+    }
+
+    val scopeWordCount = remember(scopeSentences) {
+        scopeSentences.sumOf { it.text.split(Regex("\\s+")).size }
+    }
+
+    if (showGeminiSetup) {
+        GeminiApiKeyDialog(onDismiss = { showGeminiSetup = false })
+    }
+
+    if (showPasteFlashcards) {
+        PasteFlashcardsDialog(
+            onImport = { name, cards ->
+                onImportFlashcards(name, cards)
+                showPasteFlashcards = false
+                activeResultPreview = ModernStudyResultPreview.Flashcards(name, cards)
+            },
+            onDismiss = { showPasteFlashcards = false }
+        )
+    }
+
+    if (showPasteQuiz) {
+        PasteQuizDialog(onDismiss = { showPasteQuiz = false })
+    }
+
+    activeQuizQuestions?.let { questions ->
+        QuizPlayerDialog(questions = questions, onDismiss = { activeQuizQuestions = null })
+    }
+
+    activeStudyDeckCards?.let { (deckTitle, cards) ->
+        FlashcardViewerDialog(
+            setName = deckTitle,
+            cards = cards.mapIndexed { idx, card ->
+                FlashcardProgress(
+                    id = java.util.UUID.randomUUID().toString(),
+                    documentId = document.id.orEmpty(),
+                    front = card.front,
+                    back = card.back,
+                    setName = deckTitle
+                )
+            },
+            onRate = { _, _ -> },
+            onDeleteCard = {},
+            onDismiss = { activeStudyDeckCards = null }
+        )
+    }
+
+    fun handleExternalHandoff(type: AiPromptType) {
+        val prompt = AiPromptLauncher.buildPrompt(
+            title = document.title,
+            chunks = document.chunks,
+            currentIndex = PlaybackStateStore.currentIndex,
+            type = type,
+            scope = selectedScope
+        )
+        onSendToAiApp(type, "", selectedScope, currentRange)
+        Toast.makeText(context, "Prompt ready in $defaultAiName. Return here when done!", Toast.LENGTH_LONG).show()
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -1101,957 +1191,1181 @@ internal fun AiAppStudyDialog(
                     .statusBarsPadding()
                     .navigationBarsPadding()
             ) {
-                // Top App Bar
+                // Top Header Bar
                 Surface(
                     color = MaterialTheme.colorScheme.background,
-                    tonalElevation = 0.dp,
+                    tonalElevation = 1.dp,
                     shadowElevation = 0.dp
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                IconButton(
-                                    onClick = onDismiss,
-                                    modifier = Modifier.size(38.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back",
-                                        tint = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                                Column {
-                                    Text(
-                                        "AI Study Handoff",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        "${document.title} • Page $currentPage of ${document.pageCount.coerceAtLeast(1)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                            IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
                             }
-
-                            // Quick target assistant pill
-                            Surface(
-                                shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
-                                modifier = Modifier.clickable { selectedTab = "AI Apps" }
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = aiAssistantIcon(defaultAiId),
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Text(
-                                        defaultAiName,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                            Column {
+                                Text(
+                                    "AI Study Studio",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "${document.title} • Page $currentPage of ${document.pageCount.coerceAtLeast(1)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
 
-                        // Tab Bar Row
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            val tabs = listOf("Tasks", "AI Apps", "Templates", "History", "Smart Importer")
-                            tabs.forEach { tab ->
-                                val selected = selectedTab == tab
-                                if (selected) {
-                                    Button(
-                                        onClick = { selectedTab = tab },
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                        shape = RoundedCornerShape(50)
-                                    ) {
-                                        Text(tab, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            if (onOpenStudyHub != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    modifier = Modifier.clickable {
+                                        onDismiss()
+                                        onOpenStudyHub()
                                     }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = { selectedTab = tab },
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                        shape = RoundedCornerShape(50)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Text(tab, style = MaterialTheme.typography.labelMedium)
+                                        Text("📚", fontSize = 12.sp)
+                                        Text(
+                                            "Study Hub",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
                                     }
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    checkClipboard()
+                                    Toast.makeText(context, "Checked clipboard", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = "Refresh Clipboard",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // Engine Status & Selector Pill
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = if (hasGeminiKey) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (hasGeminiKey) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant
+                                ),
+                                modifier = Modifier.clickable {
+                                    if (!hasGeminiKey) showGeminiSetup = true else showAssistantChooser = true
+                                }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val activeProvider = remember(hasGeminiKey, showGeminiSetup) { GeminiStudyService.getProvider(context) }
+                                    Icon(
+                                        imageVector = if (hasGeminiKey) Icons.Outlined.AutoAwesome else aiAssistantIcon(defaultAiId),
+                                        contentDescription = null,
+                                        tint = if (hasGeminiKey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text(
+                                        if (hasGeminiKey) "⚡ ${activeProvider.label} In-App" else "🚀 $defaultAiName",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (hasGeminiKey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
                     }
                 }
 
-                // Main Tab Content Area
-                Box(
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                // Scrollable Content
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    // Scope Selector Card
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                     ) {
-                        // Document Overview Banner
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "STUDY FOCUS",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    "${scopeSentences.size} sentences • ~$scopeWordCount words",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.size(44.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.MenuBook,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        document.title,
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                val scopes = listOf(
+                                    AiPromptScope.CURRENT_PAGE to "Page $currentPage",
+                                    AiPromptScope.CURRENT_SENTENCE to "Sentence ${(safeIndex + 1)}",
+                                    AiPromptScope.CURRENT_SECTION to "Section",
+                                    AiPromptScope.WHOLE_DOCUMENT to "Whole Book",
+                                    AiPromptScope.CUSTOM_PAGE_RANGE to "Pages..."
+                                )
+                                scopes.forEach { (scope, label) ->
+                                    val isSelected = selectedScope == scope
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { selectedScope = scope },
+                                        label = { Text(label, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                                        shape = RoundedCornerShape(50)
                                     )
-                                    Text(
-                                        "${document.sourceLabel.ifBlank { "Document" }} • ${document.chunks.size} sentences • ${document.pageCount} pages • ~$estimatedTextLength characters",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall
+                                }
+                            }
+
+                            if (selectedScope == AiPromptScope.CUSTOM_PAGE_RANGE) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedTextField(
+                                        value = customStartPage,
+                                        onValueChange = { customStartPage = it.filter { ch -> ch.isDigit() } },
+                                        label = { Text("From Page", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = customEndPage,
+                                        onValueChange = { customEndPage = it.filter { ch -> ch.isDigit() } },
+                                        label = { Text("To Page", fontSize = 11.sp) },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp)
                                     )
                                 }
                             }
                         }
+                    }
 
-                        when (selectedTab) {
-                            "Tasks" -> {
-                                Text(
-                                    "Select a study goal below. Veritas prepares the text with page coordinates, copies the prompt, and opens your chosen AI assistant for instant analysis.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Summarize whole document",
-                                    badge = "Executive overview, key points & takeaways",
-                                    icon = Icons.Outlined.Summarize,
-                                    taskKey = "summarize_whole_doc",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = summarizeWholeDocPrompt.value,
-                                    onPromptChange = { summarizeWholeDocPrompt.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Summary Prompt", summarizeWholeDocPrompt.value) },
-                                    onSend = {
-                                        onSendToAiApp(
-                                            AiPromptType.SUMMARY,
-                                            summarizeWholeDocPrompt.value,
-                                            AiPromptScope.WHOLE_DOCUMENT,
-                                            null
-                                        )
-                                    }
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Section / Page-by-page summary",
-                                    badge = "Targeted range summary with term definitions",
-                                    icon = Icons.AutoMirrored.Outlined.Article,
-                                    taskKey = "long_doc",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = longDocSummaryPrompt.value,
-                                    onPromptChange = { longDocSummaryPrompt.value = it },
-                                    startPage = longDocStartPage.value,
-                                    onStartPageChange = { longDocStartPage.value = it },
-                                    endPage = longDocEndPage.value,
-                                    onEndPageChange = { longDocEndPage.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Page Summary Prompt", longDocSummaryPrompt.value) },
-                                    onSend = {
-                                        val start = longDocStartPage.value.toIntOrNull() ?: 1
-                                        val end = longDocEndPage.value.toIntOrNull() ?: document.pageCount
-                                        val min = minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
-                                        val max = maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
-                                        onSendToAiApp(
-                                            AiPromptType.SECTION_BY_SECTION,
-                                            longDocSummaryPrompt.value,
-                                            AiPromptScope.CUSTOM_PAGE_RANGE,
-                                            min..max
-                                        )
-                                    }
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Extract key points & core ideas",
-                                    badge = "Bulleted facts, arguments and findings",
-                                    icon = Icons.Outlined.Bolt,
-                                    taskKey = "extract_keypoints",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = extractKeypointsPrompt.value,
-                                    onPromptChange = { extractKeypointsPrompt.value = it },
-                                    showScopeSelector = true,
-                                    selectedScope = extractKeypointsScope.value,
-                                    onScopeSelected = { extractKeypointsScope.value = it },
-                                    startPage = extractKeypointsStartPage.value,
-                                    onStartPageChange = { extractKeypointsStartPage.value = it },
-                                    endPage = extractKeypointsEndPage.value,
-                                    onEndPageChange = { extractKeypointsEndPage.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Keypoints Prompt", extractKeypointsPrompt.value) },
-                                    onSend = {
-                                        val range = if (extractKeypointsScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                            val start = extractKeypointsStartPage.value.toIntOrNull() ?: 1
-                                            val end = extractKeypointsEndPage.value.toIntOrNull() ?: document.pageCount
-                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
-                                        } else null
-                                        onSendToAiApp(
-                                            AiPromptType.KEY_POINTS,
-                                            extractKeypointsPrompt.value,
-                                            extractKeypointsScope.value,
-                                            range
-                                        )
-                                    }
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Explain current sentence & section",
-                                    badge = "In-depth explanation with context & difficult words",
-                                    icon = Icons.Outlined.School,
-                                    taskKey = "explain_sentence",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = explainSentencePrompt.value,
-                                    onPromptChange = { explainSentencePrompt.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Sentence Prompt", explainSentencePrompt.value) },
-                                    onSend = {
-                                        onSendToAiApp(
-                                            AiPromptType.EXPLAIN_SECTION,
-                                            explainSentencePrompt.value,
-                                            AiPromptScope.CURRENT_SENTENCE,
-                                            null
-                                        )
-                                    }
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Create organized study notes",
-                                    badge = "Headings, formulas, definitions & review checklist",
-                                    icon = Icons.Outlined.Description,
-                                    taskKey = "study_notes",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = studyNotesPrompt.value,
-                                    onPromptChange = { studyNotesPrompt.value = it },
-                                    showScopeSelector = true,
-                                    selectedScope = studyNotesScope.value,
-                                    onScopeSelected = { studyNotesScope.value = it },
-                                    startPage = studyNotesStartPage.value,
-                                    onStartPageChange = { studyNotesStartPage.value = it },
-                                    endPage = studyNotesEndPage.value,
-                                    onEndPageChange = { studyNotesEndPage.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Study Notes Prompt", studyNotesPrompt.value) },
-                                    onSend = {
-                                        val range = if (studyNotesScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                            val start = studyNotesStartPage.value.toIntOrNull() ?: 1
-                                            val end = studyNotesEndPage.value.toIntOrNull() ?: document.pageCount
-                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
-                                        } else null
-                                        onSendToAiApp(
-                                            AiPromptType.STUDY_NOTES,
-                                            studyNotesPrompt.value,
-                                            studyNotesScope.value,
-                                            range
-                                        )
-                                    }
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Simplify difficult text & jargon",
-                                    badge = "Rewritten in clear, straightforward language",
-                                    icon = Icons.Outlined.AutoAwesome,
-                                    taskKey = "simplify_text",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = simplifyPrompt.value,
-                                    onPromptChange = { simplifyPrompt.value = it },
-                                    showScopeSelector = true,
-                                    selectedScope = simplifyScope.value,
-                                    onScopeSelected = { simplifyScope.value = it },
-                                    startPage = simplifyStartPage.value,
-                                    onStartPageChange = { simplifyStartPage.value = it },
-                                    endPage = simplifyEndPage.value,
-                                    onEndPageChange = { simplifyEndPage.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Simplify Prompt", simplifyPrompt.value) },
-                                    onSend = {
-                                        val range = if (simplifyScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                            val start = simplifyStartPage.value.toIntOrNull() ?: 1
-                                            val end = simplifyEndPage.value.toIntOrNull() ?: document.pageCount
-                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
-                                        } else null
-                                        onSendToAiApp(
-                                            AiPromptType.SIMPLIFY,
-                                            simplifyPrompt.value,
-                                            simplifyScope.value,
-                                            range
-                                        )
-                                    }
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Create practice exam quiz",
-                                    badge = "Multiple choice revision with answers & explanations",
-                                    icon = Icons.Outlined.Quiz,
-                                    taskKey = "quiz",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = quizPrompt.value,
-                                    onPromptChange = { quizPrompt.value = it },
-                                    showScopeSelector = true,
-                                    selectedScope = quizScope.value,
-                                    onScopeSelected = { quizScope.value = it },
-                                    startPage = quizStartPage.value,
-                                    onStartPageChange = { quizStartPage.value = it },
-                                    endPage = quizEndPage.value,
-                                    onEndPageChange = { quizEndPage.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Quiz Prompt", quizPrompt.value) },
-                                    onSend = {
-                                        val range = if (quizScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                            val start = quizStartPage.value.toIntOrNull() ?: 1
-                                            val end = quizEndPage.value.toIntOrNull() ?: document.pageCount
-                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
-                                        } else null
-                                        onSendToAiApp(
-                                            AiPromptType.QUIZ,
-                                            quizPrompt.value,
-                                            quizScope.value,
-                                            range
-                                        )
-                                    }
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Generate study flashcards",
-                                    badge = "Q&A flashcards ready for Veritas study mode",
-                                    icon = Icons.Outlined.Style,
-                                    taskKey = "flashcards",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = flashcardsPrompt.value,
-                                    onPromptChange = { flashcardsPrompt.value = it },
-                                    showScopeSelector = true,
-                                    selectedScope = flashcardsScope.value,
-                                    onScopeSelected = { flashcardsScope.value = it },
-                                    startPage = flashcardsStartPage.value,
-                                    onStartPageChange = { flashcardsStartPage.value = it },
-                                    endPage = flashcardsEndPage.value,
-                                    onEndPageChange = { flashcardsEndPage.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Flashcards Prompt", flashcardsPrompt.value) },
-                                    onSend = {
-                                        val range = if (flashcardsScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                            val start = flashcardsStartPage.value.toIntOrNull() ?: 1
-                                            val end = flashcardsEndPage.value.toIntOrNull() ?: document.pageCount
-                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
-                                        } else null
-                                        onSendToAiApp(
-                                            AiPromptType.FLASHCARDS,
-                                            flashcardsPrompt.value,
-                                            flashcardsScope.value,
-                                            range
-                                        )
-                                    }
-                                )
-
-                                TaskExpandableCard(
-                                    title = "Translate & build terminology glossary",
-                                    badge = "Language translation with key technical term definitions",
-                                    icon = Icons.Outlined.Translate,
-                                    taskKey = "translate_glossary",
-                                    expandedTask = expandedTask.value,
-                                    onToggleExpand = { expandedTask.value = it },
-                                    prompt = translatePrompt.value,
-                                    onPromptChange = { translatePrompt.value = it },
-                                    showScopeSelector = true,
-                                    selectedScope = translateScope.value,
-                                    onScopeSelected = { translateScope.value = it },
-                                    startPage = translateStartPage.value,
-                                    onStartPageChange = { translateStartPage.value = it },
-                                    endPage = translateEndPage.value,
-                                    onEndPageChange = { translateEndPage.value = it },
-                                    onCopyPrompt = { onCopyText("Veritas Translation Prompt", translatePrompt.value) },
-                                    onSend = {
-                                        val range = if (translateScope.value == AiPromptScope.CUSTOM_PAGE_RANGE) {
-                                            val start = translateStartPage.value.toIntOrNull() ?: 1
-                                            val end = translateEndPage.value.toIntOrNull() ?: document.pageCount
-                                            minOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))..maxOf(start, end).coerceIn(1, document.pageCount.coerceAtLeast(1))
-                                        } else null
-                                        onSendToAiApp(
-                                            AiPromptType.CUSTOM,
-                                            translatePrompt.value,
-                                            translateScope.value,
-                                            range
-                                        )
-                                    }
-                                )
-                            }
-
-                            "AI Apps" -> {
-                                Text(
-                                    "Choose which AI assistant Veritas will automatically target when sending study prompts, or launch installed AI apps directly.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-
-                                aiAssistantOptions.forEach { option ->
-                                    val isInstalled = remember(option, context) {
-                                        if (option.id == "chooser") true
-                                        else installedPackageForOption(context, option)?.isNotBlank() == true
-                                    }
-                                    val isCurrent = remember(option, askAiSettings) {
-                                        if (askAiSettings == null || askAiSettings.assistantId.isBlank()) {
-                                            option.id == "chooser"
-                                        } else {
-                                            option.id == askAiSettings.assistantId
-                                        }
-                                    }
-
-                                    Card(
-                                        shape = RoundedCornerShape(16.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable(enabled = isInstalled) {
-                                                val newSettings = (askAiSettings ?: AskAiSettings()).copy(
-                                                    assistantId = option.id,
-                                                    assistantLabel = option.label,
-                                                    packageName = option.packageName
-                                                )
-                                                onUpdateAskAiSettings?.invoke(newSettings)
-                                            },
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isCurrent)
-                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                                            else
-                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                                        ),
-                                        border = BorderStroke(
-                                            if (isCurrent) 1.5.dp else 1.dp,
-                                            if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                        )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                                    modifier = Modifier.size(40.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Icon(
-                                                            imageVector = aiAssistantIcon(option.id),
-                                                            contentDescription = null,
-                                                            tint = if (isCurrent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            modifier = Modifier.size(22.dp)
-                                                        )
-                                                    }
-                                                }
-                                                Column {
-                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                        Text(
-                                                            option.label,
-                                                            fontWeight = FontWeight.Bold,
-                                                            style = MaterialTheme.typography.bodyLarge
-                                                        )
-                                                        if (isCurrent) {
-                                                            Surface(
-                                                                shape = RoundedCornerShape(50),
-                                                                color = MaterialTheme.colorScheme.primary,
-                                                                contentColor = MaterialTheme.colorScheme.onPrimary
-                                                            ) {
-                                                                Text(
-                                                                    "Active Target",
-                                                                    style = MaterialTheme.typography.labelSmall,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                    Text(
-                                                        when {
-                                                            option.id == "chooser" -> "Opens Android sharing chooser every time"
-                                                            isInstalled -> "Installed on this device"
-                                                            else -> "Not installed on device"
-                                                        },
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-
-                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                if (isInstalled) {
-                                                    if (option.packageName.isNotBlank()) {
-                                                        IconButton(
-                                                            onClick = {
-                                                                val pkg = installedPackageForOption(context, option) ?: option.packageName
-                                                                val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)
-                                                                if (launchIntent != null) {
-                                                                    context.startActivity(launchIntent)
-                                                                } else {
-                                                                    openPlayStoreForPackage(context, option.packageName)
-                                                                }
-                                                            },
-                                                            modifier = Modifier.size(32.dp)
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                                                                contentDescription = "Open App",
-                                                                modifier = Modifier.size(17.dp),
-                                                                tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                                            )
-                                                        }
-                                                    }
-                                                } else if (option.packageName.isNotBlank()) {
-                                                    OutlinedButton(
-                                                        onClick = { openPlayStoreForPackage(context, option.packageName) },
-                                                        shape = RoundedCornerShape(50),
-                                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                                        modifier = Modifier.height(30.dp)
-                                                    ) {
-                                                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(13.dp))
-                                                        Spacer(Modifier.width(4.dp))
-                                                        Text("Install", style = MaterialTheme.typography.labelSmall)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            "Templates" -> {
-                                Text(
-                                    "Save customized prompts for quick re-use across all your books and study documents.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-
-                                Card(
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Text("Create New Template", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                                        OutlinedTextField(
-                                            value = templateTitle,
-                                            onValueChange = { templateTitle = it },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            label = { Text("Template Name") },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        OutlinedTextField(
-                                            value = customPrompt,
-                                            onValueChange = { customPrompt = it },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(110.dp),
-                                            label = { Text("Prompt Instructions") },
-                                            placeholder = { Text("e.g. Act as a tutor and quiz me step-by-step on this material...") },
-                                            shape = RoundedCornerShape(12.dp)
-                                        )
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    onSaveTemplate(templateTitle, customPrompt)
-                                                    customPrompt = ""
-                                                    templateTitle = "Custom study prompt"
-                                                },
-                                                enabled = customPrompt.isNotBlank(),
-                                                modifier = Modifier.weight(1f),
-                                                shape = RoundedCornerShape(50)
-                                            ) {
-                                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(Modifier.width(4.dp))
-                                                Text("Save")
-                                            }
-                                            Button(
-                                                onClick = {
-                                                    onSendToAiApp(
-                                                        AiPromptType.CUSTOM,
-                                                        customPrompt,
-                                                        AiPromptScope.WHOLE_DOCUMENT,
-                                                        null
-                                                    )
-                                                },
-                                                enabled = customPrompt.isNotBlank(),
-                                                modifier = Modifier.weight(1f),
-                                                shape = RoundedCornerShape(50)
-                                            ) {
-                                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                Spacer(Modifier.width(4.dp))
-                                                Text("Send Now")
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Text("Saved Custom Templates", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-
-                                if (templates.isEmpty()) {
-                                    Text(
-                                        "No custom templates saved yet. Create one above or use the built-in study tasks.",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                } else {
-                                    templates.forEach { template ->
-                                        Card(
-                                            shape = RoundedCornerShape(16.dp),
-                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(14.dp),
-                                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(template.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                                                Text(
-                                                    template.instruction,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Row(
-                                                    horizontalArrangement = Arrangement.End,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    TextButton(onClick = { onDeleteTemplate(template.id) }) {
-                                                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(Modifier.width(4.dp))
-                                                        Text("Delete")
-                                                    }
-                                                    TextButton(onClick = { onCopyText("Veritas AI template", template.instruction) }) {
-                                                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(Modifier.width(4.dp))
-                                                        Text("Copy")
-                                                    }
-                                                    Button(
-                                                        onClick = {
-                                                            onSendToAiApp(
-                                                                AiPromptType.CUSTOM,
-                                                                template.instruction,
-                                                                AiPromptScope.WHOLE_DOCUMENT,
-                                                                null
-                                                            )
-                                                        },
-                                                        shape = RoundedCornerShape(50)
-                                                    ) {
-                                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(Modifier.width(4.dp))
-                                                        Text("Use")
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            "History" -> {
+                    // Clipboard Auto-Detection Banner
+                    if (detectedClipboardText != null && !bannerDismissed) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            ),
+                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
+                                    Icon(
+                                        Icons.Outlined.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                     Text(
-                                        "Recent AI Prompts",
+                                        "Study Content Found on Clipboard!",
                                         fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyLarge
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    if (history.isNotEmpty()) {
-                                        TextButton(onClick = onClearHistory) {
-                                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(4.dp))
-                                            Text("Clear history")
-                                        }
-                                    }
                                 }
 
-                                if (history.isEmpty()) {
-                                    Text(
-                                        "Prompts and questions you hand off to AI assistants will be tracked here for quick re-use.",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                } else {
-                                    history.forEach { item ->
-                                        Card(
-                                            shape = RoundedCornerShape(16.dp),
-                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(14.dp),
-                                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Surface(
-                                                        shape = RoundedCornerShape(50),
-                                                        color = MaterialTheme.colorScheme.primaryContainer,
-                                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                                    ) {
-                                                        Text(
-                                                            "${item.promptType} • ${item.scope}",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                    Text(
-                                                        formatUpdated(item.createdAt),
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-
-                                                Text(
-                                                    item.documentTitle,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-
-                                                Text(
-                                                    item.promptPreview,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    maxLines = 5,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-
-                                                Row(
-                                                    horizontalArrangement = Arrangement.End,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    TextButton(onClick = { onCopyText("Veritas AI prompt", item.promptPreview) }) {
-                                                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(Modifier.width(4.dp))
-                                                        Text("Copy")
-                                                    }
-                                                    Button(
-                                                        onClick = {
-                                                            onSendToAiApp(
-                                                                AiPromptType.CUSTOM,
-                                                                item.promptPreview,
-                                                                AiPromptScope.WHOLE_DOCUMENT,
-                                                                null
-                                                            )
-                                                        },
-                                                        shape = RoundedCornerShape(50)
-                                                    ) {
-                                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(Modifier.width(4.dp))
-                                                        Text("Re-send")
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            "Smart Importer" -> {
                                 Text(
-                                    "When the AI assistant replies, copy its text, return here, and paste it below. Veritas automatically detects whether it's flashcards, a quiz, or study notes.",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    when {
+                                        detectedCards.isNotEmpty() -> "✨ Detected ${detectedCards.size} Q&A flashcards ready to import"
+                                        detectedQuiz.isNotEmpty() -> "🎯 Detected ${detectedQuiz.size} practice exam questions ready to play"
+                                        else -> "📝 Detected study notes / explanation on clipboard"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
 
-                                val parsedCards = remember(aiResultDraft) { AiResultParser.parseFlashcards(aiResultDraft) }
-                                val parsedQuiz = remember(aiResultDraft) { AiResultParser.parseQuiz(aiResultDraft) }
-
-                                OutlinedTextField(
-                                    value = aiResultDraft,
-                                    onValueChange = { aiResultDraft = it },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(180.dp),
-                                    label = { Text("Paste AI reply here") },
-                                    placeholder = { Text("Paste summary, explanation, Q&A flashcards, or exam quiz...") },
-                                    shape = RoundedCornerShape(14.dp)
-                                )
-
-                                // Auto detection badge
-                                if (aiResultDraft.isNotBlank()) {
-                                    Card(
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                                        ),
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Outlined.AutoAwesome,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                            Text(
-                                                when {
-                                                    parsedCards.isNotEmpty() && parsedQuiz.isNotEmpty() ->
-                                                        "Detected: ${parsedCards.size} Flashcard(s) & ${parsedQuiz.size} Quiz question(s)"
-                                                    parsedCards.isNotEmpty() ->
-                                                        "Detected: ${parsedCards.size} Flashcard(s) (Q/A format)"
-                                                    parsedQuiz.isNotEmpty() ->
-                                                        "Detected: ${parsedQuiz.size} Quiz question(s) (Multiple-choice format)"
-                                                    else ->
-                                                        "Detected: Study Note / Text Explanation"
-                                                },
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Quick Action Buttons
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    if (parsedCards.isNotEmpty()) {
-                                        Button(
-                                            onClick = {
-                                                onImportFlashcards(document.title, parsedCards)
-                                                aiResultDraft = ""
-                                                Toast.makeText(context, "Imported ${parsedCards.size} flashcards!", Toast.LENGTH_SHORT).show()
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(50)
-                                        ) {
-                                            Icon(Icons.Outlined.Style, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("Import ${parsedCards.size} Flashcard${if (parsedCards.size == 1) "" else "s"}")
-                                        }
-                                    }
-
-                                    if (parsedQuiz.isNotEmpty()) {
-                                        Button(
-                                            onClick = {
-                                                activeQuizQuestions = parsedQuiz
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(50)
-                                        ) {
-                                            Icon(Icons.Outlined.Quiz, contentDescription = null, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("Take Interactive Quiz (${parsedQuiz.size} Questions)")
-                                        }
-                                    }
-
                                     Button(
                                         onClick = {
-                                            onSaveAiResultAsNote(aiResultDraft)
-                                            aiResultDraft = ""
-                                            Toast.makeText(context, "Saved note to sentence ${safeIndex + 1}!", Toast.LENGTH_SHORT).show()
+                                            when {
+                                                detectedCards.isNotEmpty() -> {
+                                                    val setName = "${document.title} - Page $currentPage"
+                                                    onImportFlashcards(setName, detectedCards)
+                                                    activeResultPreview = ModernStudyResultPreview.Flashcards(setName, detectedCards)
+                                                    bannerDismissed = true
+                                                    Toast.makeText(context, "Imported ${detectedCards.size} flashcards!", Toast.LENGTH_SHORT).show()
+                                                }
+                                                detectedQuiz.isNotEmpty() -> {
+                                                    val newQuiz = QuizSet(
+                                                        title = "${document.title} - Page $currentPage Quiz",
+                                                        documentId = document.id.orEmpty(),
+                                                        questions = detectedQuiz
+                                                    )
+                                                    onSaveQuiz?.invoke(newQuiz)
+                                                    activeResultPreview = ModernStudyResultPreview.Quiz(newQuiz)
+                                                    bannerDismissed = true
+                                                }
+                                                else -> {
+                                                    activeResultPreview = ModernStudyResultPreview.NoteText(
+                                                        AiPromptType.STUDY_NOTES,
+                                                        "Imported Study Notes",
+                                                        detectedClipboardText.orEmpty()
+                                                    )
+                                                    bannerDismissed = true
+                                                }
+                                            }
                                         },
-                                        enabled = aiResultDraft.isNotBlank(),
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier.weight(1f),
                                         shape = RoundedCornerShape(50)
                                     ) {
-                                        Icon(Icons.Outlined.EditNote, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("Save Result to Current Sentence Note")
+                                        Text("Review & Import", fontWeight = FontWeight.Bold)
                                     }
+
+                                    OutlinedButton(
+                                        onClick = { bannerDismissed = true },
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Text("Dismiss")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // In-Progress Loading Card
+                    if (isGenerating) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.5.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        generatingStatus,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "Analyzing with Google Gemini...",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(onClick = { isGenerating = false }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        }
+                    }
+
+                    // Interactive Results Preview (If Any)
+                    activeResultPreview?.let { preview ->
+                        ModernStudyResultPreviewCard(
+                            preview = preview,
+                            onClose = { activeResultPreview = null },
+                            onStudyCards = { setName, cards ->
+                                activeStudyDeckCards = setName to cards
+                            },
+                            onStartQuiz = { quiz ->
+                                activeQuizQuestions = quiz.questions
+                            },
+                            onSaveNote = { text ->
+                                onSaveAiResultAsNote(text)
+                                Toast.makeText(context, "Saved note to sentence ${(safeIndex + 1)}!", Toast.LENGTH_SHORT).show()
+                            },
+                            onCopy = { label, text -> onCopyText(label, text) }
+                        )
+                    }
+
+                    // 5 Core Modern Study Tools
+                    ModernToolActionCard(
+                        title = "AI Flashcard Deck",
+                        badge = "SM-2 Active Recall",
+                        description = "Extracts definitions, formulas and key facts into interactive spaced repetition cards.",
+                        icon = Icons.Outlined.Style,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+                        iconTint = MaterialTheme.colorScheme.secondary,
+                        primaryActionLabel = if (hasGeminiKey) "Generate Flashcards" else "Open in $defaultAiName",
+                        isPrimaryInApp = hasGeminiKey,
+                        onPrimaryAction = {
+                            if (hasGeminiKey) {
+                                isGenerating = true
+                                generatingStatus = "Synthesizing flashcards with Gemini..."
+                                if (onGenerateInAppFlashcards != null) {
+                                    onGenerateInAppFlashcards(scopeText, 8) { success, msg ->
+                                        isGenerating = false
+                                        if (success) {
+                                            val cards = AiResultParser.parseFlashcards(msg)
+                                            val setName = "${document.title} - Page $currentPage"
+                                            activeResultPreview = ModernStudyResultPreview.Flashcards(setName, cards)
+                                            Toast.makeText(context, "Flashcards ready!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                } else {
+                                    coroutineScope.launch {
+                                        val res = GeminiStudyService.generateFlashcards(
+                                            apiKey = GeminiStudyService.getApiKey(context),
+                                            documentTitle = document.title,
+                                            textContext = scopeText,
+                                            cardCount = 8
+                                        )
+                                        isGenerating = false
+                                        res.onSuccess { cards ->
+                                            val setName = "${document.title} - Page $currentPage"
+                                            onImportFlashcards(setName, cards)
+                                            activeResultPreview = ModernStudyResultPreview.Flashcards(setName, cards)
+                                            Toast.makeText(context, "Generated ${cards.size} flashcards!", Toast.LENGTH_SHORT).show()
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, err.message ?: "Generation failed", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            } else {
+                                handleExternalHandoff(AiPromptType.FLASHCARDS)
+                            }
+                        },
+                        onCopyPrompt = {
+                            val prompt = AiPromptLauncher.buildPrompt(
+                                title = document.title,
+                                chunks = document.chunks,
+                                currentIndex = safeIndex,
+                                type = AiPromptType.FLASHCARDS,
+                                scope = selectedScope
+                            )
+                            onCopyText("Veritas Flashcard Prompt", prompt)
+                        },
+                        onExternalLaunch = { handleExternalHandoff(AiPromptType.FLASHCARDS) }
+                    )
+
+                    ModernToolActionCard(
+                        title = "Practice Exam Quiz",
+                        badge = "Interactive Studio",
+                        description = "Generates multiple-choice exam questions with instant scoring and detailed explanations.",
+                        icon = Icons.Outlined.Quiz,
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        primaryActionLabel = if (hasGeminiKey) "Create Practice Quiz" else "Open in $defaultAiName",
+                        isPrimaryInApp = hasGeminiKey,
+                        onPrimaryAction = {
+                            if (hasGeminiKey) {
+                                isGenerating = true
+                                generatingStatus = "Formulating exam questions with Gemini..."
+                                if (onGenerateInAppQuiz != null) {
+                                    onGenerateInAppQuiz(scopeText, 5) { success, msg, quiz ->
+                                        isGenerating = false
+                                        if (success && quiz != null) {
+                                            onSaveQuiz?.invoke(quiz)
+                                            activeResultPreview = ModernStudyResultPreview.Quiz(quiz)
+                                            Toast.makeText(context, "Quiz ready!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                } else {
+                                    coroutineScope.launch {
+                                        val res = GeminiStudyService.generateQuiz(
+                                            apiKey = GeminiStudyService.getApiKey(context),
+                                            documentTitle = document.title,
+                                            textContext = scopeText,
+                                            questionCount = 5
+                                        )
+                                        isGenerating = false
+                                        res.onSuccess { questions ->
+                                            val newQuiz = QuizSet(
+                                                title = "${document.title} - Page $currentPage Quiz",
+                                                documentId = document.id.orEmpty(),
+                                                questions = questions
+                                            )
+                                            onSaveQuiz?.invoke(newQuiz)
+                                            activeResultPreview = ModernStudyResultPreview.Quiz(newQuiz)
+                                            Toast.makeText(context, "Created ${questions.size} questions!", Toast.LENGTH_SHORT).show()
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, err.message ?: "Quiz creation failed", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            } else {
+                                handleExternalHandoff(AiPromptType.QUIZ)
+                            }
+                        },
+                        onCopyPrompt = {
+                            val prompt = AiPromptLauncher.buildPrompt(
+                                title = document.title,
+                                chunks = document.chunks,
+                                currentIndex = safeIndex,
+                                type = AiPromptType.QUIZ,
+                                scope = selectedScope
+                            )
+                            onCopyText("Veritas Quiz Prompt", prompt)
+                        },
+                        onExternalLaunch = { handleExternalHandoff(AiPromptType.QUIZ) }
+                    )
+
+                    ModernToolActionCard(
+                        title = "Executive Summary",
+                        badge = "BLUF Framework",
+                        description = "High-yield summary with core thesis, 4-6 bullet takeaways with citations, and conclusions.",
+                        icon = Icons.Outlined.Summarize,
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.35f),
+                        iconTint = MaterialTheme.colorScheme.tertiary,
+                        primaryActionLabel = if (hasGeminiKey) "Synthesize Summary" else "Open in $defaultAiName",
+                        isPrimaryInApp = hasGeminiKey,
+                        onPrimaryAction = {
+                            if (hasGeminiKey) {
+                                isGenerating = true
+                                generatingStatus = "Synthesizing executive summary..."
+                                if (onGenerateInAppSummary != null) {
+                                    onGenerateInAppSummary(scopeText) { success, result ->
+                                        isGenerating = false
+                                        if (success) {
+                                            activeResultPreview = ModernStudyResultPreview.NoteText(
+                                                AiPromptType.SUMMARY,
+                                                "Executive Summary (Page $currentPage)",
+                                                result
+                                            )
+                                        } else {
+                                            Toast.makeText(context, result, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                } else {
+                                    coroutineScope.launch {
+                                        val res = GeminiStudyService.generateStudySummary(
+                                            apiKey = GeminiStudyService.getApiKey(context),
+                                            documentTitle = document.title,
+                                            textContext = scopeText
+                                        )
+                                        isGenerating = false
+                                        res.onSuccess { summary ->
+                                            activeResultPreview = ModernStudyResultPreview.NoteText(
+                                                AiPromptType.SUMMARY,
+                                                "Executive Summary (Page $currentPage)",
+                                                summary
+                                            )
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, err.message ?: "Summary failed", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            } else {
+                                handleExternalHandoff(AiPromptType.SUMMARY)
+                            }
+                        },
+                        onCopyPrompt = {
+                            val prompt = AiPromptLauncher.buildPrompt(
+                                title = document.title,
+                                chunks = document.chunks,
+                                currentIndex = safeIndex,
+                                type = AiPromptType.SUMMARY,
+                                scope = selectedScope
+                            )
+                            onCopyText("Veritas Summary Prompt", prompt)
+                        },
+                        onExternalLaunch = { handleExternalHandoff(AiPromptType.SUMMARY) }
+                    )
+
+                    ModernToolActionCard(
+                        title = "Explain & Simplify",
+                        badge = "Feynman Technique",
+                        description = "Deconstructs difficult passages into plain English with relatable analogies and definitions.",
+                        icon = Icons.Outlined.School,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        primaryActionLabel = if (hasGeminiKey) "Explain Passage" else "Open in $defaultAiName",
+                        isPrimaryInApp = hasGeminiKey,
+                        onPrimaryAction = {
+                            if (hasGeminiKey) {
+                                isGenerating = true
+                                generatingStatus = "Deconstructing concepts..."
+                                val targetPassage = document.chunks.getOrNull(safeIndex).orEmpty()
+                                if (onGenerateInAppExplanation != null) {
+                                    onGenerateInAppExplanation(scopeText, targetPassage) { success, result ->
+                                        isGenerating = false
+                                        if (success) {
+                                            activeResultPreview = ModernStudyResultPreview.NoteText(
+                                                AiPromptType.EXPLAIN_SECTION,
+                                                "Feynman Explanation",
+                                                result
+                                            )
+                                        } else {
+                                            Toast.makeText(context, result, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                } else {
+                                    coroutineScope.launch {
+                                        val res = GeminiStudyService.generateExplanation(
+                                            apiKey = GeminiStudyService.getApiKey(context),
+                                            documentTitle = document.title,
+                                            textContext = scopeText,
+                                            targetPassage = targetPassage
+                                        )
+                                        isGenerating = false
+                                        res.onSuccess { explanation ->
+                                            activeResultPreview = ModernStudyResultPreview.NoteText(
+                                                AiPromptType.EXPLAIN_SECTION,
+                                                "Feynman Explanation",
+                                                explanation
+                                            )
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, err.message ?: "Explanation failed", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            } else {
+                                handleExternalHandoff(AiPromptType.EXPLAIN_SECTION)
+                            }
+                        },
+                        onCopyPrompt = {
+                            val prompt = AiPromptLauncher.buildPrompt(
+                                title = document.title,
+                                chunks = document.chunks,
+                                currentIndex = safeIndex,
+                                type = AiPromptType.EXPLAIN_SECTION,
+                                scope = selectedScope
+                            )
+                            onCopyText("Veritas Explainer Prompt", prompt)
+                        },
+                        onExternalLaunch = { handleExternalHandoff(AiPromptType.EXPLAIN_SECTION) }
+                    )
+
+                    ModernToolActionCard(
+                        title = "Study Guide & Cheatsheet",
+                        badge = "Structured Framework",
+                        description = "Generates organized headings, definitions glossary, core formulas and self-review checklist.",
+                        icon = Icons.Outlined.Description,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        iconTint = MaterialTheme.colorScheme.secondary,
+                        primaryActionLabel = if (hasGeminiKey) "Build Cheatsheet" else "Open in $defaultAiName",
+                        isPrimaryInApp = hasGeminiKey,
+                        onPrimaryAction = {
+                            if (hasGeminiKey) {
+                                isGenerating = true
+                                generatingStatus = "Building study cheatsheet..."
+                                if (onGenerateInAppStudyGuide != null) {
+                                    onGenerateInAppStudyGuide(scopeText) { success, result ->
+                                        isGenerating = false
+                                        if (success) {
+                                            activeResultPreview = ModernStudyResultPreview.NoteText(
+                                                AiPromptType.STUDY_NOTES,
+                                                "Study Cheatsheet",
+                                                result
+                                            )
+                                        } else {
+                                            Toast.makeText(context, result, Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                } else {
+                                    coroutineScope.launch {
+                                        val res = GeminiStudyService.generateStudyGuide(
+                                            apiKey = GeminiStudyService.getApiKey(context),
+                                            documentTitle = document.title,
+                                            textContext = scopeText
+                                        )
+                                        isGenerating = false
+                                        res.onSuccess { guide ->
+                                            activeResultPreview = ModernStudyResultPreview.NoteText(
+                                                AiPromptType.STUDY_NOTES,
+                                                "Study Cheatsheet",
+                                                guide
+                                            )
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, err.message ?: "Cheatsheet build failed", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            } else {
+                                handleExternalHandoff(AiPromptType.STUDY_NOTES)
+                            }
+                        },
+                        onCopyPrompt = {
+                            val prompt = AiPromptLauncher.buildPrompt(
+                                title = document.title,
+                                chunks = document.chunks,
+                                currentIndex = safeIndex,
+                                type = AiPromptType.STUDY_NOTES,
+                                scope = selectedScope
+                            )
+                            onCopyText("Veritas Study Guide Prompt", prompt)
+                        },
+                        onExternalLaunch = { handleExternalHandoff(AiPromptType.STUDY_NOTES) }
+                    )
+
+                    // Manual Importer & Advanced Accordion
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showManualTools = !showManualTools },
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Settings,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "Manual Importers & AI Settings",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (showManualTools) Icons.Filled.ArrowDropUp else Icons.Filled.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            if (showManualTools) {
+                                OutlinedTextField(
+                                    value = manualInputDraft,
+                                    onValueChange = { manualInputDraft = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(110.dp),
+                                    label = { Text("Paste AI response here") },
+                                    placeholder = { Text("Paste flashcards, quiz, or study notes...") },
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+
+                                val parsedCards = remember(manualInputDraft) { AiResultParser.parseFlashcards(manualInputDraft) }
+                                val parsedQuiz = remember(manualInputDraft) { AiResultParser.parseQuiz(manualInputDraft) }
+
+                                if (manualInputDraft.isNotBlank()) {
+                                    Text(
+                                        when {
+                                            parsedCards.isNotEmpty() -> "✓ Recognized ${parsedCards.size} Flashcards"
+                                            parsedQuiz.isNotEmpty() -> "✓ Recognized ${parsedQuiz.size} Quiz Questions"
+                                            else -> "✓ Recognized Study Notes / Summary"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
 
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        OutlinedButton(
-                                            onClick = { showPasteFlashcards = true },
+                                        Button(
+                                            onClick = {
+                                                when {
+                                                    parsedCards.isNotEmpty() -> {
+                                                        val setName = "${document.title} - Imported"
+                                                        onImportFlashcards(setName, parsedCards)
+                                                        activeResultPreview = ModernStudyResultPreview.Flashcards(setName, parsedCards)
+                                                        manualInputDraft = ""
+                                                    }
+                                                    parsedQuiz.isNotEmpty() -> {
+                                                        val newQuiz = QuizSet(
+                                                            title = "${document.title} - Imported Quiz",
+                                                            documentId = document.id.orEmpty(),
+                                                            questions = parsedQuiz
+                                                        )
+                                                        onSaveQuiz?.invoke(newQuiz)
+                                                        activeResultPreview = ModernStudyResultPreview.Quiz(newQuiz)
+                                                        manualInputDraft = ""
+                                                    }
+                                                    else -> {
+                                                        onSaveAiResultAsNote(manualInputDraft)
+                                                        manualInputDraft = ""
+                                                        Toast.makeText(context, "Saved as sentence note!", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            },
                                             modifier = Modifier.weight(1f),
                                             shape = RoundedCornerShape(50)
                                         ) {
-                                            Text("Custom Flashcard Importer")
-                                        }
-                                        OutlinedButton(
-                                            onClick = { showPasteQuiz = true },
-                                            modifier = Modifier.weight(1f),
-                                            shape = RoundedCornerShape(50)
-                                        ) {
-                                            Text("Custom Quiz Importer")
+                                            Text("Import Recognized Content")
                                         }
                                     }
                                 }
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { showPasteFlashcards = true },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Text("Card Importer", fontSize = 11.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { showPasteQuiz = true },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Text("Quiz Importer", fontSize = 11.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { showGeminiSetup = true },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Text("Gemini Key", fontSize = 11.sp)
+                                    }
+                                }
                             }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
+        }
+    }
+}
+
+sealed class ModernStudyResultPreview {
+    data class Flashcards(val setName: String, val cards: List<Flashcard>) : ModernStudyResultPreview()
+    data class Quiz(val quizSet: QuizSet) : ModernStudyResultPreview()
+    data class NoteText(val type: AiPromptType, val title: String, val text: String) : ModernStudyResultPreview()
+}
+
+@Composable
+internal fun ModernToolActionCard(
+    title: String,
+    badge: String,
+    description: String,
+    icon: ImageVector,
+    containerColor: Color,
+    iconTint: Color,
+    primaryActionLabel: String,
+    isPrimaryInApp: Boolean,
+    onPrimaryAction: () -> Unit,
+    onCopyPrompt: () -> Unit,
+    onExternalLaunch: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = containerColor,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Column {
+                        Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            Text(
+                                badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+                }
+
+                IconButton(onClick = onCopyPrompt, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = "Copy Prompt", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (isPrimaryInApp) {
+                Button(
+                    onClick = onPrimaryAction,
+                    modifier = Modifier.fillMaxWidth().height(38.dp),
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(primaryActionLabel, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                        modifier = Modifier.clickable { onPrimaryAction() }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Text(
+                                "Open",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ModernStudyResultPreviewCard(
+    preview: ModernStudyResultPreview,
+    onClose: () -> Unit,
+    onStudyCards: (String, List<Flashcard>) -> Unit,
+    onStartQuiz: (QuizSet) -> Unit,
+    onSaveNote: (String) -> Unit,
+    onCopy: (String, String) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)),
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        when (preview) {
+                            is ModernStudyResultPreview.Flashcards -> "✨ Generated ${preview.cards.size} Flashcards"
+                            is ModernStudyResultPreview.Quiz -> "🎯 Created ${preview.quizSet.questions.size} Exam Questions"
+                            is ModernStudyResultPreview.NoteText -> "📝 ${preview.title}"
+                        },
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                }
+                IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                }
+            }
+
+            when (preview) {
+                is ModernStudyResultPreview.Flashcards -> {
+                    // Interactive sample card preview
+                    var showBack by remember { mutableStateOf(false) }
+                    val sampleCard = preview.cards.firstOrNull()
+                    if (sampleCard != null) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showBack = !showBack }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        if (showBack) "ANSWER (Tap to flip)" else "QUESTION (Tap to flip)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text("Sample 1 of ${preview.cards.size}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(
+                                    if (showBack) sampleCard.back else sampleCard.front,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = { onStudyCards(preview.setName, preview.cards) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Study Deck Now", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val text = preview.cards.joinToString("\n\n") { "Q: ${it.front}\nA: ${it.back}" }
+                                onCopy("Flashcards", text)
+                            },
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Copy")
+                        }
+                    }
+                }
+
+                is ModernStudyResultPreview.Quiz -> {
+                    val sampleQ = preview.quizSet.questions.firstOrNull()
+                    if (sampleQ != null) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("Sample Question 1", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                Text(sampleQ.question, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                sampleQ.options.take(2).forEachIndexed { i, opt ->
+                                    Text("${('A' + i)}) $opt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (sampleQ.options.size > 2) {
+                                    Text("... (+${sampleQ.options.size - 2} more options)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = { onStartQuiz(preview.quizSet) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Outlined.Quiz, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Start Interactive Quiz", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val text = preview.quizSet.questions.joinToString("\n\n") { q ->
+                                    "${q.question}\n" + q.options.mapIndexed { i, o -> "${('A' + i)}) $o" }.joinToString("\n") + "\nAnswer: ${q.answer}\nExplanation: ${q.explanation}"
+                                }
+                                onCopy("Quiz", text)
+                            },
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Copy")
+                        }
+                    }
+                }
+
+                is ModernStudyResultPreview.NoteText -> {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                preview.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = { onSaveNote(preview.text) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Outlined.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Save to Sentence Note", fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = { onCopy(preview.title, preview.text) },
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Copy")
                         }
                     }
                 }
@@ -2135,13 +2449,23 @@ internal fun PasteFlashcardsDialog(
 }
 
 @Composable
-internal fun PasteQuizDialog(onDismiss: () -> Unit) {
+internal fun PasteQuizDialog(
+    onSaveQuiz: ((QuizSet) -> Unit)? = null,
+    onDismiss: () -> Unit
+) {
     var pasted by remember { mutableStateOf("") }
-    var quiz by remember { mutableStateOf<List<QuizQuestion>?>(null) }
+    var quizSet by remember { mutableStateOf<QuizSet?>(null) }
     val parsed = remember(pasted) { AiResultParser.parseQuiz(pasted) }
 
-    quiz?.let { questions ->
-        QuizPlayerDialog(questions = questions, onDismiss = onDismiss)
+    quizSet?.let { qSet ->
+        QuizPlayerDialog(
+            questions = qSet.questions,
+            quizTitle = qSet.title,
+            onSaveScore = { score ->
+                onSaveQuiz?.invoke(qSet.copy(bestScore = score))
+            },
+            onDismiss = onDismiss
+        )
         return
     }
 
@@ -2149,7 +2473,14 @@ internal fun PasteQuizDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("Take a pasted quiz") },
         confirmButton = {
-            Button(onClick = { quiz = parsed }, enabled = parsed.isNotEmpty()) {
+            Button(
+                onClick = {
+                    val created = QuizSet(title = "Pasted Quiz", questions = parsed)
+                    onSaveQuiz?.invoke(created)
+                    quizSet = created
+                },
+                enabled = parsed.isNotEmpty()
+            ) {
                 Text(if (parsed.isEmpty()) "Start quiz" else "Start quiz (${parsed.size})")
             }
         },
@@ -2186,95 +2517,332 @@ internal fun PasteQuizDialog(onDismiss: () -> Unit) {
 @Composable
 internal fun QuizPlayerDialog(
     questions: List<QuizQuestion>,
+    quizTitle: String = "Revision Quiz",
+    onSaveScore: ((Int) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
-    var index by remember { mutableStateOf(0) }
+    var index by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<String?>(null) }
-    var score by remember { mutableStateOf(0) }
+    var score by remember { mutableIntStateOf(0) }
     var finished by remember { mutableStateOf(false) }
+    val missedQuestions = remember { mutableStateListOf<QuizQuestion>() }
+    val haptic = LocalHapticFeedback.current
 
-    AlertDialog(
+    if (questions.isEmpty()) {
+        LaunchedEffect(Unit) { onDismiss() }
+        return
+    }
+
+    val safeIndex = index.coerceIn(0, questions.lastIndex)
+    val question = questions[safeIndex]
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (finished) "Quiz complete" else "Question ${index + 1} of ${questions.size}") },
-        confirmButton = {
-            when {
-                finished -> Button(onClick = onDismiss) { Text("Done") }
-                selected != null -> Button(onClick = {
-                    if (index + 1 >= questions.size) finished = true
-                    else {
-                        index++
-                        selected = null
-                    }
-                }) { Text(if (index + 1 >= questions.size) "See score" else "Next") }
-                else -> TextButton(onClick = onDismiss) { Text("Quit") }
-            }
-        },
-        text = {
-            if (finished) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "You scored $score of ${questions.size}.",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        when {
-                            score == questions.size -> "Perfect — every answer right."
-                            score >= questions.size * 3 / 4 -> "Strong revision — nearly there."
-                            score >= questions.size / 2 -> "Good base. Re-read the sections behind the misses."
-                            else -> "Worth another pass through the document before retrying."
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                val question = questions[index]
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Header row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(question.question, fontWeight = FontWeight.SemiBold)
-                    question.options.forEach { option ->
-                        val isPicked = selected == option
-                        val isCorrect = option == question.answer
-                        val showState = selected != null
-                        OutlinedButton(
-                            onClick = {
-                                if (selected == null) {
-                                    selected = option
-                                    if (isCorrect) score++
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = when {
-                                    showState && isCorrect -> Color(0xFF10B981)
-                                    showState && isPicked -> MaterialTheme.colorScheme.error
-                                    else -> MaterialTheme.colorScheme.onSurface
-                                }
-                            )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close quiz")
+                    }
+                    Text(
+                        text = quizTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            text = if (finished) "Results" else "${safeIndex + 1} / ${questions.size}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Progress Bar
+                LinearProgressIndicator(
+                    progress = { if (finished) 1f else (safeIndex + 1).toFloat() / questions.size },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(50)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+
+                if (finished) {
+                    // Completion Summary
+                    val percentage = ((score.toFloat() / questions.size) * 100).roundToInt()
+                    LaunchedEffect(score) {
+                        onSaveScore?.invoke(score)
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(110.dp)
+                                .background(
+                                    color = if (percentage >= 70) Color(0xFF10B981).copy(alpha = 0.15f)
+                                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = when {
-                                    showState && isCorrect -> "✓ $option"
-                                    showState && isPicked -> "✗ $option"
-                                    else -> option
-                                },
-                                fontWeight = if (showState && (isCorrect || isPicked)) FontWeight.Bold else FontWeight.Normal
+                                text = if (percentage >= 80) "🏆" else if (percentage >= 60) "🌟" else "📚",
+                                fontSize = 48.sp
                             )
                         }
-                    }
-                    if (selected != null && question.explanation.isNotBlank()) {
+
+                        Spacer(Modifier.height(18.dp))
+
                         Text(
-                            question.explanation,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
+                            text = when {
+                                percentage == 100 -> "Flawless Mastery!"
+                                percentage >= 80 -> "Excellent Understanding!"
+                                percentage >= 60 -> "Good Effort — Keep Reviewing!"
+                                else -> "Review Needed"
+                            },
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center
                         )
+
+                        Spacer(Modifier.height(6.dp))
+
+                        Text(
+                            text = "You scored $score out of ${questions.size} ($percentage%)",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Spacer(Modifier.height(28.dp))
+
+                        if (missedQuestions.isNotEmpty()) {
+                            OutlinedButton(
+                                onClick = {
+                                    index = 0
+                                    selected = null
+                                    score = 0
+                                    finished = false
+                                },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Retry ${missedQuestions.size} Missed Question${if (missedQuestions.size == 1) "" else "s"}")
+                            }
+                            Spacer(Modifier.height(10.dp))
+                        }
+
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Text("Done", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    // Active Question Screen
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // Question Card
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = question.question,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(18.dp)
+                            )
+                        }
+
+                        // Options list
+                        val optionLabels = listOf("A", "B", "C", "D", "E", "F")
+                        question.options.forEachIndexed { optIndex, optionText ->
+                            val isPicked = selected == optionText
+                            val isCorrect = optionText == question.answer
+                            val showEvaluation = selected != null
+
+                            val containerColor = when {
+                                showEvaluation && isCorrect -> Color(0xFF10B981).copy(alpha = 0.18f)
+                                showEvaluation && isPicked -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                                isPicked -> MaterialTheme.colorScheme.primaryContainer
+                                else -> MaterialTheme.colorScheme.surface
+                            }
+
+                            val borderColor = when {
+                                showEvaluation && isCorrect -> Color(0xFF10B981)
+                                showEvaluation && isPicked -> MaterialTheme.colorScheme.error
+                                isPicked -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            }
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable(enabled = selected == null) {
+                                        selected = optionText
+                                        if (isCorrect) {
+                                            score++
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        } else {
+                                            missedQuestions.add(question)
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = containerColor),
+                                border = BorderStroke(1.5.dp, borderColor)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = when {
+                                            showEvaluation && isCorrect -> Color(0xFF10B981)
+                                            showEvaluation && isPicked -> MaterialTheme.colorScheme.error
+                                            else -> MaterialTheme.colorScheme.surfaceVariant
+                                        },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = when {
+                                                    showEvaluation && isCorrect -> "✓"
+                                                    showEvaluation && isPicked -> "✗"
+                                                    else -> optionLabels.getOrElse(optIndex) { "${optIndex + 1}" }
+                                                },
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (showEvaluation && (isCorrect || isPicked)) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = optionText,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (showEvaluation && (isCorrect || isPicked)) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Explanation card
+                        if (selected != null && question.explanation.isNotBlank()) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(14.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text("💡", fontSize = 18.sp)
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            "Explanation",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            question.explanation,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Next / View Results Button
+                    if (selected != null) {
+                        Button(
+                            onClick = {
+                                if (safeIndex + 1 >= questions.size) {
+                                    finished = true
+                                } else {
+                                    index++
+                                    selected = null
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Text(
+                                text = if (safeIndex + 1 >= questions.size) "View Score & Results" else "Next Question →",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 }
             }
         }
-    )
+    }
 }
 
 data class VoicePreset(
@@ -3558,11 +4126,16 @@ object VeritasPackStyle {
     }
 
     @Composable
-    fun surfaceAlpha(): Float = when (currentPackId()) {
-        "liquid_glass" -> 0.85f
-        "one_ui" -> 0.94f
-        "material_you" -> 0.88f
-        else -> 0.78f
+    fun surfaceAlpha(): Float {
+        val isDark = VeritasThemeCatalog.isDark(VeritasThemeState.themeId, isSystemInDarkTheme())
+        val pack = currentPackId()
+        if (pack == "liquid_glass") return if (isDark) 0.85f else 0.92f
+        if (!isDark) return 1.0f
+        return when (pack) {
+            "one_ui" -> 0.96f
+            "material_you" -> 0.92f
+            else -> 1.0f
+        }
     }
 
     @Composable

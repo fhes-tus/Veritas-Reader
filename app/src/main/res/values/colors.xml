@@ -1,17 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="widget_frosted_background">#F2FFFFFF</color>
-    <color name="widget_border">#20000000</color>
+    <!-- Semi-opaque frosted glass container background (matches Samsung battery widget aesthetic) -->
+    <color name="widget_frosted_background">#E6FFFFFF</color>
+    <color name="widget_background">#E6FFFFFF</color>
+    <color name="widget_player_background">#BFFFFFFF</color>
+    <color name="widget_border">#1A000000</color>
+
+    <!-- Typography -->
     <color name="widget_text_primary">#FF0F172A</color>
     <color name="widget_text_muted">#FF64748B</color>
-    <color name="widget_card_background">#FFF1F5F9</color>
+
+    <!-- Surfaces -->
+    <color name="widget_card_background">#E8EFF6</color>
     <color name="widget_card_elevated">#FFFFFFFF</color>
-    <color name="widget_background">#FFFFFFFF</color>
-    <color name="widget_play_button_accent">#FF6366F1</color>
+    <color name="widget_progress_track">#FFCBD5E1</color>
+
+    <!-- Accents & Buttons -->
+    <color name="widget_play_button_accent">#FF2563EB</color>
     <color name="widget_play_icon_color">#FFFFFFFF</color>
-    <color name="widget_primary_accent">#FF6366F1</color>
-    <color name="widget_secondary_accent">#FFEC4899</color>
-    <color name="widget_streak_accent">#FFF97316</color>
-    <color name="widget_success_accent">#FF10B981</color>
-    <color name="widget_progress_track">#FFE2E8F0</color>
+    <color name="widget_primary_accent">#FF2563EB</color>
+    <color name="widget_secondary_accent">#FF7C3AED</color>
+    <color name="widget_streak_accent">#FFEA580C</color>
+    <color name="widget_success_accent">#FF059669</color>
+    <color name="widget_amber_accent">#FFD97706</color>
+    <color name="widget_cyan_accent">#FF0891B2</color>
 </resources>

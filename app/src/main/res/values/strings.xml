@@ -3,7 +3,7 @@
     <string name="widget_player_description">Veritas playback controls</string>
     <string name="widget_cover_description">Veritas current reading cover</string>
     <string name="widget_quick_note_description">Veritas quick note list</string>
-    <string name="widget_pinned_note_description">Veritas selected pinned note</string>
+    <string name="widget_flashcard_description">Veritas daily flashcard review</string>
     <string name="widget_quick_capture_description">Veritas quick capture actions</string>
     <string name="widget_reading_progress_description">Veritas reading progress status</string>
     <string name="widget_study_dashboard_description">Veritas study stats dashboard</string>
@@ -31,4 +31,6 @@
     <string name="action_delete">Delete</string>
     <string name="action_clear">Clear</string>
     <string name="action_cancel">Cancel</string>
+    <string name="share_to_notes">Add to Veritas Notes</string>
+    <string name="share_to_import">Import to Veritas Reader</string>
 </resources>

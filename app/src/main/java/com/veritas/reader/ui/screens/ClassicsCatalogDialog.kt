@@ -1,5 +1,4 @@
 package com.veritas.reader.ui.screens
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,10 +19,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -74,6 +76,21 @@ data class ClassicBookEntry(
     val estimatedMinutes: Int,
     val coverGradient: List<Color>,
     val accentColor: Color
+)
+
+data class FreeBookSite(
+    val name: String,
+    val description: String,
+    val icon: String,
+    val url: String
+)
+
+val FREE_BOOK_SITES = listOf(
+    FreeBookSite("Project Gutenberg", "70,000+ public domain classics & epubs", "🏛️", "https://www.gutenberg.org"),
+    FreeBookSite("Standard Ebooks", "Beautifully typeset, modern public domain releases", "✨", "https://standardebooks.org"),
+    FreeBookSite("Open Library", "Over 3 million books to borrow & read online", "📖", "https://openlibrary.org"),
+    FreeBookSite("ManyBooks", "50,000+ free digital titles across all genres", "📚", "https://manybooks.net"),
+    FreeBookSite("Ocean of PDF", "Comprehensive search for books & manuscripts", "🌊", "https://oceanofpdf.com")
 )
 
 val CURATED_CLASSICS = listOf(
@@ -153,6 +170,171 @@ val CURATED_CLASSICS = listOf(
         estimatedMinutes = 140,
         coverGradient = listOf(Color(0xFF3E1F17), Color(0xFF5D2E22)),
         accentColor = Color(0xFFFFCC80)
+    ),
+    ClassicBookEntry(
+        id = "classic_dorian_gray",
+        title = "The Picture of Dorian Gray",
+        author = "Oscar Wilde",
+        genre = "Literature",
+        description = "A philosophical gothic novel of aestheticism, moral corruption, and a portrait that bears the sins of youth.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/174/pg174.txt",
+        estimatedMinutes = 240,
+        coverGradient = listOf(Color(0xFF261C3B), Color(0xFF3D2C5E)),
+        accentColor = Color(0xFFE1BEE7)
+    ),
+    ClassicBookEntry(
+        id = "classic_dracula",
+        title = "Dracula",
+        author = "Bram Stoker",
+        genre = "Sci-Fi & Gothic",
+        description = "The definitive vampire classic detailing Count Dracula's attempt to move from Transylvania to England.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/345/pg345.txt",
+        estimatedMinutes = 450,
+        coverGradient = listOf(Color(0xFF380808), Color(0xFF5E1010)),
+        accentColor = Color(0xFFEF9A9A)
+    ),
+    ClassicBookEntry(
+        id = "classic_alice_wonderland",
+        title = "Alice's Adventures in Wonderland",
+        author = "Lewis Carroll",
+        genre = "Fantasy",
+        description = "The whimsical surrealist journey of a young girl falling through a rabbit hole into a fantasy realm.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/11/pg11.txt",
+        estimatedMinutes = 120,
+        coverGradient = listOf(Color(0xFF1A365D), Color(0xFF2B6CB0)),
+        accentColor = Color(0xFF90CDF4)
+    ),
+    ClassicBookEntry(
+        id = "classic_time_machine",
+        title = "The Time Machine",
+        author = "H.G. Wells",
+        genre = "Sci-Fi & Gothic",
+        description = "The seminal science fiction work introducing time travel, journeying to the year 802,701 AD.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/35/pg35.txt",
+        estimatedMinutes = 110,
+        coverGradient = listOf(Color(0xFF1C3A27), Color(0xFF2D5A3E)),
+        accentColor = Color(0xFF9AE6B4)
+    ),
+    ClassicBookEntry(
+        id = "classic_great_expectations",
+        title = "Great Expectations",
+        author = "Charles Dickens",
+        genre = "Literature",
+        description = "The bildungsroman tracing the growth, trials, and moral development of the orphan Pip.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/1400/pg1400.txt",
+        estimatedMinutes = 520,
+        coverGradient = listOf(Color(0xFF3B2F1B), Color(0xFF5E492B)),
+        accentColor = Color(0xFFFBD38D)
+    ),
+    ClassicBookEntry(
+        id = "classic_moby_dick",
+        title = "Moby Dick",
+        author = "Herman Melville",
+        genre = "Literature",
+        description = "The legendary epic voyage of the Pequod and Captain Ahab's monomaniacal quest for the white whale.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/2701/pg2701.txt",
+        estimatedMinutes = 680,
+        coverGradient = listOf(Color(0xFF102A43), Color(0xFF243B53)),
+        accentColor = Color(0xFF9FB3C8)
+    ),
+    ClassicBookEntry(
+        id = "classic_the_republic",
+        title = "The Republic",
+        author = "Plato",
+        genre = "Philosophy",
+        description = "Socratic dialogue on justice, the order and character of the just city-state, and the virtuous person.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/1497/pg1497.txt",
+        estimatedMinutes = 480,
+        coverGradient = listOf(Color(0xFF44271A), Color(0xFF653A27)),
+        accentColor = Color(0xFFFFD1B2)
+    ),
+    ClassicBookEntry(
+        id = "classic_walden",
+        title = "Walden",
+        author = "Henry David Thoreau",
+        genre = "Philosophy",
+        description = "A reflection upon simple living in natural surroundings and personal declaration of independence.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/205/pg205.txt",
+        estimatedMinutes = 280,
+        coverGradient = listOf(Color(0xFF20382B), Color(0xFF335C45)),
+        accentColor = Color(0xFFC6F6D5)
+    ),
+    ClassicBookEntry(
+        id = "classic_the_prophet",
+        title = "The Prophet",
+        author = "Kahlil Gibran",
+        genre = "Philosophy",
+        description = "Twenty-six poetic essays on love, marriage, children, giving, work, joy, sorrow, and freedom.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/58585/pg58585.txt",
+        estimatedMinutes = 65,
+        coverGradient = listOf(Color(0xFF4A3410), Color(0xFF745219)),
+        accentColor = Color(0xFFFEEBC8)
+    ),
+    ClassicBookEntry(
+        id = "classic_metamorphosis",
+        title = "The Metamorphosis",
+        author = "Franz Kafka",
+        genre = "Literature",
+        description = "The unsettling masterpiece where traveling salesman Gregor Samsa awakens transformed into a giant insect.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/5200/pg5200.txt",
+        estimatedMinutes = 80,
+        coverGradient = listOf(Color(0xFF2D3748), Color(0xFF4A5568)),
+        accentColor = Color(0xFFCBD5E0)
+    ),
+    ClassicBookEntry(
+        id = "classic_monte_cristo",
+        title = "The Count of Monte Cristo",
+        author = "Alexandre Dumas",
+        genre = "Literature",
+        description = "The ultimate tale of betrayal, hidden treasure, enduring patience, retribution, and redemption.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/1184/pg1184.txt",
+        estimatedMinutes = 850,
+        coverGradient = listOf(Color(0xFF321E1E), Color(0xFF532E2E)),
+        accentColor = Color(0xFFFEB2B2)
+    ),
+    ClassicBookEntry(
+        id = "classic_nietzsche_beyond",
+        title = "Beyond Good and Evil",
+        author = "Friedrich Nietzsche",
+        genre = "Philosophy",
+        description = "A scathing critique of past philosophers and an examination of morality, truth, and the will to power.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/4363/pg4363.txt",
+        estimatedMinutes = 260,
+        coverGradient = listOf(Color(0xFF322659), Color(0xFF44337A)),
+        accentColor = Color(0xFFD6BCFA)
+    ),
+    ClassicBookEntry(
+        id = "classic_tale_two_cities",
+        title = "A Tale of Two Cities",
+        author = "Charles Dickens",
+        genre = "Literature",
+        description = "Set in London and Paris during the French Revolution, depicting sacrifice, love, and redemption.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/98/pg98.txt",
+        estimatedMinutes = 390,
+        coverGradient = listOf(Color(0xFF521B28), Color(0xFF702437)),
+        accentColor = Color(0xFFFED7E2)
+    ),
+    ClassicBookEntry(
+        id = "classic_yellow_wallpaper",
+        title = "The Yellow Wallpaper",
+        author = "Charlotte Perkins Gilman",
+        genre = "Sci-Fi & Gothic",
+        description = "A powerful psychological narrative chronicling a woman's gradual descent into madness within a confined room.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/1952/pg1952.txt",
+        estimatedMinutes = 40,
+        coverGradient = listOf(Color(0xFF5F4E12), Color(0xFF8D731B)),
+        accentColor = Color(0xFFFEFCBF)
+    ),
+    ClassicBookEntry(
+        id = "classic_jekyll_hyde",
+        title = "Dr Jekyll and Mr Hyde",
+        author = "Robert Louis Stevenson",
+        genre = "Mystery",
+        description = "The gothic investigation into the duality of human nature, civil morality, and hidden darker instincts.",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/43/pg43.txt",
+        estimatedMinutes = 95,
+        coverGradient = listOf(Color(0xFF1A202C), Color(0xFF2D3748)),
+        accentColor = Color(0xFFA0AEC0)
     )
 )
 
@@ -164,6 +346,7 @@ fun ClassicsCatalogDialog(
     existingDocuments: List<SavedDocument>,
     onDownloadBook: (ClassicBookEntry) -> Unit,
     onOpenOceanOfPdf: (searchQuery: String) -> Unit = {},
+    onOpenBookBrowser: (url: String, name: String, searchQuery: String) -> Unit = { _, _, q -> onOpenOceanOfPdf(q) },
     onDismiss: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -171,7 +354,7 @@ fun ClassicsCatalogDialog(
     var downloadingId by remember { mutableStateOf<String?>(null) }
 
     val genres = remember {
-        listOf("All", "Philosophy", "Strategy", "Mindset", "Mystery", "Literature", "Sci-Fi & Gothic")
+        listOf("All", "Philosophy", "Strategy", "Mindset", "Mystery", "Literature", "Sci-Fi & Gothic", "Fantasy")
     }
 
     val filteredList = remember(searchQuery, selectedGenre) {
@@ -302,6 +485,66 @@ fun ClassicsCatalogDialog(
                             )
                         }
                     }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Free Online Book Archives",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "In-App Browser",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(FREE_BOOK_SITES) { site ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                ),
+                                modifier = Modifier.clickable {
+                                    onOpenBookBrowser(site.url, site.name, searchQuery)
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(site.icon, fontSize = 14.sp)
+                                    Column {
+                                        Text(
+                                            site.name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            site.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Catalog List
@@ -339,22 +582,31 @@ fun ClassicsCatalogDialog(
                                         modifier = Modifier.size(36.dp)
                                     )
                                     Text(
-                                        "Search \"$searchQuery\" on Ocean of PDF",
+                                        "Search \"$searchQuery\" on Free Book Sites",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         textAlign = TextAlign.Center
                                     )
                                     Text(
-                                        "Explore millions of free books, novels, and bestsellers with 1-tap download into Veritas.",
+                                        "Explore millions of free books with sandboxed 1-tap download into Veritas.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = TextAlign.Center
                                     )
-                                    Button(
-                                        onClick = { onOpenOceanOfPdf(searchQuery) },
-                                        shape = RoundedCornerShape(12.dp)
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Text("Search Ocean of PDF")
+                                        FREE_BOOK_SITES.forEach { site ->
+                                            Button(
+                                                onClick = { onOpenBookBrowser(site.url, site.name, searchQuery) },
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors = if (site.name == "Ocean of PDF") ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors()
+                                            ) {
+                                                Text("${site.icon} Search ${site.name}")
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -384,49 +636,95 @@ fun ClassicsCatalogDialog(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Styled Book Cover Artwork
+                                // Vintage Styled Book Cover Artwork
                                 Box(
                                     modifier = Modifier
-                                        .width(76.dp)
-                                        .height(108.dp)
-                                        .shadow(6.dp, RoundedCornerShape(6.dp))
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Brush.verticalGradient(book.coverGradient))
-                                        .border(1.dp, book.accentColor.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                                        .padding(6.dp)
+                                        .width(78.dp)
+                                        .height(114.dp)
+                                        .shadow(8.dp, RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp, topStart = 2.dp, bottomStart = 2.dp))
+                                        .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp, topStart = 2.dp, bottomStart = 2.dp))
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                listOf(
+                                                    book.coverGradient.first().copy(alpha = 0.95f),
+                                                    book.coverGradient.first(),
+                                                    book.coverGradient.last()
+                                                )
+                                            )
+                                        )
                                 ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize(),
-                                        verticalArrangement = Arrangement.SpaceBetween,
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    // Vintage Book Spine Crease Effect
+                                    Box(
+                                        modifier = Modifier
+                                            .width(5.dp)
+                                            .fillMaxHeight()
+                                            .background(
+                                                Brush.horizontalGradient(
+                                                    listOf(
+                                                        Color.Black.copy(alpha = 0.5f),
+                                                        Color.White.copy(alpha = 0.15f),
+                                                        Color.Transparent
+                                                    )
+                                                )
+                                            )
+                                    )
+
+                                    // Embossed gold/accent border inside cover
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(start = 9.dp, end = 5.dp, top = 5.dp, bottom = 5.dp)
+                                            .border(1.dp, book.accentColor.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+                                            .padding(5.dp)
                                     ) {
-                                        Text(
-                                            book.author.uppercase(),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = book.accentColor,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 7.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Text(
-                                            book.title,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 10.sp,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 3,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            "VERITAS",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White.copy(alpha = 0.6f),
-                                            fontSize = 6.sp,
-                                            letterSpacing = 1.sp
-                                        )
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.SpaceBetween,
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                book.author.uppercase(),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = book.accentColor,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Serif,
+                                                fontSize = 7.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Text(
+                                                    "✦",
+                                                    color = book.accentColor.copy(alpha = 0.75f),
+                                                    fontSize = 6.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    book.title,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Serif,
+                                                    fontSize = 9.5.sp,
+                                                    lineHeight = 12.sp,
+                                                    textAlign = TextAlign.Center,
+                                                    maxLines = 3,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Text(
+                                                "VERITAS CLASSIC",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = book.accentColor.copy(alpha = 0.85f),
+                                                fontSize = 5.5.sp,
+                                                letterSpacing = 0.8.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
                                     }
                                 }
 
@@ -533,49 +831,8 @@ fun ClassicsCatalogDialog(
                         }
                     }
 
-                    // OceanOfPDF footer discovery card
                     item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp)
-                                .clickable { onOpenOceanOfPdf("") },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Language,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        "Explore Ocean of PDF",
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.titleSmall
-                                    )
-                                    Text(
-                                        "Download EPUB & PDF books directly into Veritas",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
             }

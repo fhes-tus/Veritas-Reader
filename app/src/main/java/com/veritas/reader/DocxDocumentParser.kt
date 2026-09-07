@@ -12,6 +12,7 @@ sealed class DocxBlock {
     data class Paragraph(val text: String) : DocxBlock()
     data class Bullet(val level: Int, val text: String) : DocxBlock()
     data class Table(val rows: List<List<String>>) : DocxBlock()
+    data class Image(val imageBytes: ByteArray, val description: String = "") : DocxBlock()
 }
 
 data class DocxPage(
@@ -29,12 +30,20 @@ object DocxDocumentParser {
 
     fun parse(bytes: ByteArray, defaultTitle: String): DocxDocument {
         var documentXml: String? = null
+        var relsXml: String? = null
+        val mediaMap = mutableMapOf<String, ByteArray>()
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
-                if (!entry.isDirectory && (entry.name == "word/document.xml" || entry.name == "document.xml")) {
-                    documentXml = zip.readBytes().toString(Charsets.UTF_8)
-                    break
+                if (!entry.isDirectory) {
+                    val name = entry.name.trimStart('/')
+                    if (name == "word/document.xml" || name == "document.xml") {
+                        documentXml = zip.readBytes().toString(Charsets.UTF_8)
+                    } else if (name == "word/_rels/document.xml.rels" || name == "_rels/document.xml.rels") {
+                        relsXml = zip.readBytes().toString(Charsets.UTF_8)
+                    } else if (name.startsWith("word/media/") || name.startsWith("media/")) {
+                        mediaMap[name] = zip.readBytes()
+                    }
                 }
             }
         }
@@ -51,7 +60,18 @@ object DocxDocumentParser {
             )
         }
 
-        val allBlocks = parseXmlBlocks(documentXml)
+        val relsMap = mutableMapOf<String, String>()
+        if (relsXml != null) {
+            val relRegex = Regex("""<Relationship\b[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"[^>]*/?>""", RegexOption.IGNORE_CASE)
+            relRegex.findAll(relsXml).forEach { match ->
+                val id = match.groupValues[1]
+                val target = match.groupValues[2].trimStart('/')
+                val fullPath = if (target.startsWith("media/")) "word/$target" else if (target.contains("media/")) target else "word/$target"
+                relsMap[id] = fullPath
+            }
+        }
+
+        val allBlocks = parseXmlBlocks(documentXml, relsMap, mediaMap)
         val pages = paginateBlocks(allBlocks)
 
         return DocxDocument(
@@ -60,7 +80,11 @@ object DocxDocumentParser {
         )
     }
 
-    private fun parseXmlBlocks(xml: String): List<DocxBlock> {
+    private fun parseXmlBlocks(
+        xml: String,
+        relsMap: Map<String, String> = emptyMap(),
+        mediaMap: Map<String, ByteArray> = emptyMap()
+    ): List<DocxBlock> {
         val blocks = mutableListOf<DocxBlock>()
         val dbFactory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
         dbFactory.isNamespaceAware = false
@@ -88,6 +112,10 @@ object DocxDocumentParser {
                             is BlockType.Normal -> blocks.add(DocxBlock.Paragraph(text))
                         }
                     }
+
+                    // Check for inline images inside paragraph
+                    val imageBlocks = extractInlineImages(element, relsMap, mediaMap)
+                    blocks.addAll(imageBlocks)
                 }
                 "tbl" -> {
                     val tableBlock = parseTableElement(element)
@@ -98,6 +126,35 @@ object DocxDocumentParser {
             }
         }
         return blocks
+    }
+
+    private fun extractInlineImages(
+        element: org.w3c.dom.Element,
+        relsMap: Map<String, String>,
+        mediaMap: Map<String, ByteArray>
+    ): List<DocxBlock.Image> {
+        if (relsMap.isEmpty() || mediaMap.isEmpty()) return emptyList()
+        val images = mutableListOf<DocxBlock.Image>()
+        val allDescendants = element.getElementsByTagName("*")
+        for (i in 0 until allDescendants.length) {
+            val node = allDescendants.item(i) as? org.w3c.dom.Element ?: continue
+            val localName = node.tagName.substringAfter(':').lowercase(Locale.getDefault())
+            val rId = when (localName) {
+                "blip" -> node.getAttribute("r:embed").ifBlank { node.getAttribute("embed") }
+                "imagedata" -> node.getAttribute("r:id").ifBlank { node.getAttribute("id") }
+                else -> ""
+            }
+            if (rId.isNotBlank()) {
+                val targetPath = relsMap[rId]
+                val imgBytes = if (targetPath != null) {
+                    mediaMap[targetPath] ?: mediaMap["word/$targetPath"] ?: mediaMap[targetPath.substringAfterLast("word/")]
+                } else null
+                if (imgBytes != null && imgBytes.isNotEmpty()) {
+                    images.add(DocxBlock.Image(imgBytes))
+                }
+            }
+        }
+        return images
     }
 
     private sealed class BlockType {
@@ -180,6 +237,7 @@ object DocxDocumentParser {
                 is DocxBlock.Bullet -> 1
                 is DocxBlock.Paragraph -> maxOf(1, block.text.length / 150)
                 is DocxBlock.Table -> maxOf(3, block.rows.size * 2)
+                is DocxBlock.Image -> 4
             }
 
             if (currentWeight + weight > 12 && currentPageBlocks.isNotEmpty()) {

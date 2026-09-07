@@ -96,18 +96,19 @@ class KokoroTtsEngine(context: Context, private val voiceId: String) : TtsEngine
 
     override fun isReady(): Boolean = engine?.isReady == true
 
-    override suspend fun synthesize(sentence: String): ShortArray? = withContext(Dispatchers.Default) {
+    override suspend fun synthesize(sentence: String, rate: Float, pitch: Float): ShortArray? = withContext(Dispatchers.Default) {
         val tts = engine?.takeIf { it.isReady } ?: return@withContext null
         if (sentence.isBlank()) return@withContext null
         val numSpk = runCatching { tts.numSpeakers() }.getOrDefault(0)
         val requestedSid = speakerId(voiceId)
         val safeSid = if (numSpk > 0) requestedSid.coerceIn(0, numSpk - 1) else 0
+        val safeSpeed = rate.coerceIn(0.5f, 2.0f)
 
         runCatching {
-            tts.generate(sentence, sid = safeSid).samples.toPcm16()
+            tts.generate(sentence, sid = safeSid, speed = safeSpeed).samples.toPcm16()
         }.getOrElse {
             Log.w(TAG, "Synthesis failed for sid $safeSid, trying fallback sid 0", it)
-            runCatching { tts.generate(sentence, sid = 0).samples.toPcm16() }.getOrNull()
+            runCatching { tts.generate(sentence, sid = 0, speed = safeSpeed).samples.toPcm16() }.getOrNull()
         }
     }
 

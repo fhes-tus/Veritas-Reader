@@ -12,6 +12,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.veritas.reader.*
+import com.veritas.reader.ui.screens.VeritasHomeTab
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +38,25 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val hasCompleted = repository.hasSeenOnboardingTutorial()
             val questProgress = repository.loadQuestProgress()
             val allQuestsDone = questProgress.tourDone && questProgress.importDone && questProgress.speedDone && questProgress.bookmarkDone
+            val savedReaderSettings = repository.loadReaderSettings()
+            val savedVoiceSettings = repository.loadVoiceSettings()
+            val savedNarrationSettings = repository.loadNarrationSettings()
+            val savedAskAiSettings = repository.loadAskAiSettings()
+            val savedUserName = repository.loadUserName()
+            val savedReadingInterest = repository.loadReadingInterest()
+            val savedReadingTimes = repository.loadDocReadingTimes()
+            val savedFlashcards = repository.loadAllFlashcards()
+            val savedQuizzes = repository.loadAllQuizzes()
             ReaderUiState(
+                readerSettings = savedReaderSettings,
+                voiceSettings = savedVoiceSettings,
+                narrationSettings = savedNarrationSettings,
+                askAiSettings = savedAskAiSettings,
+                userName = savedUserName,
+                readingInterest = savedReadingInterest,
+                documentReadingTimes = savedReadingTimes,
+                flashcards = savedFlashcards,
+                quizzes = savedQuizzes,
                 hasCompletedOnboarding = hasCompleted,
                 questTourDone = questProgress.tourDone,
                 questImportDone = questProgress.importDone,
@@ -141,6 +160,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val fileBrowserRoots = VeritasFileBrowserScanner.persistedRoots(application)
             val generalNotes = repository.loadGeneralNotes()
             val flashcards = repository.loadAllFlashcards()
+            val quizzes = repository.loadAllQuizzes()
             val userName = repository.loadUserName()
             val readingInterest = repository.loadReadingInterest()
             val hasCompletedOnboarding = repository.hasSeenOnboardingTutorial()
@@ -179,7 +199,45 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             if (!hasCheeseDoc || documents.isEmpty()) {
                 documents = repository.loadDocuments()
             }
-            // Repair missing covers for existing files
+
+            // Immediately emit library state so the user sees their documents, notes, and settings instantly
+            _uiState.update {
+                it.copy(
+                    documents = documents,
+                    generalNotes = generalNotes,
+                    queuedDocuments = queuedDocuments,
+                    pronunciationRules = pronunciationRules,
+                    voiceSettings = voiceSettings,
+                    narrationSettings = narrationSettings,
+                    readerSettings = readerSettings,
+                    askAiSettings = askAiSettings,
+                    aiPromptTemplates = aiPromptTemplates,
+                    aiPromptHistory = aiPromptHistory,
+                    readingListCatalog = readingListCatalog,
+                    readingHistory = readingHistory,
+                    allAnnotations = allAnnotations,
+                    documentNotes = documentNotes,
+                    documentTitles = documentTitles,
+                    flashcards = flashcards,
+                    quizzes = quizzes,
+                    annotationCount = annotationCount,
+                    fileBrowserRoots = fileBrowserRoots,
+                    fileBrowserAllFilesGranted = hasAllFilesAccess(),
+                    userName = userName,
+                    readingInterest = readingInterest,
+                    hasCompletedOnboarding = hasCompletedOnboarding,
+                    hasImportedOrOpenedDocument = hasImportedOrOpenedDocument,
+                    questTourDone = questProgress.tourDone,
+                    questImportDone = questProgress.importDone,
+                    questSpeedDone = questProgress.speedDone,
+                    questBookmarkDone = questProgress.bookmarkDone,
+                    readerTrackerSnapshot = trackerSnapshot,
+                    documentReadingTimes = documentReadingTimes,
+                    showTutorial = !hasCompletedOnboarding
+                )
+            }
+
+            // Repair missing covers for existing files in the background without blocking UI
             documents.forEach { doc ->
                 if (doc.title.contains("Who Moved My Cheese", ignoreCase = true) && CoverExtractor.coverFile(application, doc.id) == null) {
                     runCatching {
@@ -214,41 +272,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                 }
-            }
-
-            _uiState.update {
-                it.copy(
-                    documents = documents,
-                    generalNotes = generalNotes,
-                    queuedDocuments = queuedDocuments,
-                    pronunciationRules = pronunciationRules,
-                    voiceSettings = voiceSettings,
-                    narrationSettings = narrationSettings,
-                    readerSettings = readerSettings,
-                    askAiSettings = askAiSettings,
-                    aiPromptTemplates = aiPromptTemplates,
-                    aiPromptHistory = aiPromptHistory,
-                    readingListCatalog = readingListCatalog,
-                    readingHistory = readingHistory,
-                    allAnnotations = allAnnotations,
-                    documentNotes = documentNotes,
-                    documentTitles = documentTitles,
-                    flashcards = flashcards,
-                    annotationCount = annotationCount,
-                    fileBrowserRoots = fileBrowserRoots,
-                    fileBrowserAllFilesGranted = hasAllFilesAccess(),
-                    userName = userName,
-                    readingInterest = readingInterest,
-                    hasCompletedOnboarding = hasCompletedOnboarding,
-                    hasImportedOrOpenedDocument = hasImportedOrOpenedDocument,
-                    questTourDone = questProgress.tourDone,
-                    questImportDone = questProgress.importDone,
-                    questSpeedDone = questProgress.speedDone,
-                    questBookmarkDone = questProgress.bookmarkDone,
-                    readerTrackerSnapshot = trackerSnapshot,
-                    documentReadingTimes = documentReadingTimes,
-                    showTutorial = !hasCompletedOnboarding
-                )
             }
         }
         viewModelScope.launch {
@@ -337,6 +360,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         documents = docs
                     )
                 }
+                updateVeritasWidgets(getApplication())
             }
         }
     }
@@ -418,6 +442,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 VeritasThemeState.themePackId = saved.themePackId
                 VeritasThemeState.uiFontId = saved.uiFontId
                 PlaybackStateStore.autoPlayQueue = saved.autoPlayQueue
+                updateVeritasWidgets(getApplication())
             }
         }
     }
@@ -487,12 +512,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun saveVoiceSettings(update: VoiceSettings) {
         viewModelScope.launch(Dispatchers.IO) {
             val saved = repository.saveVoiceSettings(update)
+            val docId = uiState.value.activeDocument?.id
+            if (docId != null) {
+                repository.saveDocVoiceMemory(docId, saved.preferredRate, saved.preferredPitch)
+            }
             withContext(Dispatchers.Main) {
                 _uiState.update { it.copy(voiceSettings = saved) }
                 PlaybackStateStore.rate = saved.preferredRate
                 PlaybackStateStore.pitch = saved.preferredPitch
                 PlaybackStateStore.statusMessage = "Voice updated: ${saved.displayName}."
-                restartCurrentSectionIfPlaying()
+                sendPlaybackIntent(
+                    context = getApplication(),
+                    action = PlaybackActions.ACTION_UPDATE_PLAYBACK_SETTINGS,
+                    rate = saved.preferredRate,
+                    pitch = saved.preferredPitch
+                )
                 completeQuestSpeed()
             }
         }
@@ -859,14 +893,256 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** Records the latest recall bucket for a card (latest-wins, no scheduling). */
+    /** Records the recall rating for a card using SM-2 Lite spaced repetition scheduling. */
     fun rateFlashcardRecall(cardId: String, recall: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val updated = repository.loadAllFlashcards().map {
-                if (it.id == cardId) it.copy(recall = recall) else it
+                if (it.id == cardId) SpacedRepetitionScheduler.rateCard(it, recall) else it
             }
             repository.saveAllFlashcards(updated)
             _uiState.update { it.copy(flashcards = updated) }
+        }
+    }
+
+    fun saveQuiz(quiz: QuizSet) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = repository.saveQuiz(quiz)
+            _uiState.update { it.copy(quizzes = updated) }
+        }
+    }
+
+    fun deleteQuiz(quizId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val remaining = repository.deleteQuiz(quizId)
+            _uiState.update { it.copy(quizzes = remaining) }
+        }
+    }
+
+    fun recordQuizScore(quizId: String, score: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val all = repository.loadAllQuizzes().map {
+                if (it.id == quizId) it.copy(bestScore = maxOf(it.bestScore, score)) else it
+            }
+            repository.saveAllQuizzes(all)
+            _uiState.update { it.copy(quizzes = all) }
+        }
+    }
+
+    fun generateInAppFlashcards(
+        document: ReaderDocument,
+        count: Int = 10,
+        scopeText: String? = null,
+        setName: String? = null,
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        val apiKey = GeminiStudyService.getApiKey(getApplication())
+        if (apiKey.isBlank()) {
+            onComplete?.invoke(false, "Please configure your Gemini API Key in Study Hub settings.")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isGeneratingAiStudy = true, aiStudyStatusMessage = "Generating flashcards with Gemini...") }
+            val textToAnalyze = scopeText?.ifBlank { null } ?: document.rawText.ifBlank { document.chunks.joinToString(" ") }
+            val result = GeminiStudyService.generateFlashcards(
+                apiKey = apiKey,
+                documentTitle = document.title,
+                textContext = textToAnalyze,
+                cardCount = count
+            )
+            result.onSuccess { cards ->
+                importFlashcards(
+                    documentId = document.id.orEmpty(),
+                    setName = setName ?: "${document.title} Flashcards",
+                    cards = cards
+                )
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(true, "Successfully generated ${cards.size} flashcards!")
+                }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(false, err.message ?: "Failed to generate flashcards.")
+                }
+            }
+        }
+    }
+
+    fun generateInAppQuiz(
+        document: ReaderDocument,
+        count: Int = 5,
+        scopeText: String? = null,
+        quizTitle: String? = null,
+        onComplete: ((Boolean, String, QuizSet?) -> Unit)? = null
+    ) {
+        val apiKey = GeminiStudyService.getApiKey(getApplication())
+        if (apiKey.isBlank()) {
+            onComplete?.invoke(false, "Please configure your Gemini API Key in Study Hub settings.", null)
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isGeneratingAiStudy = true, aiStudyStatusMessage = "Creating exam quiz with Gemini...") }
+            val textToAnalyze = scopeText?.ifBlank { null } ?: document.rawText.ifBlank { document.chunks.joinToString(" ") }
+            val result = GeminiStudyService.generateQuiz(
+                apiKey = apiKey,
+                documentTitle = document.title,
+                textContext = textToAnalyze,
+                questionCount = count
+            )
+            result.onSuccess { questions ->
+                val newQuiz = QuizSet(
+                    title = quizTitle ?: "${document.title} Quiz",
+                    documentId = document.id.orEmpty(),
+                    questions = questions
+                )
+                saveQuiz(newQuiz)
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(true, "Created quiz with ${questions.size} questions!", newQuiz)
+                }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(false, err.message ?: "Failed to create quiz.", null)
+                }
+            }
+        }
+    }
+
+    fun generateInAppFlashcards(
+        document: SavedDocument,
+        prompt: String? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val text = repository.readText(document)
+            val readerDoc = ReaderDocument(
+                id = document.id,
+                title = document.title,
+                sourceLabel = document.sourceLabel,
+                rawText = text,
+                sentences = TextChunker.chunk(text)
+            )
+            generateInAppFlashcards(readerDoc, count = 10, scopeText = prompt)
+        }
+    }
+
+    fun generateInAppQuiz(
+        document: SavedDocument,
+        prompt: String? = null
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val text = repository.readText(document)
+            val readerDoc = ReaderDocument(
+                id = document.id,
+                title = document.title,
+                sourceLabel = document.sourceLabel,
+                rawText = text,
+                sentences = TextChunker.chunk(text)
+            )
+            generateInAppQuiz(readerDoc, count = 5, scopeText = prompt)
+        }
+    }
+
+    fun generateInAppStudySummary(
+        document: ReaderDocument,
+        scopeText: String? = null,
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        val apiKey = GeminiStudyService.getApiKey(getApplication())
+        if (apiKey.isBlank()) {
+            onComplete?.invoke(false, "Please configure your Gemini API Key in Study Hub settings.")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isGeneratingAiStudy = true, aiStudyStatusMessage = "Synthesizing executive summary with Gemini...") }
+            val textToAnalyze = scopeText?.ifBlank { null } ?: document.rawText.ifBlank { document.chunks.joinToString(" ") }
+            val result = GeminiStudyService.generateStudySummary(
+                apiKey = apiKey,
+                documentTitle = document.title,
+                textContext = textToAnalyze
+            )
+            result.onSuccess { summary ->
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(true, summary)
+                }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(false, err.message ?: "Failed to generate summary.")
+                }
+            }
+        }
+    }
+
+    fun generateInAppExplanation(
+        document: ReaderDocument,
+        scopeText: String? = null,
+        targetPassage: String = "",
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        val apiKey = GeminiStudyService.getApiKey(getApplication())
+        if (apiKey.isBlank()) {
+            onComplete?.invoke(false, "Please configure your Gemini API Key in Study Hub settings.")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isGeneratingAiStudy = true, aiStudyStatusMessage = "Deconstructing concepts with Feynman explanation...") }
+            val textToAnalyze = scopeText?.ifBlank { null } ?: document.rawText.ifBlank { document.chunks.joinToString(" ") }
+            val result = GeminiStudyService.generateExplanation(
+                apiKey = apiKey,
+                documentTitle = document.title,
+                textContext = textToAnalyze,
+                targetPassage = targetPassage
+            )
+            result.onSuccess { explanation ->
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(true, explanation)
+                }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(false, err.message ?: "Failed to explain passage.")
+                }
+            }
+        }
+    }
+
+    fun generateInAppStudyGuide(
+        document: ReaderDocument,
+        scopeText: String? = null,
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        val apiKey = GeminiStudyService.getApiKey(getApplication())
+        if (apiKey.isBlank()) {
+            onComplete?.invoke(false, "Please configure your Gemini API Key in Study Hub settings.")
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isGeneratingAiStudy = true, aiStudyStatusMessage = "Building structured study guide...") }
+            val textToAnalyze = scopeText?.ifBlank { null } ?: document.rawText.ifBlank { document.chunks.joinToString(" ") }
+            val result = GeminiStudyService.generateStudyGuide(
+                apiKey = apiKey,
+                documentTitle = document.title,
+                textContext = textToAnalyze
+            )
+            result.onSuccess { guide ->
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(true, guide)
+                }
+            }.onFailure { err ->
+                _uiState.update { it.copy(isGeneratingAiStudy = false, aiStudyStatusMessage = null) }
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke(false, err.message ?: "Failed to generate study guide.")
+                }
+            }
         }
     }
 
@@ -2681,6 +2957,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun navigateToHomeTab(tab: VeritasHomeTab) {
+        returnToLibrary()
+        _uiState.update { it.copy(targetHomeTab = tab) }
+    }
+
+    fun clearTargetHomeTab() {
+        _uiState.update { it.copy(targetHomeTab = null) }
+    }
+
     fun approveFileBrowserFolder(uri: Uri?) {
         if (uri == null) return
         val context = getApplication<Application>()
@@ -2874,7 +3159,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     audioUrls = resolvedAudioUrls,
                     reminderAt = reminderAt
                 )
-                if (index != -1) existing[index] = savedNote
+                if (index != -1) existing[index] = savedNote else existing.add(0, savedNote)
             }
             repository.saveGeneralNotes(existing)
             // (Re)schedule or clear the note's reminder alarm.
@@ -3036,17 +3321,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val activeDoc = uiState.value.activeDocument ?: return
         val docId = activeDoc.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val isPlaceholder = explanation.contains("Looked up") || explanation.contains("Asked AI")
-            val fetched = if (isPlaceholder) fetchDictionaryDefinition(word) else null
-            val finalExplanation = fetched?.definition ?: explanation
-            val pronunciation = fetched?.pronunciation
-
-            val existing = repository.loadGeneralNotes().toMutableList()
-            val targetTitle = "__vocab__$docId"
-            val vocabIndex = existing.indexOfFirst { it.title == targetTitle }
-
-            val now = System.currentTimeMillis()
-            val formattedTime = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(now))
             val currentIndex = PlaybackStateStore.currentIndex
             val textModel = ReaderTextIndex.build(activeDoc.rawText, activeDoc.pageCount)
             val part = textModel.partForSentence(currentIndex)
@@ -3054,6 +3328,37 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val contextSentence = selectedContext?.trim()
                 .takeIf { !it.isNullOrBlank() }
                 ?: activeDoc.sentences.getOrNull(currentIndex)?.trim()
+
+            val isPlaceholder = explanation.contains("Looked up") || explanation.contains("Asked AI")
+            var finalExplanation: String = explanation
+            var pronunciation: String? = null
+
+            if (isPlaceholder) {
+                val apiKey = GeminiStudyService.getApiKey(getApplication())
+                val contextDef = if (apiKey.isNotBlank() && !contextSentence.isNullOrBlank()) {
+                    GeminiStudyService.defineInContext(
+                        apiKey = apiKey,
+                        word = word,
+                        contextSentence = contextSentence,
+                        bookTitle = activeDoc.title
+                    ).getOrNull()
+                } else null
+
+                if (!contextDef.isNullOrBlank()) {
+                    finalExplanation = contextDef
+                } else {
+                    val fetched = fetchDictionaryDefinition(word)
+                    finalExplanation = fetched?.definition ?: explanation
+                    pronunciation = fetched?.pronunciation
+                }
+            }
+
+            val existing = repository.loadGeneralNotes().toMutableList()
+            val targetTitle = "__vocab__$docId"
+            val vocabIndex = existing.indexOfFirst { it.title == targetTitle }
+
+            val now = System.currentTimeMillis()
+            val formattedTime = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(now))
 
             val entryText = buildString {
                 appendLine(word.trim())
@@ -3144,7 +3449,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             VeritasScreen.APP_HEALTH to { state: ReaderUiState -> state.showAppHealth },
             VeritasScreen.TUTORIAL to { state: ReaderUiState -> state.showTutorial },
             VeritasScreen.CANVAS_VIEW to { state: ReaderUiState -> state.showCanvasView },
-            VeritasScreen.GENERAL_NOTES_EDITOR to { state: ReaderUiState -> state.showGeneralNotesEditor }
+            VeritasScreen.GENERAL_NOTES_EDITOR to { state: ReaderUiState -> state.showGeneralNotesEditor },
+            VeritasScreen.USER_MANUAL to { state: ReaderUiState -> state.showUserManual },
+            VeritasScreen.ACCESSIBILITY_SETTINGS to { state: ReaderUiState -> state.showAccessibilitySettings }
         )
         for ((screen, getter) in mappings) {
             val wasVisible = getter(old)
@@ -3191,6 +3498,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         VeritasScreen.APP_HEALTH -> it.copy(showAppHealth = false)
                         VeritasScreen.CANVAS_VIEW -> it.copy(showCanvasView = false)
                         VeritasScreen.GENERAL_NOTES_EDITOR -> it.copy(showGeneralNotesEditor = false)
+                        VeritasScreen.USER_MANUAL -> it.copy(showUserManual = false)
+                        VeritasScreen.ACCESSIBILITY_SETTINGS -> it.copy(showAccessibilitySettings = false)
                     }
                 }
             }

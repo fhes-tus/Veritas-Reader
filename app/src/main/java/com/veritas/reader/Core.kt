@@ -262,8 +262,15 @@ data class GeneralNote(
             if (!audioUrl.isNullOrBlank() && !list.contains(audioUrl)) {
                 list.add(0, audioUrl)
             }
+            extractInlineAudios(content).forEach { if (!list.contains(it)) list.add(it) }
             return list
         }
+
+    val primaryImageUrl: String?
+        get() = imageUrl?.takeIf { it.isNotBlank() } ?: extractInlineImages(content).firstOrNull()
+
+    val allVideoUrls: List<String>
+        get() = extractInlineVideos(content)
 
     fun toJson(): JSONObject {
         val urls = allAudioUrls
@@ -277,7 +284,7 @@ data class GeneralNote(
             .put("color", color ?: "")
             .put("pinned", pinned)
             .put("isChecklist", isChecklist)
-            .put("imageUrl", imageUrl ?: "")
+            .put("imageUrl", primaryImageUrl ?: "")
             .put("audioUrl", urls.firstOrNull() ?: "")
             .put("audioUrls", jsonAudioUrls)
             .put("reminderAt", reminderAt ?: 0L)
@@ -314,6 +321,40 @@ data class GeneralNote(
     }
 }
 
+private val INLINE_IMAGE_REGEX = Regex("""!\[(?:image|photo)?\]\(([^)]+)\)|\[image:([^]]+)\]""", RegexOption.IGNORE_CASE)
+private val INLINE_AUDIO_REGEX = Regex("""\[audio\]\(([^)]+)\)|\[audio:([^]]+)\]""", RegexOption.IGNORE_CASE)
+private val INLINE_VIDEO_REGEX = Regex("""\[video\]\(([^)]+)\)|\[video:([^]]+)\]""", RegexOption.IGNORE_CASE)
+
+fun extractInlineImages(text: String): List<String> {
+    if (text.isBlank()) return emptyList()
+    val matches = mutableListOf<String>()
+    INLINE_IMAGE_REGEX.findAll(text).forEach { m ->
+        val path = m.groupValues[1].ifBlank { m.groupValues[2] }.trim()
+        if (path.isNotEmpty() && !matches.contains(path)) matches.add(path)
+    }
+    return matches
+}
+
+fun extractInlineAudios(text: String): List<String> {
+    if (text.isBlank()) return emptyList()
+    val matches = mutableListOf<String>()
+    INLINE_AUDIO_REGEX.findAll(text).forEach { m ->
+        val path = m.groupValues[1].ifBlank { m.groupValues[2] }.trim()
+        if (path.isNotEmpty() && !matches.contains(path)) matches.add(path)
+    }
+    return matches
+}
+
+fun extractInlineVideos(text: String): List<String> {
+    if (text.isBlank()) return emptyList()
+    val matches = mutableListOf<String>()
+    INLINE_VIDEO_REGEX.findAll(text).forEach { m ->
+        val path = m.groupValues[1].ifBlank { m.groupValues[2] }.trim()
+        if (path.isNotEmpty() && !matches.contains(path)) matches.add(path)
+    }
+    return matches
+}
+
 enum class VeritasScreen {
     TEXT_EDITOR,
     FILE_BROWSER,
@@ -336,7 +377,9 @@ enum class VeritasScreen {
     APP_HEALTH,
     TUTORIAL,
     CANVAS_VIEW,
-    GENERAL_NOTES_EDITOR
+    GENERAL_NOTES_EDITOR,
+    USER_MANUAL,
+    ACCESSIBILITY_SETTINGS
 }
 
 enum class AnnotationType {
@@ -398,7 +441,7 @@ data class ReaderAnnotation(
 
 data class FlashcardProgress(
     val id: String,
-    val documentId: String,
+    val documentId: String = "",
     val front: String,
     val back: String,
     // Cards are grouped into named sets (one per import). Legacy cards with no
@@ -406,9 +449,16 @@ data class FlashcardProgress(
     val setId: String = "",
     val setName: String = "",
     // Latest recall rating: "" (unrated), "again", "hard", "good", "easy".
-    // Latest-wins — re-rating moves the card between buckets. No spaced repetition.
-    val recall: String = ""
+    val recall: String = "",
+    // Spaced repetition (SM-2 Lite) metadata
+    val nextReviewDueTimestamp: Long = 0L,
+    val intervalDays: Int = 0,
+    val repetitionCount: Int = 0,
+    val easeFactor: Float = 2.5f
 ) {
+    fun isDue(nowTimestamp: Long = System.currentTimeMillis()): Boolean =
+        recall.isBlank() || nextReviewDueTimestamp <= nowTimestamp
+
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("documentId", documentId)
@@ -417,6 +467,10 @@ data class FlashcardProgress(
         .put("setId", setId)
         .put("setName", setName)
         .put("recall", recall)
+        .put("nextReviewDueTimestamp", nextReviewDueTimestamp)
+        .put("intervalDays", intervalDays)
+        .put("repetitionCount", repetitionCount)
+        .put("easeFactor", easeFactor.toDouble())
 
     companion object {
         val RECALL_BUCKETS = listOf("again", "hard", "good", "easy")
@@ -429,13 +483,17 @@ data class FlashcardProgress(
                 back = json.getString("back"),
                 setId = json.optString("setId", ""),
                 setName = json.optString("setName", ""),
-                recall = json.optString("recall", "")
+                recall = json.optString("recall", ""),
+                nextReviewDueTimestamp = json.optLong("nextReviewDueTimestamp", 0L),
+                intervalDays = json.optInt("intervalDays", 0),
+                repetitionCount = json.optInt("repetitionCount", 0),
+                easeFactor = json.optDouble("easeFactor", 2.5).toFloat()
             )
         }
     }
 }
 
-/** A named group of flashcards with per-bucket recall counts for the tiles. */
+/** A named group of flashcards with per-bucket recall counts for the tiles and mastery stats. */
 data class FlashcardSet(
     val setId: String,
     val name: String,
@@ -443,6 +501,16 @@ data class FlashcardSet(
 ) {
     val recallCounts: Map<String, Int>
         get() = cards.groupingBy { it.recall }.eachCount().filterKeys { it.isNotBlank() }
+
+    val dueCount: Int
+        get() = cards.count { it.isDue() }
+
+    val masteryPercent: Int
+        get() {
+            if (cards.isEmpty()) return 0
+            val goodOrEasy = cards.count { it.recall == "good" || it.recall == "easy" }
+            return ((goodOrEasy.toFloat() / cards.size) * 100).toInt().coerceIn(0, 100)
+        }
 }
 
 
@@ -563,6 +631,19 @@ object VeritasThemeCatalog {
     fun displayName(id: String): String {
         val normalized = normalizeThemeId(id)
         return themeOptions.firstOrNull { it.first == normalized }?.second ?: "Dark"
+    }
+
+    fun isDark(themeId: String, systemInDarkTheme: Boolean = false): Boolean {
+        val normalized = normalizeThemeId(themeId)
+        val resolved = if (normalized == "system") {
+            if (systemInDarkTheme) "dark" else "light"
+        } else {
+            normalized
+        }
+        return when (resolved) {
+            "light", "white_high_contrast", "bw_gradient_light", "github_light" -> false
+            else -> true
+        }
     }
 }
 
@@ -1065,7 +1146,8 @@ data class ReaderTrackerSnapshot(
     val weeklyUsageByDay: List<Long> = List(7) { 0L },
     val weeklyHistory: List<WeekBars> = emptyList(),
     val recentCompletions: List<ReaderTrackerCompletion> = emptyList(),
-    val activeDateKeys: Set<String> = emptySet()
+    val activeDateKeys: Set<String> = emptySet(),
+    val openedDateKeys: Set<String> = emptySet()
 ) {
     companion object {
         fun empty(): ReaderTrackerSnapshot = ReaderTrackerSnapshot()
@@ -2288,6 +2370,10 @@ class DocumentRepository(context: Context) {
             .filter { it.readDocumentIds.isNotEmpty() }
             .map { it.dateKey }
             .toSet()
+        val openedDateKeys = days
+            .filter { it.appOpenCount > 0 || it.usageMillis > 0L }
+            .map { it.dateKey }
+            .toSet()
         val weekKeys = trackerWeekKeys(nowMillis)
         val (weeklyUsage, weeklyAverage) = ReaderTrackerMath.weeklyUsage(days, weekKeys)
         val daysByKey = days.associateBy { it.dateKey }
@@ -2326,7 +2412,8 @@ class DocumentRepository(context: Context) {
             weeklyUsageByDay = weeklyUsageByDay,
             weeklyHistory = weeklyHistory,
             recentCompletions = completions.sortedByDescending { it.completedAt }.take(8),
-            activeDateKeys = readingDateKeys
+            activeDateKeys = readingDateKeys,
+            openedDateKeys = openedDateKeys
         )
     }
 
@@ -2851,6 +2938,7 @@ class DocumentRepository(context: Context) {
         )
         prefs.edit { putString(KEY_READER_SETTINGS, normalized.toJson().toString()) }
         PlaybackStateStore.autoPlayQueue = normalized.autoPlayQueue
+        updateVeritasWidgets(appContext)
         return normalized
     }
 
@@ -3012,6 +3100,38 @@ class DocumentRepository(context: Context) {
     fun deleteFlashcardSet(setId: String): List<FlashcardProgress> {
         val remaining = loadAllFlashcards().filterNot { it.setId == setId }
         saveAllFlashcards(remaining)
+        return remaining
+    }
+
+    fun loadAllQuizzes(): List<QuizSet> {
+        val raw = prefs.getString("study_quizzes", "[]") ?: "[]"
+        return runCatching {
+            val array = JSONArray(raw)
+            val list = mutableListOf<QuizSet>()
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                list.add(QuizSet.fromJson(obj))
+            }
+            list
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveAllQuizzes(list: List<QuizSet>) {
+        val array = JSONArray()
+        list.forEach { array.put(it.toJson()) }
+        prefs.edit { putString("study_quizzes", array.toString()) }
+    }
+
+    fun saveQuiz(quiz: QuizSet): List<QuizSet> {
+        val current = loadAllQuizzes().filterNot { it.id == quiz.id }.toMutableList()
+        current.add(0, quiz)
+        saveAllQuizzes(current)
+        return current
+    }
+
+    fun deleteQuiz(quizId: String): List<QuizSet> {
+        val remaining = loadAllQuizzes().filterNot { it.id == quizId }
+        saveAllQuizzes(remaining)
         return remaining
     }
 

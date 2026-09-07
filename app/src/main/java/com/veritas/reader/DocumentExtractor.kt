@@ -840,6 +840,7 @@ object DocumentExtractor {
             .filter { it.isNotBlank() }
             .joinToString("\n")
             .takeIf { it.isNotBlank() }
+        is DocxBlock.Image -> null
     }
 
     private suspend fun extractPptx(
