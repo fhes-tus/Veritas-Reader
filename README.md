@@ -1,6 +1,8 @@
 <div align="center">
 
-# 📖 Veritas Reader
+<img src="docs/icon.png" width="96" height="96" alt="Veritas Reader Icon" />
+
+# Veritas Reader
 
 ### *Your intelligent, private reading companion, neural audiobook studio, and active-recall study suite for Android.*
 
