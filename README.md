@@ -100,15 +100,18 @@ Veritas Reader is built using standard Android architecture guidelines and moder
 </p>
 <p align="center">
   <img width="48%" alt="Reading Mode & TTS" src="docs/screenshots/current_reader.png" />
-  <img width="48%" alt="Narration Studio" src="docs/screenshots/audio_studio.png" />
+  <img width="48%" alt="Audio Player & Listen Mode" src="docs/screenshots/audio_player.png" />
 </p>
 <p align="center">
-  <img width="48%" alt="PDF Viewer & OCR" src="docs/screenshots/pdf_viewer.png" />
+  <img width="48%" alt="Original PDF View" src="docs/screenshots/pdf_viewer.png" />
   <img width="48%" alt="Study Hub & Flashcards" src="docs/screenshots/study.png" />
 </p>
 <p align="center">
   <img width="48%" alt="Notes & Voice Annotations" src="docs/screenshots/notes.png" />
-  <img width="48%" alt="Android 16 Material You Widgets" src="docs/screenshots/widgets.png" />
+  <img width="48%" alt="Reading Insights & Habit Tracker" src="docs/screenshots/insights.png" />
+</p>
+<p align="center">
+  <img width="98%" alt="Android 16 Material You Widgets" src="docs/screenshots/widgets.png" />
 </p>
 
 ---

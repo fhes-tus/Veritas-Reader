@@ -2865,17 +2865,43 @@ private fun isBatteryOptimizationIgnored(context: Context): Boolean {
 }
 
 private fun requestIgnoreBatteryOptimizations(context: Context) {
+    // 1. Try direct App Battery Usage page (Android 14+ / One UI 6-8 / Pixel)
     runCatching {
-        val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-        context.startActivity(intent)
-    }.recoverCatching {
-        val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${context.packageName}")
+        val intent = Intent("android.settings.APP_BATTERY_USAGE").apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        if (context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()) {
+            context.startActivity(intent)
+            return
+        }
+    }
+
+    // 2. Open App Info page where the user can tap "Battery" (Unrestricted / Optimized)
+    runCatching {
+        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         context.startActivity(intent)
-    }.recoverCatching {
-        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        return
+    }
+
+    // 3. Try direct prompt to request ignoring battery optimizations
+    runCatching {
+        val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
             data = Uri.parse("package:${context.packageName}")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+        return
+    }
+
+    // 4. Fallback to general battery optimization list if OEM blocks all app-specific routes
+    runCatching {
+        val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         context.startActivity(intent)
     }

@@ -84,7 +84,7 @@ fun UserManualDialog(
                             "Tap 'Continue' on the hero banner to resume your current book",
                             "Check off your daily reading goals and track streaks"
                         ),
-                        imageResId = R.drawable.manual_library_main,
+                        imageResId = R.drawable.manual_home_dashboard,
                         tags = listOf("home", "dashboard", "quest", "goal", "streak", "continue reading", "hero")
                     ),
                     ManualChapter(
@@ -99,6 +99,7 @@ fun UserManualDialog(
                             "Enjoy fluid animated transitions between all four tabs",
                             "Access all tools without getting lost in nested submenus"
                         ),
+                        imageResId = R.drawable.manual_settings_hub,
                         tags = listOf("tabs", "navigation", "workspaces", "home", "library", "study", "settings hub")
                     )
                 )
@@ -197,6 +198,21 @@ fun UserManualDialog(
                         ),
                         imageResId = R.drawable.manual_import_settings,
                         tags = listOf("pdf", "ocr", "extraction", "encoding", "header", "footer", "cleanup", "page numbers")
+                    ),
+                    ManualChapter(
+                        title = "Classic Books Catalog & Archives",
+                        icon = Icons.Outlined.Book,
+                        subtitle = "Public domain masterpieces & in-app book repos",
+                        content = "Browse curated classic titles (Meditations, The Art of War, As a Man Thinketh) or explore free public repositories (Project Gutenberg, Standard Ebooks, Open Library, ManyBooks, and Ocean of PDF) directly in-app with automatic sandboxed download interception.",
+                        ctaText = "Browse Classics",
+                        ctaAction = "classics_catalog",
+                        flowSteps = listOf(
+                            "Tap the '+' button in Library and choose 'Classic Books Catalog'",
+                            "Filter by genre or search for authors and titles",
+                            "Tap 'Get' or launch a repository chip to download and import in seconds"
+                        ),
+                        imageResId = R.drawable.manual_classics_catalog,
+                        tags = listOf("classics", "public domain", "gutenberg", "standard ebooks", "ocean of pdf", "open library", "manybooks", "download", "free books")
                     )
                 )
             ),
@@ -425,7 +441,38 @@ fun UserManualDialog(
                             "Tap 'Review Now' to start a session",
                             "Rate your recall to update the card's interval"
                         ),
+                        imageResId = R.drawable.manual_ai_handoff,
                         tags = listOf("flashcards", "anki", "sm2", "spaced repetition", "quiz", "memorize", "card review", "deck")
+                    ),
+                    ManualChapter(
+                        title = "Quiz Lab & Performance",
+                        icon = Icons.Outlined.Psychology,
+                        subtitle = "Retention metrics, mastery scores & practice exams",
+                        content = "Test your reading retention with Quiz Lab. Track completion rates, mastered concepts, score distributions, and create new practice quizzes to reinforce critical takeaways.",
+                        ctaText = "Open Study Hub",
+                        ctaAction = "study_general",
+                        flowSteps = listOf(
+                            "Open Study Hub -> Quizzes or Quiz Lab",
+                            "Select a book quiz to begin answering questions",
+                            "Review detailed score breakdown and retention gauge"
+                        ),
+                        imageResId = R.drawable.manual_quiz_lab,
+                        tags = listOf("quiz", "quiz lab", "exam", "score", "retention", "mastery", "practice")
+                    ),
+                    ManualChapter(
+                        title = "Notes & Voice Memos Studio",
+                        icon = Icons.Outlined.EditNote,
+                        subtitle = "Pinned cards, real-time waveform & markdown",
+                        content = "Organize document highlights and record audio memos with live sound waveforms in the Notes & Annotations workspace. Pin your most critical notes to the top of your deck.",
+                        ctaText = "Go to Notes",
+                        ctaAction = "notes_tab",
+                        flowSteps = listOf(
+                            "Tap 'Notes' on the bottom navigation bar",
+                            "Review pinned cards or listen to recorded voice notes",
+                            "Tap the floating '+ Note' button to jot down insights"
+                        ),
+                        imageResId = R.drawable.manual_notes_main,
+                        tags = listOf("notes", "voice memo", "waveform", "annotations", "pinned", "audio recording")
                     )
                 )
             ),
@@ -492,6 +539,21 @@ fun UserManualDialog(
                         ),
                         imageResId = R.drawable.manual_backup_restore,
                         tags = listOf("backup", "export database", "restore", "veritas archive", "recovery", "data loss")
+                    ),
+                    ManualChapter(
+                        title = "About Veritas Reader & Community",
+                        icon = Icons.Outlined.Info,
+                        subtitle = "Version, developer contact, GitHub & social channels",
+                        content = "Learn more about Veritas Reader, check for the latest releases, submit feedback or bug reports on GitHub, and join community channels on Telegram, WhatsApp, and X.",
+                        ctaText = "Open About",
+                        ctaAction = "about",
+                        flowSteps = listOf(
+                            "Go to Settings -> About",
+                            "Check installed version build number",
+                            "Tap social and GitHub links to join the community"
+                        ),
+                        imageResId = R.drawable.manual_about_veritas,
+                        tags = listOf("about", "version", "github", "contact", "developer", "feedback", "social", "telegram", "whatsapp")
                     )
                 )
             )
