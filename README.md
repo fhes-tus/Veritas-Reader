@@ -116,11 +116,11 @@ Download the latest release APK from the official repository releases:
 
 👉 **[Download Latest Veritas Reader Release](https://github.com/fhes-tus/Veritas-Reader/releases)**
 
-| Package | Recommended For | Architecture |
-| :--- | :--- | :--- |
-| **`Veritas_Reader_v2.3.1_arm64.apk`** | **99% of Modern Android Phones & Tablets** | `arm64-v8a` *(Recommended)* |
-| **`Veritas_Reader_v2.3.1_universal.apk`** | **Universal Package (All Supported Devices)** | `arm64-v8a`, `armeabi-v7a` |
-| **`Veritas_Reader_v2.3.1_armeabi-v7a.apk`** | **Legacy 32-bit Devices** | `armeabi-v7a` |
+| Recommended For | Architecture |
+| :--- | :--- |
+| **99% of Modern Android Phones & Tablets** | `arm64-v8a` *(Recommended)* |
+| **Universal Package (All Supported Devices)** | `arm64-v8a`, `armeabi-v7a` |
+| **Legacy 32-bit Devices** | `armeabi-v7a` |
 
 > **Requirements**: Android 9.0 (Pie / API 28) or higher. Optimized for Android 15 & Android 16.
 
