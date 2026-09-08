@@ -3602,21 +3602,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     if (isVersionNewer(localVersion, cleanTagName)) {
                         val htmlUrl = json.optString("html_url", "https://github.com/fhes-tus/Veritas-Reader/releases")
                         val body = json.optString("body", "")
-                        
-                        var apkUrl = ""
-                        val assets = json.optJSONArray("assets")
-                        if (assets != null) {
-                            for (i in 0 until assets.length()) {
-                                val asset = assets.optJSONObject(i)
-                                if (asset != null) {
-                                    val name = asset.optString("name", "")
-                                    if (name.endsWith(".apk", ignoreCase = true)) {
-                                        apkUrl = asset.optString("browser_download_url", "")
-                                        break
-                                    }
-                                }
-                            }
-                        }
+                        val apkUrl = selectOptimalApkUrl(json.optJSONArray("assets"))
 
                         runCatching {
                             val context = getApplication<Application>()
@@ -3843,6 +3829,57 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 if (l > r) return false
             }
             return false
+        }
+
+        /**
+         * Intelligently select the best matching APK for the current device architecture:
+         * - If the device supports 64-bit ARM (arm64-v8a), prioritize arm64 packages.
+         * - If the device only supports 32-bit ARM (armeabi-v7a), prioritize armeabi-v7a packages.
+         * - Fall back to universal packages or the first available APK.
+         */
+        fun selectOptimalApkUrl(
+            assets: org.json.JSONArray?,
+            supportedAbis: Array<String> = android.os.Build.SUPPORTED_ABIS
+        ): String {
+            if (assets == null) return ""
+            val apks = mutableListOf<Pair<String, String>>()
+            for (i in 0 until assets.length()) {
+                val asset = assets.optJSONObject(i) ?: continue
+                val name = asset.optString("name", "")
+                val url = asset.optString("browser_download_url", "")
+                if (name.endsWith(".apk", ignoreCase = true) && url.isNotBlank()) {
+                    apks.add(name to url)
+                }
+            }
+            if (apks.isEmpty()) return ""
+
+            val supportsArm64 = supportedAbis.any {
+                it.contains("arm64", ignoreCase = true) || it.contains("aarch64", ignoreCase = true)
+            }
+            if (supportsArm64) {
+                val arm64Apk = apks.firstOrNull { (name, _) ->
+                    name.contains("arm64", ignoreCase = true) || name.contains("v8a", ignoreCase = true)
+                }
+                if (arm64Apk != null) return arm64Apk.second
+            }
+
+            val supportsArm32 = supportedAbis.any {
+                it.contains("armeabi", ignoreCase = true) || it.contains("v7a", ignoreCase = true)
+            }
+            if (supportsArm32) {
+                val arm32Apk = apks.firstOrNull { (name, _) ->
+                    (name.contains("v7a", ignoreCase = true) || name.contains("armeabi", ignoreCase = true)) &&
+                        !name.contains("arm64", ignoreCase = true)
+                }
+                if (arm32Apk != null) return arm32Apk.second
+            }
+
+            val universalApk = apks.firstOrNull { (name, _) ->
+                name.contains("universal", ignoreCase = true)
+            }
+            if (universalApk != null) return universalApk.second
+
+            return apks.first().second
         }
     }
 }

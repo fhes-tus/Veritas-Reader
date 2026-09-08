@@ -1596,7 +1596,7 @@ private fun DocPlayerPanel(
     onToggleTextMode: () -> Unit = {}
 ) {
     val density = LocalDensity.current
-    val maxOffsetPx = with(density) { 152.dp.toPx() }
+    val maxOffsetPx = with(density) { 218.dp.toPx() }
 
     @Suppress("DEPRECATION")
     val draggableState = remember {
@@ -1618,7 +1618,7 @@ private fun DocPlayerPanel(
 
     val currentOffset = if (draggableState.offset.isNaN()) maxOffsetPx else draggableState.requireOffset()
     val progress = (1f - (currentOffset / maxOffsetPx)).coerceIn(0f, 1f)
-    val heightDp = 72.dp + (152.dp * progress)
+    val heightDp = 72.dp + (218.dp * progress)
 
     val coroutineScope = rememberCoroutineScope()
 
@@ -1801,7 +1801,7 @@ private fun DocPlayerPanel(
                         .graphicsLayer { alpha = progress }
                         .verticalScroll(rememberScrollState())
                         .padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         statusMessage.ifBlank { if (isPlaying) "Now reading" else "Original View" },
@@ -1825,27 +1825,48 @@ private fun DocPlayerPanel(
                             color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(
-                                onClick = { onRateChange((rate - 0.05f).coerceIn(0.5f, 2.0f)) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                    .clickable {
+                                        val next = (((rate - 0.05f) * 20f).roundToInt().toFloat() / 20f).coerceIn(0.5f, 2.5f)
+                                        onRateChange(next)
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("-", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Text("-", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             }
-                            TextButton(
-                                onClick = { onRateChange((rate + 0.05f).coerceIn(0.5f, 2.0f)) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                    .clickable {
+                                        val next = (((rate + 0.05f) * 20f).roundToInt().toFloat() / 20f).coerceIn(0.5f, 2.5f)
+                                        onRateChange(next)
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("+", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Text("+", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
+                    Spacer(Modifier.height(2.dp))
                     VeritasSleekSlider(
                         value = rate,
                         onValueChange = onRateChange,
-                        valueRange = 0.5f..2.0f,
+                        valueRange = 0.5f..2.5f,
+                        stepIncrement = 0.05f,
                         modifier = Modifier.padding(horizontal = 8.dp)
                     )
+
+                    Spacer(Modifier.height(10.dp))
 
                     // Pitch & Font Size row
                     Row(
@@ -1853,33 +1874,106 @@ private fun DocPlayerPanel(
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Pitch ${"%.2f".format(pitch)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Pitch ${"%.2f".format(pitch)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                            .clickable {
+                                                val next = (((pitch - 0.05f) * 20f).roundToInt().toFloat() / 20f).coerceIn(0.7f, 1.4f)
+                                                onPitchChange(next)
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("-", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                            .clickable {
+                                                val next = (((pitch + 0.05f) * 20f).roundToInt().toFloat() / 20f).coerceIn(0.7f, 1.4f)
+                                                onPitchChange(next)
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("+", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
                             VeritasSleekSlider(
                                 value = pitch,
                                 onValueChange = onPitchChange,
-                                valueRange = 0.7f..1.4f
+                                valueRange = 0.7f..1.4f,
+                                stepIncrement = 0.05f
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Text size ${fontSizeSp}sp",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Text size ${fontSizeSp}sp",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                            .clickable { onFontSizeChange((fontSizeSp - 1).coerceIn(10, 28)) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("-", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                            .clickable { onFontSizeChange((fontSizeSp + 1).coerceIn(10, 28)) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("+", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(4.dp))
                             VeritasSleekSlider(
                                 value = fontSizeSp.toFloat(),
-                                onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
-                                valueRange = 14f..28f,
-                                steps = 13
+                                onValueChange = { onFontSizeChange(it.toInt().coerceIn(10, 28)) },
+                                valueRange = 10f..28f,
+                                steps = 17
                             )
                         }
                     }
+
+                    Spacer(Modifier.height(6.dp))
 
                     // Quick Voice Picker
                     if (availableVoices.isNotEmpty()) {

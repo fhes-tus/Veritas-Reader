@@ -30,6 +30,7 @@ import com.tom_roush.pdfbox.pdmodel.interactive.action.PDActionURI
 import com.tom_roush.pdfbox.pdmodel.interactive.annotation.PDAnnotationLink
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
+import kotlin.math.roundToInt
 import android.os.Bundle
 import android.text.InputType
 import android.text.TextUtils
@@ -1498,20 +1499,75 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         max: Float,
         current: Float,
         suffix: String,
+        stepIncrement: Float = 0.05f,
         onSliderCreated: ((VeritasSleekSliderView) -> Unit)? = null,
         onCommitted: (Float) -> Unit
     ): TextView {
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 6.dp, 0, 4.dp)
+        }
         val label = TextView(this).apply {
             text = "$title ${"%.2f".format(current)}$suffix"
             setTextColor(colorTextPrimary)
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(0, 4.dp, 0, 2.dp)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        menu.addView(label)
+        headerRow.addView(label)
+
+        var sliderRef: VeritasSleekSliderView? = null
+
+        val nudgeMinus = TextView(this).apply {
+            text = "-"
+            setTextColor(colorTextPrimary)
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            val size = 26.dp
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = 6.dp }
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(colorSurfaceVariant)
+            }
+            setOnClickListener {
+                val s = sliderRef ?: return@setOnClickListener
+                val next = (((s.currentVal - stepIncrement) * 20f).roundToInt().toFloat() / 20f).coerceIn(min, max)
+                s.currentVal = next
+                label.text = "$title ${"%.2f".format(next)}$suffix"
+                onCommitted(next)
+            }
+        }
+        headerRow.addView(nudgeMinus)
+
+        val nudgePlus = TextView(this).apply {
+            text = "+"
+            setTextColor(colorTextPrimary)
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            val size = 26.dp
+            layoutParams = LinearLayout.LayoutParams(size, size)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(colorSurfaceVariant)
+            }
+            setOnClickListener {
+                val s = sliderRef ?: return@setOnClickListener
+                val next = (((s.currentVal + stepIncrement) * 20f).roundToInt().toFloat() / 20f).coerceIn(min, max)
+                s.currentVal = next
+                label.text = "$title ${"%.2f".format(next)}$suffix"
+                onCommitted(next)
+            }
+        }
+        headerRow.addView(nudgePlus)
+        menu.addView(headerRow)
+
         val slider = VeritasSleekSliderView(this).apply {
             minVal = min
             maxVal = max
+            step = stepIncrement
             currentVal = current
             setSliderColors(
                 primary = colorPrimary,
@@ -1525,9 +1581,10 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 onCommitted(value)
             }
         }
+        sliderRef = slider
         onSliderCreated?.invoke(slider)
         menu.addView(slider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = 4.dp
+            bottomMargin = 14.dp
         })
         return label
     }

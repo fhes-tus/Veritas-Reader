@@ -4,6 +4,22 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ---
 
+## [2.3.2] - 2026-09-08
+
+### Added
+*   **Precision Slider Controls & Micro-Nudge Buttons:** Added discrete `0.05` step quantization, haptic tick feedback, and circular `[-]` and `[+]` micro-nudge buttons to Speed and Pitch sliders across Compose Reader, Original Document View (`ActualDocumentView`), and PDF Viewer (`VeritasPdfViewerActivity`), eliminating jitter and making exact value targeting effortless.
+*   **Extended 10sp Minimum Font Size:** Extended the reading font size scale down to `10sp` (10sp – 28sp) across Reader Screen, Original Document View, and Settings Hub with full configuration persistence.
+*   **Interactive Homepage Visual Charts:** Transformed the Homepage "Library Source Distribution" and "Time Allocation" donut charts into responsive interactive visualizations featuring angle touch hit-testing, slice pop-out animations, tactile haptic feedback, real-time center metric focus, and full drill-down dialogs (`DonutChartDetailDialog`) with 1-tap library filtering and reading stats navigation.
+*   **AI Quiz Lab Mastery Charts & Visual Analytics:** Integrated an interactive Mastery & Score Distribution Donut Chart (Mastered 100%, Proficient 70-99%, Needs Review <70%, Unplayed) along with a segmented progress composition bar into the Quiz Lab Metrics dialog for clear retention and performance tracking.
+
+### Changed
+*   **Expanded Playback Bar Spacing & Sizing:** Increased expanded playback bottom sheet height to 290dp and added generous vertical spacing (10–14dp) between slider rows across Compose Reader, Original Document View, and PDF Viewer for a clean, uncluttered layout.
+
+### Fixed
+*   **Architecture-Aware In-App Updater:** Fixed in-app updater asset selection logic on devices supporting both 32-bit and 64-bit ABIs to strictly prioritize 64-bit (`arm64-v8a`) binaries over 32-bit (`armeabi-v7a`), preventing accidental 32-bit installations on modern 64-bit devices.
+
+---
+
 ## [2.3.1] - 2026-09-07
 
 ### Added

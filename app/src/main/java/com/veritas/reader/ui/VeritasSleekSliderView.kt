@@ -26,6 +26,7 @@ class VeritasSleekSliderView @JvmOverloads constructor(
 
     var minVal: Float = 0.5f
     var maxVal: Float = 2.0f
+    var step: Float = 0.05f
     var currentVal: Float = 1.0f
         set(v) {
             field = v.coerceIn(minVal, maxVal)
@@ -37,6 +38,13 @@ class VeritasSleekSliderView @JvmOverloads constructor(
 
     var onProgressChangedUser: ((Float) -> Unit)? = null
     var onStopTracking: ((Float) -> Unit)? = null
+
+    private fun quantize(rawVal: Float): Float {
+        if (step <= 0f) return rawVal.coerceIn(minVal, maxVal)
+        val stepsFromMin = Math.round((rawVal - minVal) / step)
+        val snapped = minVal + stepsFromMin * step
+        return snapped.coerceIn(minVal, maxVal)
+    }
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Float) = v * density
@@ -131,29 +139,34 @@ class VeritasSleekSliderView @JvmOverloads constructor(
                 parent?.requestDisallowInterceptTouchEvent(true)
                 performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 val rawProgress = ((event.x - trackStart - thumbRadiusPx) / usableWidth).coerceIn(0f, 1f)
-                val newVal = minVal + rawProgress * span
-                currentVal = newVal
-                onProgressChangedUser?.invoke(newVal)
+                val newVal = quantize(minVal + rawProgress * span)
+                if (newVal != currentVal) {
+                    currentVal = newVal
+                    performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onProgressChangedUser?.invoke(newVal)
+                }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val rawProgress = ((event.x - trackStart - thumbRadiusPx) / usableWidth).coerceIn(0f, 1f)
-                val newVal = minVal + rawProgress * span
-                val diff = Math.abs(newVal - currentVal)
-                if (diff >= span / 50f) {
+                val newVal = quantize(minVal + rawProgress * span)
+                if (newVal != currentVal) {
+                    currentVal = newVal
                     performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onProgressChangedUser?.invoke(newVal)
                 }
-                currentVal = newVal
-                onProgressChangedUser?.invoke(newVal)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 isTrackingTouch = false
                 val rawProgress = ((event.x - trackStart - thumbRadiusPx) / usableWidth).coerceIn(0f, 1f)
-                val newVal = minVal + rawProgress * span
-                currentVal = newVal
-                onProgressChangedUser?.invoke(newVal)
-                onStopTracking?.invoke(newVal)
+                val newVal = quantize(minVal + rawProgress * span)
+                if (newVal != currentVal) {
+                    currentVal = newVal
+                    performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onProgressChangedUser?.invoke(newVal)
+                }
+                onStopTracking?.invoke(currentVal)
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }

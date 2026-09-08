@@ -1188,9 +1188,9 @@ fun ReaderSettingsDialog(
                 }
                 VeritasRoundSlider(
                     value = settings.fontSizeSp.toFloat(),
-                    onValueChange = { onFontSizeChange(it.toInt().coerceIn(14, 28)) },
-                    valueRange = 14f..28f,
-                    steps = 13
+                    onValueChange = { onFontSizeChange(it.toInt().coerceIn(10, 28)) },
+                    valueRange = 10f..28f,
+                    steps = 17
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                 Row(

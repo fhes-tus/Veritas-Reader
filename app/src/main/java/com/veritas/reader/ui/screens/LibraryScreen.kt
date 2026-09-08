@@ -2053,13 +2053,34 @@ fun LibraryScreen(
                                                 title = "Library Source Distribution",
                                                 slices = formatSlices,
                                                 totalLabel = "Readings",
-                                                modifier = Modifier.weight(1f)
+                                                modifier = Modifier.weight(1f),
+                                                onClick = {
+                                                    navigateToTab(VeritasHomeTab.LIBRARY)
+                                                },
+                                                onSliceClick = { slice ->
+                                                    val mappedSource = when (slice.label) {
+                                                        "PDF Documents" -> "PDF"
+                                                        "Web Articles" -> "Web"
+                                                        "E-Books" -> "EPUB"
+                                                        "Slide Decks" -> "PPTX"
+                                                        "Documents" -> "DOCX"
+                                                        else -> "All"
+                                                    }
+                                                    sourceFilter = mappedSource
+                                                    navigateToTab(VeritasHomeTab.LIBRARY)
+                                                }
                                             )
                                             DashboardDonutChart(
                                                 title = "Time Allocation — This Month",
                                                 slices = displayTimeSlices,
                                                 totalLabel = "Minutes",
-                                                modifier = Modifier.weight(1f)
+                                                modifier = Modifier.weight(1f),
+                                                onClick = {
+                                                    showReadingStatsHome = true
+                                                },
+                                                onSliceClick = {
+                                                    showReadingStatsHome = true
+                                                }
                                             )
                                         }
                                     }
@@ -4193,18 +4214,84 @@ internal fun QuizLabMetricsDialog(
                     }
 
                     // Mastery & Score Distribution Chart
+                    val masterySlices = remember(masteredCount, proficientCount, reviewCount, unplayedCount) {
+                        listOf(
+                            DonutSlice("Mastered (100%)", masteredCount.toFloat(), Color(0xFF10B981), "$masteredCount quizzes completed with a perfect score."),
+                            DonutSlice("Proficient (70-99%)", proficientCount.toFloat(), Color(0xFF3B82F6), "$proficientCount quizzes passed with 70% or higher."),
+                            DonutSlice("Needs Review (<70%)", reviewCount.toFloat(), Color(0xFFEF4444), "$reviewCount quizzes scored below 70% and need review."),
+                            DonutSlice("Unplayed", unplayedCount.toFloat(), Color(0xFF94A3B8), "$unplayedCount quizzes waiting to be taken.")
+                        ).filter { it.value > 0f }
+                    }
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                         shape = RoundedCornerShape(18.dp),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                     ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
                                 "Score & Mastery Distribution",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
+
+                            if (masterySlices.isNotEmpty()) {
+                                DashboardDonutChart(
+                                    title = "Mastery Breakdown",
+                                    slices = masterySlices,
+                                    totalLabel = "Quizzes",
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        "Progress Composition",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(10.dp)
+                                            .clip(RoundedCornerShape(50))
+                                    ) {
+                                        if (masteredCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(masteredCount.toFloat())
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFF10B981))
+                                            )
+                                        }
+                                        if (proficientCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(proficientCount.toFloat())
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFF3B82F6))
+                                            )
+                                        }
+                                        if (reviewCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(reviewCount.toFloat())
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFFEF4444))
+                                            )
+                                        }
+                                        if (unplayedCount > 0) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(unplayedCount.toFloat())
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFF94A3B8))
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)

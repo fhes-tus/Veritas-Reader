@@ -706,7 +706,7 @@ data class ReaderSettings(
             val migratedPack = if (rawThemeId == "material_you") "material_you" else obj.optString("themePackId", "veritas_media")
             val migratedTheme = if (rawThemeId == "material_you") "default_dark_2026" else rawThemeId
             return ReaderSettings(
-                fontSizeSp = obj.optInt("fontSizeSp", 18).coerceIn(14, 28),
+                fontSizeSp = obj.optInt("fontSizeSp", 18).coerceIn(10, 28),
                 sectionSpacingDp = obj.optInt("sectionSpacingDp", 10).coerceIn(6, 24),
                 showSectionNumbers = obj.optBoolean("showSectionNumbers", true),
                 autoPlayQueue = obj.optBoolean("autoPlayQueue", true),
@@ -2935,7 +2935,7 @@ class DocumentRepository(context: Context) {
 
     fun saveReaderSettings(settings: ReaderSettings): ReaderSettings {
         val normalized = settings.copy(
-            fontSizeSp = settings.fontSizeSp.coerceIn(14, 28),
+            fontSizeSp = settings.fontSizeSp.coerceIn(10, 28),
             sectionSpacingDp = settings.sectionSpacingDp.coerceIn(6, 24),
             themeId = VeritasThemeCatalog.normalizeThemeId(settings.themeId),
             themePackId = VeritasThemePackCatalog.normalizePackId(settings.themePackId)

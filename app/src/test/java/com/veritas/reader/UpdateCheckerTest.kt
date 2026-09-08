@@ -21,4 +21,38 @@ class UpdateCheckerTest {
         assertFalse(ReaderViewModel.isVersionNewer("1.1.0", "1.1.0"))
         assertFalse(ReaderViewModel.isVersionNewer("2.0.0", "1.0.0"))
     }
+
+    @Test
+    fun testSelectOptimalApkUrlPrefers64BitWhenSupported() {
+        val assetsJson = org.json.JSONArray().apply {
+            // Put 32-bit first (as GitHub API does alphabetically)
+            put(org.json.JSONObject().apply {
+                put("name", "Veritas_Reader_v2.3.1-armeabi-v7a-release.apk")
+                put("browser_download_url", "https://github.com/releases/armeabi-v7a.apk")
+            })
+            put(org.json.JSONObject().apply {
+                put("name", "Veritas_Reader_v2.3.1-universal-release.apk")
+                put("browser_download_url", "https://github.com/releases/universal.apk")
+            })
+            put(org.json.JSONObject().apply {
+                put("name", "Veritas_Reader_v2.3.1_arm64-release.apk")
+                put("browser_download_url", "https://github.com/releases/arm64.apk")
+            })
+        }
+
+        // 64-bit device supporting both 64-bit and 32-bit: MUST pick arm64!
+        val supported64 = arrayOf("arm64-v8a", "armeabi-v7a", "armeabi")
+        val selected64 = ReaderViewModel.selectOptimalApkUrl(assetsJson, supported64)
+        org.junit.Assert.assertEquals("https://github.com/releases/arm64.apk", selected64)
+
+        // 32-bit only device: MUST pick armeabi-v7a!
+        val supported32 = arrayOf("armeabi-v7a", "armeabi")
+        val selected32 = ReaderViewModel.selectOptimalApkUrl(assetsJson, supported32)
+        org.junit.Assert.assertEquals("https://github.com/releases/armeabi-v7a.apk", selected32)
+
+        // Device without ARM: falls back to universal!
+        val supportedX86 = arrayOf("x86_64", "x86")
+        val selectedX86 = ReaderViewModel.selectOptimalApkUrl(assetsJson, supportedX86)
+        org.junit.Assert.assertEquals("https://github.com/releases/universal.apk", selectedX86)
+    }
 }

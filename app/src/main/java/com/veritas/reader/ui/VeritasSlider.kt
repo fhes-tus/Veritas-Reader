@@ -43,6 +43,7 @@ fun VeritasSleekSlider(
     modifier: Modifier = Modifier,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
+    stepIncrement: Float = 0f,
     enabled: Boolean = true,
     trackHeight: Dp = 4.dp,
     thumbSize: Dp = 18.dp,
@@ -52,7 +53,12 @@ fun VeritasSleekSlider(
     thumbBorderColor: Color = MaterialTheme.colorScheme.surface,
     onValueChangeFinished: (() -> Unit)? = null
 ) {
-    val hapticTick = rememberSliderHaptics(value, valueRange, steps, onValueChange)
+    val effectiveSteps = if (stepIncrement > 0f) {
+        ((valueRange.endInclusive - valueRange.start) / stepIncrement).roundToInt().coerceAtLeast(1) - 1
+    } else {
+        steps
+    }
+    val hapticTick = rememberSliderHaptics(value, valueRange, effectiveSteps, onValueChange)
     val density = LocalDensity.current
 
     val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
@@ -61,6 +67,12 @@ fun VeritasSleekSlider(
     val latestFinished by rememberUpdatedState(onValueChangeFinished)
 
     fun quantize(rawProgress: Float): Float {
+        if (stepIncrement > 0f) {
+            val rawValue = valueRange.start + rawProgress * span
+            val stepIndex = ((rawValue - valueRange.start) / stepIncrement).roundToInt()
+            val snapped = valueRange.start + stepIndex * stepIncrement
+            return snapped.coerceIn(valueRange.start, valueRange.endInclusive)
+        }
         if (steps <= 0) {
             return (valueRange.start + rawProgress * span).coerceIn(valueRange.start, valueRange.endInclusive)
         }
@@ -73,7 +85,7 @@ fun VeritasSleekSlider(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .pointerInput(enabled, valueRange, steps) {
+            .pointerInput(enabled, valueRange, steps, stepIncrement) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { offset ->
                     val thumbPx = with(density) { thumbSize.toPx() }
@@ -84,7 +96,7 @@ fun VeritasSleekSlider(
                     latestFinished?.invoke()
                 }
             }
-            .pointerInput(enabled, valueRange, steps) {
+            .pointerInput(enabled, valueRange, steps, stepIncrement) {
                 if (!enabled) return@pointerInput
                 detectDragGestures(
                     onDragStart = { offset ->
@@ -168,6 +180,7 @@ fun VeritasThinRoundSlider(
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
+    stepIncrement: Float = 0f,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     trackHeight: Dp = 4.dp,
@@ -178,6 +191,7 @@ fun VeritasThinRoundSlider(
         onValueChange = onValueChange,
         valueRange = valueRange,
         steps = steps,
+        stepIncrement = stepIncrement,
         modifier = modifier,
         enabled = enabled,
         trackHeight = trackHeight,
