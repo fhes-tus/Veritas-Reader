@@ -66,4 +66,15 @@ class CleanDocumentTitleTest {
     fun `no extension is fine`() {
         assertEquals("Reading list", cleanDocumentTitle("Reading_list"))
     }
+
+    @Test
+    fun `cleanTocTitle strips trailing leader dots and page numbers`() {
+        assertEquals("Chapter 1: The Beginning", com.veritas.reader.ui.screens.cleanTocTitle("Chapter 1: The Beginning ......... 12"))
+        assertEquals("Chapter 1: The Beginning", com.veritas.reader.ui.screens.cleanTocTitle("Chapter 1: The Beginning . . . . . . 12"))
+        assertEquals("Introduction", com.veritas.reader.ui.screens.cleanTocTitle("Introduction ...................... 5"))
+        assertEquals("Epilogue", com.veritas.reader.ui.screens.cleanTocTitle("Epilogue ---------------- 340"))
+        assertEquals("Preface", com.veritas.reader.ui.screens.cleanTocTitle("Preface ........."))
+        assertEquals("Section 3", com.veritas.reader.ui.screens.cleanTocTitle("Section 3    102"))
+        assertEquals("Conclusion", com.veritas.reader.ui.screens.cleanTocTitle("12 Conclusion"))
+    }
 }

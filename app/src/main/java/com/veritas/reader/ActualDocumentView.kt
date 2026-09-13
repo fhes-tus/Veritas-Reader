@@ -1,5 +1,7 @@
 package com.veritas.reader
 
+import com.veritas.reader.ui.screens.SmartOutlineDialog
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -142,6 +144,7 @@ internal fun ActualDocumentView(
     rate: Float,
     pitch: Float,
     fontSizeSp: Int,
+    sectionSpacingDp: Int = 10,
     canGoPrevious: Boolean,
     canGoNext: Boolean,
     onPrevious: () -> Unit,
@@ -152,6 +155,7 @@ internal fun ActualDocumentView(
     onRateChange: (Float) -> Unit,
     onPitchChange: (Float) -> Unit,
     onFontSizeChange: (Int) -> Unit,
+    onSectionSpacingChange: (Int) -> Unit = {},
     onOpenVoiceStudio: () -> Unit,
     voices: List<TtsVoiceOption>,
     voiceSettings: VoiceSettings,
@@ -183,7 +187,9 @@ internal fun ActualDocumentView(
     var selectedCanvasText by remember { mutableStateOf<String?>(null) }
     var showJumpToPageDialog by remember { mutableStateOf(false) }
     var showDocInfoDialog by remember { mutableStateOf(false) }
-    var jumpPageInput by remember { mutableStateOf("") }
+    var showOutlineDialog by remember { mutableStateOf(false) }
+    val readerDocument = remember(document) { buildReaderDocument(document, repository.readText(document)) }
+    val documentOutline = remember(document.id) { repository.loadDocumentOutline(document, readerDocument.chunks) }
     var interactionTrigger by remember { mutableStateOf(0L) }
     KeepScreenAwake(enabled = true, interactionTrigger = interactionTrigger)
 
@@ -199,11 +205,13 @@ internal fun ActualDocumentView(
         showMenu,
         showJumpToPageDialog,
         showDocInfoDialog,
+        showOutlineDialog,
         selectedCanvasText
     ) {
         val overlayOpen = showMenu ||
             showJumpToPageDialog ||
             showDocInfoDialog ||
+            showOutlineDialog ||
             selectedCanvasText != null
         if ((topBarVisible || bottomBarVisible) && !overlayOpen) {
             kotlinx.coroutines.delay(BARS_AUTO_HIDE_MS)
@@ -219,89 +227,11 @@ internal fun ActualDocumentView(
         }
     }
 
-    val isPdf = remember(document) {
-        if (document.originalMimeType.contains("pdf", ignoreCase = true) ||
-            document.originalFileName.endsWith(".pdf", ignoreCase = true) ||
-            document.title.lowercase().contains(".pdf")
-        ) {
-            true
-        } else {
-            val file = repository.originalFile(document)
-            if (file != null && file.exists()) {
-                runCatching {
-                    file.inputStream().use { input ->
-                        val bytes = ByteArray(4)
-                        val read = input.read(bytes)
-                        read == 4 && bytes[0] == '%'.code.toByte() && bytes[1] == 'P'.code.toByte() && bytes[2] == 'D'.code.toByte() && bytes[3] == 'F'.code.toByte()
-                    }
-                }.getOrDefault(false)
-            } else if (document.originalFileName.startsWith("content://")) {
-                runCatching {
-                    (context.contentResolver.openInputStream(android.net.Uri.parse(document.originalFileName))?.use { input ->
-                        val bytes = ByteArray(4)
-                        val read = input.read(bytes)
-                        read == 4 && bytes[0] == '%'.code.toByte() && bytes[1] == 'P'.code.toByte() && bytes[2] == 'D'.code.toByte() && bytes[3] == 'F'.code.toByte()
-                    } ?: false)
-                }.getOrDefault(false)
-            } else {
-                false
-            }
-        }
-    }
-
-    val isImage = remember(document, isPdf) {
-        if (isPdf) {
-            false
-        } else if (document.originalMimeType.startsWith("image/") ||
-            listOf(".jpg", ".jpeg", ".png", ".webp", ".bmp").any {
-                document.originalFileName.endsWith(it, ignoreCase = true)
-            }
-        ) {
-            true
-        } else {
-            val file = repository.originalFile(document)
-            if (file != null && file.exists()) {
-                runCatching {
-                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(file.absolutePath, options)
-                    options.outWidth > 0 && options.outHeight > 0
-                }.getOrDefault(false)
-            } else if (document.originalFileName.startsWith("content://")) {
-                runCatching {
-                    (context.contentResolver.openInputStream(android.net.Uri.parse(document.originalFileName))?.use { input ->
-                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeStream(input, null, options)
-                        options.outWidth > 0 && options.outHeight > 0
-                    } ?: false)
-                }.getOrDefault(false)
-            } else {
-                false
-            }
-        }
-    }
-
-    val isPresentation = remember(document, isPdf, isImage) {
-        if (isPdf || isImage) false
-        else document.sourceLabel == "PPTX" || document.sourceLabel == "PPT" ||
-                document.originalFileName.endsWith(".pptx", ignoreCase = true) ||
-                document.originalFileName.endsWith(".ppt", ignoreCase = true) ||
-                document.originalMimeType.contains("presentationml") ||
-                document.originalMimeType.contains("powerpoint")
-    }
-
-    val isEpub = remember(document, isPdf, isImage, isPresentation) {
-        if (isPdf || isImage || isPresentation) false
-        else document.sourceLabel == "EPUB" ||
-                document.originalFileName.endsWith(".epub", ignoreCase = true) ||
-                document.originalMimeType.contains("epub")
-    }
-
-    val isDocx = remember(document, isPdf, isImage, isPresentation, isEpub) {
-        if (isPdf || isImage || isPresentation || isEpub) false
-        else document.sourceLabel == "DOCX" ||
-                document.originalFileName.endsWith(".docx", ignoreCase = true) ||
-                document.originalMimeType.contains("wordprocessingml")
-    }
+    val isPdf = remember(document) { detectIsPdf(document, repository, context) }
+    val isImage = remember(document, isPdf) { detectIsImage(document, repository, context, isPdf) }
+    val isPresentation = remember(document, isPdf, isImage) { detectIsPresentation(document, isPdf, isImage) }
+    val isEpub = remember(document, isPdf, isImage, isPresentation) { detectIsEpub(document, isPdf, isImage, isPresentation) }
+    val isDocx = remember(document, isPdf, isImage, isPresentation, isEpub) { detectIsDocx(document, isPdf, isImage, isPresentation, isEpub) }
 
     var pptxDeck by remember { mutableStateOf<PptxDeck?>(null) }
     var currentSlideImages by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
@@ -309,10 +239,7 @@ internal fun ActualDocumentView(
     var epubBook by remember { mutableStateOf<EpubBook?>(null) }
     var docxDoc by remember { mutableStateOf<DocxDocument?>(null) }
 
-    // Parsing belongs to the document, not the page. This all used to live in the page-keyed
-    // effect below, so every swipe re-read the whole file from disk and re-parsed the entire
-    // deck, book or document. For slides it rebuilt the embedded images too, which is exactly
-    // why they blinked away and back on each turn.
+    // Parsing belongs to the document, not the page.
     LaunchedEffect(original?.toString()) {
         message = null
         if (original == null) {
@@ -321,39 +248,7 @@ internal fun ActualDocumentView(
         }
         if (isPresentation) {
             val loaded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("Could not read presentation file")
-                    if (PptLegacyExtractor.isPptFile(bytes)) {
-                        val body = PptLegacyExtractor.extract(bytes)
-                        val lines = body.text.lines()
-                        val slides = mutableListOf<PptxSlideContent>()
-                        var currentSlideNum = 1
-                        var currentLines = mutableListOf<String>()
-                        for (line in lines) {
-                            if (line.startsWith("[[VERITAS_PAGE:")) {
-                                if (currentLines.isNotEmpty()) {
-                                    val title = currentLines.firstOrNull().orEmpty()
-                                    val content = currentLines.drop(1)
-                                    slides.add(PptxSlideContent(currentSlideNum, listOf(title), content, emptyList(), emptyList()))
-                                    currentSlideNum++
-                                    currentLines = mutableListOf()
-                                }
-                            } else if (line.isNotBlank()) {
-                                currentLines.add(line)
-                            }
-                        }
-                        if (currentLines.isNotEmpty()) {
-                            val title = currentLines.firstOrNull().orEmpty()
-                            val content = currentLines.drop(1)
-                            slides.add(PptxSlideContent(currentSlideNum, listOf(title), content, emptyList(), emptyList()))
-                        }
-                        val finalSlides = if (slides.isNotEmpty()) slides else listOf(PptxSlideContent(1, listOf(document.title), lines.filter { it.isNotBlank() }, emptyList(), emptyList()))
-                        PptxDeck(slides = finalSlides, slideCount = finalSlides.size)
-                    } else {
-                        PptxExtractor.parseDeck(bytes, includeSpeakerNotes = true)
-                    }
-                }
+                runCatching { loadPresentationDeck(context, original, document) }
             }
             loaded.onSuccess { deck ->
                 pptxDeck = deck
@@ -365,11 +260,7 @@ internal fun ActualDocumentView(
             }
         } else if (isEpub) {
             val loaded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("Could not read EPUB file")
-                    EpubDocumentParser.parse(bytes, document.title)
-                }
+                runCatching { loadEpubBook(context, original, document.title) }
             }
             loaded.onSuccess { book ->
                 epubBook = book
@@ -381,11 +272,7 @@ internal fun ActualDocumentView(
             }
         } else if (isDocx) {
             val loaded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
-                        ?: throw IllegalStateException("Could not read DOCX file")
-                    DocxDocumentParser.parse(bytes, document.title)
-                }
+                runCatching { loadDocxDocument(context, original, document.title) }
             }
             loaded.onSuccess { doc ->
                 docxDoc = doc
@@ -406,24 +293,7 @@ internal fun ActualDocumentView(
         if (isPdf || isImage) bitmap = null
         if (isPdf) {
             val rendered = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openFileDescriptor(original, "r")?.use { pfd ->
-                        PdfRenderer(pfd).use { renderer ->
-                            val count = renderer.pageCount.coerceAtLeast(1)
-                            val safePage = pageIndex.coerceIn(0, count - 1)
-                            renderer.openPage(safePage).use { page ->
-                                val targetWidth = 1500
-                                val scale = (targetWidth.toFloat() / page.width.toFloat()).coerceIn(1f, 4f)
-                                val width = (page.width * scale).toInt().coerceAtLeast(1)
-                                val height = (page.height * scale).toInt().coerceAtLeast(1)
-                                val output = createBitmap(width, height)
-                                Canvas(output).drawColor(AndroidColor.WHITE)
-                                page.render(output, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                RenderedPage(count, output)
-                            }
-                        }
-                    } ?: throw IllegalStateException("Could not open PDF descriptor")
-                }
+                runCatching { renderPdfPage(context, original, pageIndex) }
             }
             rendered.onSuccess {
                 pageCount = it.pageCount
@@ -435,11 +305,7 @@ internal fun ActualDocumentView(
             }
         } else if (isImage) {
             val decoded = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openInputStream(original)?.use { input ->
-                        BitmapFactory.decodeStream(input)
-                    } ?: throw IllegalStateException("Could not open image stream")
-                }
+                runCatching { decodeImageBitmap(context, original) }
             }
             decoded.onSuccess { image ->
                 bitmap = image
@@ -451,9 +317,7 @@ internal fun ActualDocumentView(
         }
     }
 
-    // Slide images are page work and are re-read per slide rather than held for the whole
-    // deck, which would pin every bitmap in memory at once. Cleared first so the previous
-    // slide's pictures never sit underneath the new one while this loads.
+    // Slide images are page work and are re-read per slide rather than held for the whole deck.
     LaunchedEffect(original?.toString(), pageIndex, pptxDeck) {
         if (original == null || !isPresentation) return@LaunchedEffect
         currentSlideImages = emptyList()
@@ -461,13 +325,7 @@ internal fun ActualDocumentView(
         val slide = deck.slides.getOrNull(pageIndex.coerceIn(0, (deck.slideCount - 1).coerceAtLeast(0)))
             ?: return@LaunchedEffect
         val images = withContext(Dispatchers.IO) {
-            runCatching {
-                val bytes = context.contentResolver.openInputStream(original)?.use { it.readBytes() }
-                    ?: return@runCatching emptyList<Bitmap>()
-                PptxExtractor.extractSlideImages(bytes, slide).mapNotNull { imgBytes ->
-                    BitmapFactory.decodeByteArray(imgBytes, 0, imgBytes.size)
-                }
-            }.getOrDefault(emptyList())
+            loadSlideImages(context, original, slide)
         }
         currentSlideImages = images
     }
@@ -556,11 +414,25 @@ internal fun ActualDocumentView(
                 } else null
             }
             PaperToneMode.DARK -> {
+                // Kindle Dark Slate: #141414 background (20), #E4E4E4 text (228)
+                val delta = (20f - 228f) / 255f
                 ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
-                    -1f, 0f, 0f, 0f, 255f,
-                    0f, -1f, 0f, 0f, 255f,
-                    0f, 0f, -1f, 0f, 255f,
-                    0f, 0f, 0f, 1f, 0f
+                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
+                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
+                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
+                    0.0f,           0.0f,           0.0f,           1.0f, 0.0f
+                )))
+            }
+            PaperToneMode.WARM_SEPIA -> {
+                // Warm Sepia: #FBF0D9 background (251, 240, 217), #3C2F2F ink (60, 47, 47)
+                val deltaR = (251f - 60f) / 255f
+                val deltaG = (240f - 47f) / 255f
+                val deltaB = (217f - 47f) / 255f
+                ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+                    0.299f * deltaR, 0.587f * deltaR, 0.114f * deltaR, 0.0f, 60f,
+                    0.299f * deltaG, 0.587f * deltaG, 0.114f * deltaG, 0.0f, 47f,
+                    0.299f * deltaB, 0.587f * deltaB, 0.114f * deltaB, 0.0f, 47f,
+                    0.0f,            0.0f,            0.0f,            1.0f, 0.0f
                 )))
             }
             PaperToneMode.NATURAL_WHITE -> null
@@ -839,2071 +711,171 @@ internal fun ActualDocumentView(
                         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     }
                     else -> {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "⚠️ original document view is unavailable",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                                Text(
-                                    text = message ?: "Unrecognized document format.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Button(onClick = onOpenExternal, enabled = original != null) { Text("Open original") }
-                                    TextButton(onClick = onClose) { Text("Extracted text") }
-                                }
-                            }
-                        }
+                        ActualDocumentUnavailableNotice(
+                            message = message,
+                            hasOriginal = original != null,
+                            onOpenExternal = onOpenExternal,
+                            onClose = onClose
+                        )
                     }
                 }
             }
 
             // Universal Zoom Control Pill at Bottom-Right
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 12.dp, bottom = if (bottomBarVisible && !isLandscape) 96.dp else 16.dp),
-                shape = RoundedCornerShape(18.dp),
-                tonalElevation = 4.dp,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    TextButton(
-                        onClick = {
-                            val next = ((Math.round(zoomScale * 4f) - 1) / 4f).coerceIn(MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
-                            setZoom(next)
-                        },
-                        enabled = zoomScale > MIN_CANVAS_ZOOM + 0.01f
-                    ) { Text("−", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-                    TextButton(onClick = { setZoom(1f, Offset.Zero) }) {
-                        Text(
-                            "${(zoomScale * 100).roundToInt()}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            val next = ((Math.round(zoomScale * 4f) + 1) / 4f).coerceIn(MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
-                            setZoom(next)
-                        },
-                        enabled = zoomScale < MAX_CANVAS_ZOOM - 0.01f
-                    ) { Text("+", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-                }
-            }
+            ActualDocumentZoomPill(
+                zoomScale = zoomScale,
+                bottomBarVisible = bottomBarVisible,
+                isLandscape = isLandscape,
+                onZoomIn = {
+                    val next = ((Math.round(zoomScale * 4f) + 1) / 4f).coerceIn(MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
+                    setZoom(next)
+                },
+                onZoomOut = {
+                    val next = ((Math.round(zoomScale * 4f) - 1) / 4f).coerceIn(MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM)
+                    setZoom(next)
+                },
+                onZoomReset = { setZoom(1f, Offset.Zero) },
+                modifier = Modifier.align(Alignment.BottomEnd)
+            )
         }
 
         // 2. Floating Top app bar (Modernized Branded Identity)
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .graphicsLayer { translationY = topBarOffset }
-                .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            shape = VeritasPackStyle.cardShape(),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha()),
-            border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme),
-            tonalElevation = 4.dp,
-            shadowElevation = 3.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Back Button
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Center Title & Page Slider / Subtitle
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                        ) {
-                            Text(
-                                text = if (isPdf) "PDF" else if (isPresentation) "PPT" else if (isEpub) "EPUB" else if (isDocx) "DOCX" else if (isImage) "IMG" else "DOC",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Black),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                            )
-                        }
-                        Text(
-                            text = document.title,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    if ((isPdf || isPresentation || isEpub || isDocx) && pageCount > 1) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = "${if (isPresentation) "Slide" else if (isEpub) "Chapter" else "Page"} ${pageIndex + 1} of $pageCount",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (zoomScale > 1.05f) {
-                                Text(
-                                    text = "• ${(zoomScale * 100).toInt()}%",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            if (rotationDegrees != 0) {
-                                Text(
-                                    text = "• ${rotationDegrees}°",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                        SlimPageSlider(
-                            pageIndex = pageIndex,
-                            pageCount = pageCount,
-                            onPageSelected = ::selectPage,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(18.dp)
-                        )
+        ActualDocumentTopBar(
+            topBarOffset = topBarOffset,
+            document = document,
+            isPdf = isPdf,
+            isPresentation = isPresentation,
+            isEpub = isEpub,
+            isDocx = isDocx,
+            isImage = isImage,
+            pageIndex = pageIndex,
+            pageCount = pageCount,
+            zoomScale = zoomScale,
+            rotationDegrees = rotationDegrees,
+            isLandscape = isLandscape,
+            onPageSelected = ::selectPage,
+            onClose = onClose,
+            onToggleOrientation = {
+                val activity = context as? android.app.Activity
+                activity?.let { act ->
+                    act.requestedOrientation = if (isLandscape) {
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
                     } else {
-                        Text(
-                            text = if (isPresentation) "PowerPoint Slide View" else if (isEpub) "EPUB Book View" else if (isDocx) "Word Document View" else if (isImage) "Original Image View" else "Original Document View",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                     }
                 }
+                zoomScale = 1f
+                zoomOffset = Offset.Zero
+            },
+            topBarVisible = topBarVisible,
+            onToggleFullScreen = {
+                topBarVisible = !topBarVisible
+                bottomBarVisible = !bottomBarVisible
+            },
+            onResetZoom = {
+                zoomScale = 1f
+                zoomOffset = Offset.Zero
+            },
+            paperToneMode = paperToneMode,
+            onPaperToneModeChange = { paperToneMode = it },
+            showMenu = showMenu,
+            onMenuVisibilityChange = { showMenu = it },
+            onOpenJumpToPageDialog = { showJumpToPageDialog = true },
+            onOpenExternal = onOpenExternal,
+            onOpenVoiceStudio = onOpenVoiceStudio,
+            onOpenDocInfo = { showDocInfoDialog = true },
+            onOpenOutline = { showOutlineDialog = true },
+            hasOriginal = original != null,
+            originalUri = original,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
 
-                // Quick Switch to Text Reader
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.MenuBook,
-                        contentDescription = "Switch to Extracted Text",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Rotate Page Button
-                IconButton(
-                    onClick = {
-                        val activity = context as? android.app.Activity
-                        activity?.let { act ->
-                            act.requestedOrientation = if (isLandscape) {
-                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                            } else {
-                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                            }
-                        }
-                        // Only the window turns. Rotating the canvas as well double-counted:
-                        // the activity used to be destroyed on the orientation change, which
-                        // reset this back to 0 and hid the second rotation. Now that the view
-                        // survives the change, both applied and the page rendered sideways.
-                        zoomScale = 1f
-                        zoomOffset = Offset.Zero
-                    },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.RotateRight,
-                        contentDescription = "Rotate",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // More Options / Tools Menu (3-dots overflow)
-                Box {
-                    IconButton(
-                        onClick = { showMenu = true },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "More Options",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        modifier = Modifier
-                            .width(290.dp)
-                            .background(MaterialTheme.colorScheme.surface)
-                    ) {
-                        Text(
-                            text = "Document Tools",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                        Text(
-                            text = document.title,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-
-                        // --- VIEW & DISPLAY ---
-                        Text(
-                            text = "Display",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text(if (topBarVisible) "Full Screen Mode" else "Exit Full Screen", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text(if (topBarVisible) "Hide toolbar & player bars" else "Show toolbar & player bars", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(painter = painterResource(R.drawable.ic_m3_fullscreen), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            onClick = {
-                                topBarVisible = !topBarVisible
-                                bottomBarVisible = !bottomBarVisible
-                                showMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text("Fit to Screen", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("Reset zoom to 100%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Filled.FitScreen, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            onClick = {
-                                zoomScale = 1f
-                                zoomOffset = Offset.Zero
-                                showMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text("Rotate View (90°)", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text(if (isLandscape) "Switch to portrait" else "Switch to landscape", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            onClick = {
-                                val activity = context as? android.app.Activity
-                                activity?.let { act ->
-                                    act.requestedOrientation = if (isLandscape) {
-                                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                                    } else {
-                                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                    }
-                                }
-                                zoomScale = 1f
-                                zoomOffset = Offset.Zero
-                                showMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text(
-                                        when (paperToneMode) {
-                                            PaperToneMode.ACTIVE_THEME -> "Theme-Adapted Paper (Active)"
-                                            PaperToneMode.DARK -> "Theme-Adapted Paper (Dark)"
-                                            PaperToneMode.NATURAL_WHITE -> "Natural Paper Colors (White)"
-                                        },
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        when (paperToneMode) {
-                                            PaperToneMode.ACTIVE_THEME -> "Tap for dark paper"
-                                            PaperToneMode.DARK -> "Tap for authentic white paper"
-                                            PaperToneMode.NATURAL_WHITE -> "Tap to adapt paper to active theme"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Filled.InvertColors, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            onClick = {
-                                paperToneMode = when (paperToneMode) {
-                                    PaperToneMode.ACTIVE_THEME -> PaperToneMode.DARK
-                                    PaperToneMode.DARK -> PaperToneMode.NATURAL_WHITE
-                                    PaperToneMode.NATURAL_WHITE -> PaperToneMode.ACTIVE_THEME
-                                }
-                                showMenu = false
-                            }
-                        )
-
-                        // --- PAGE NAVIGATION ---
-                        if ((isPdf || isPresentation || isEpub || isDocx) && pageCount > 1) {
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                            Text(
-                                text = "Navigation",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Jump to ${if (isPresentation) "Slide" else if (isEpub) "Chapter" else "Page"}...", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                        Text("Go to 1–$pageCount", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Numbers, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                },
-                                onClick = {
-                                    jumpPageInput = "${pageIndex + 1}"
-                                    showJumpToPageDialog = true
-                                    showMenu = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("First ${if (isPresentation) "Slide" else if (isEpub) "Chapter" else "Page"} (1)", color = MaterialTheme.colorScheme.onSurface) },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.FirstPage, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                },
-                                enabled = pageIndex > 0,
-                                onClick = {
-                                    selectPage(0)
-                                    showMenu = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Last ${if (isPresentation) "Slide" else if (isEpub) "Chapter" else "Page"} ($pageCount)", color = MaterialTheme.colorScheme.onSurface) },
-                                leadingIcon = {
-                                    Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                },
-                                enabled = pageIndex < pageCount - 1,
-                                onClick = {
-                                    selectPage(pageCount - 1)
-                                    showMenu = false
-                                }
-                            )
-                        }
-
-                        // --- STUDY & AUDIO ---
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                        Text(
-                            text = "Reading & Audio",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text("Switch to Text Reader", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("Flowing text, notes & speed reader", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            onClick = {
-                                showMenu = false
-                                onClose()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text("Voice Studio", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("Narrators, speed & audio tuning", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            },
-                            onClick = {
-                                showMenu = false
-                                onOpenVoiceStudio()
-                            }
-                        )
-
-                        // --- FILE & SHARE ---
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text("Share Original File", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("Send to other apps", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Share, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            },
-                            enabled = original != null,
-                            onClick = {
-                                showMenu = false
-                                original?.let { uri ->
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = document.originalMimeType.ifBlank { "application/pdf" }
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share Document"))
-                                }
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text("Open in External App", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                    Text("Use system PDF or photo viewer", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            },
-                            enabled = original != null,
-                            onClick = {
-                                showMenu = false
-                                onOpenExternal()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text("Document Information", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            },
-                            onClick = {
-                                showDocInfoDialog = true
-                                showMenu = false
-                            }
-                        )
-                    }
-                }
-            }
+        // Table of Contents / Smart Outline Dialog
+        if (showOutlineDialog) {
+            SmartOutlineDialog(
+                document = readerDocument,
+                documentOutline = documentOutline,
+                currentIndex = 0,
+                onJumpToSection = { targetIndex ->
+                    showOutlineDialog = false
+                    val model = ReaderTextModelCache.get(document.id, readerDocument.rawText, document.pageCount)
+                    val targetPage = model.sentences.getOrNull(targetIndex)?.pageNumber
+                        ?: documentOutline.firstOrNull { it.targetIndex == targetIndex }?.pageNumber
+                        ?: 1
+                    selectPage((targetPage - 1).coerceIn(0, (pageCount - 1).coerceAtLeast(0)))
+                },
+                onDismiss = { showOutlineDialog = false }
+            )
         }
 
         // Jump to Page Dialog
-        if (showJumpToPageDialog) {
-            AlertDialog(
-                onDismissRequest = { showJumpToPageDialog = false },
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                textContentColor = MaterialTheme.colorScheme.onSurface,
-                title = { Text("Jump to Page", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "Enter ${if (isPresentation) "slide" else "page"} number between 1 and $pageCount:",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedTextField(
-                            value = jumpPageInput,
-                            onValueChange = { jumpPageInput = it.filter { ch -> ch.isDigit() } },
-                            singleLine = true,
-                            placeholder = { Text("1–$pageCount") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            val parsed = jumpPageInput.toIntOrNull()
-                            if (parsed != null && parsed in 1..pageCount) {
-                                selectPage(parsed - 1)
-                            }
-                            showJumpToPageDialog = false
-                        }
-                    ) {
-                        Text("Go")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showJumpToPageDialog = false }) {
-                        Text("Cancel")
-                    }
-                }
-            )
-        }
+        JumpToPageDialog(
+            isOpen = showJumpToPageDialog,
+            pageCount = pageCount,
+            currentPageIndex = pageIndex,
+            isPresentation = isPresentation,
+            onDismiss = { showJumpToPageDialog = false },
+            onConfirm = { selectPage(it) }
+        )
 
         // Document Info Dialog
-        if (showDocInfoDialog) {
-            AlertDialog(
-                onDismissRequest = { showDocInfoDialog = false },
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                textContentColor = MaterialTheme.colorScheme.onSurface,
-                title = { Text("Document Info", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Title: ${document.title}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Format: ${if (isPdf) "PDF Document" else if (isPresentation) "PowerPoint Presentation" else if (isImage) "Image" else document.sourceLabel}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (isPdf || isPresentation) {
-                            Text("Total ${if (isPresentation) "Slides" else "Pages"}: $pageCount", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Current ${if (isPresentation) "Slide" else "Page"}: ${pageIndex + 1} (${((pageIndex + 1) * 100 / pageCount.coerceAtLeast(1))}%)", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Text("Chunks / Sentences: ${document.chunkCount}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (document.originalFileName.isNotBlank()) {
-                            Text("File: ${document.originalFileName.substringAfterLast('/')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(onClick = { showDocInfoDialog = false }) {
-                        Text("Done")
-                    }
-                }
-            )
-        }
+        DocumentInfoDialog(
+            isOpen = showDocInfoDialog,
+            document = document,
+            isPdf = isPdf,
+            isPresentation = isPresentation,
+            isImage = isImage,
+            pageCount = pageCount,
+            pageIndex = pageIndex,
+            onDismiss = { showDocInfoDialog = false }
+        )
+
         // Selected Text Action Card
         if (selectedCanvasText != null) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = if (bottomBarVisible && !isLandscape) 96.dp else 16.dp, start = 16.dp, end = 16.dp)
-                    .fillMaxWidth()
-                    .navigationBarsPadding(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 8.dp,
-                shadowElevation = 6.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.FormatQuote,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = "Selected Text Actions",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        IconButton(
-                            onClick = { selectedCanvasText = null },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.Close,
-                                contentDescription = "Dismiss",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                    Text(
-                        text = "“${selectedCanvasText?.take(100)}${if ((selectedCanvasText?.length ?: 0) > 100) "…" else ""}”",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val textToRead = selectedCanvasText.orEmpty()
-                                selectedCanvasText = null
-                                onReadFromSentence?.invoke(textToRead, pageIndex + 1)
-                            },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Continue reading from here", style = MaterialTheme.typography.labelMedium)
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                val textToCopy = selectedCanvasText.orEmpty()
-                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Veritas Text", textToCopy))
-                                android.widget.Toast.makeText(context, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
-                                selectedCanvasText = null
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(18.dp))
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                val textToSearch = selectedCanvasText.orEmpty()
-                                val searchIntent = Intent(Intent.ACTION_WEB_SEARCH).apply {
-                                    putExtra(android.app.SearchManager.QUERY, textToSearch)
-                                }
-                                runCatching { context.startActivity(searchIntent) }
-                                selectedCanvasText = null
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Filled.Search, contentDescription = "Search", modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-            }
+            SelectedTextActionCard(
+                selectedText = selectedCanvasText.orEmpty(),
+                bottomBarVisible = bottomBarVisible,
+                isLandscape = isLandscape,
+                pageIndex = pageIndex,
+                onDismiss = { selectedCanvasText = null },
+                onReadFromSentence = onReadFromSentence,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
 
         // 3. Floating Bottom Player Panel
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .graphicsLayer { translationY = bottomBarOffset }
-        ) {
-            DocPlayerPanel(
-                isPlaying = isPlaying,
-                statusMessage = statusMessage,
-                rate = rate,
-                pitch = pitch,
-                fontSizeSp = fontSizeSp,
-                queueCount = queueCount,
-                canGoPrevious = canGoPrevious,
-                canGoNext = canGoNext,
-                onPrevious = onPrevious,
-                onPlayPause = onPlayPause,
-                onNext = onNext,
-                onRateChange = onRateChange,
-                onPitchChange = onPitchChange,
-                onFontSizeChange = onFontSizeChange,
-                onOpenVoiceStudio = onOpenVoiceStudio,
-                voices = voices,
-                voiceSettings = voiceSettings,
-                onVoiceSelected = onVoiceSelected,
-                onToggleTextMode = onClose
-            )
-        }
-    }
-}
-}
-
-private data class RenderedPage(
-    val pageCount: Int,
-    val bitmap: Bitmap
-)
-
-private enum class DocPanelDragValue { Collapsed, Expanded }
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun DocPlayerPanel(
-    isPlaying: Boolean,
-    statusMessage: String,
-    rate: Float,
-    pitch: Float,
-    fontSizeSp: Int,
-    queueCount: Int,
-    canGoPrevious: Boolean,
-    canGoNext: Boolean,
-    onPrevious: () -> Unit,
-    onPlayPause: () -> Unit,
-    onNext: () -> Unit,
-    onRateChange: (Float) -> Unit,
-    onPitchChange: (Float) -> Unit,
-    onFontSizeChange: (Int) -> Unit,
-    onOpenVoiceStudio: () -> Unit,
-    voices: List<TtsVoiceOption>,
-    voiceSettings: VoiceSettings,
-    onVoiceSelected: (TtsVoiceOption) -> Unit,
-    onToggleTextMode: () -> Unit = {}
-) {
-    val density = LocalDensity.current
-    val maxOffsetPx = with(density) { 218.dp.toPx() }
-
-    @Suppress("DEPRECATION")
-    val draggableState = remember {
-        AnchoredDraggableState(
-            initialValue = DocPanelDragValue.Collapsed,
-            positionalThreshold = { distance: Float -> distance * 0.5f },
-            velocityThreshold = { with(density) { 100.dp.toPx() } },
-            snapAnimationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            decayAnimationSpec = androidx.compose.animation.core.exponentialDecay()
-        )
-    }
-    val anchors = remember(maxOffsetPx) {
-        DraggableAnchors {
-            DocPanelDragValue.Collapsed at maxOffsetPx
-            DocPanelDragValue.Expanded at 0f
-        }
-    }
-    SideEffect { draggableState.updateAnchors(anchors) }
-
-    val currentOffset = if (draggableState.offset.isNaN()) maxOffsetPx else draggableState.requireOffset()
-    val progress = (1f - (currentOffset / maxOffsetPx)).coerceIn(0f, 1f)
-    val heightDp = 72.dp + (218.dp * progress)
-
-    val coroutineScope = rememberCoroutineScope()
-
-    val availableVoices = remember(voices, voiceSettings.localeTag) {
-        if (voiceSettings.localeTag.isBlank()) voices.take(8)
-        else voices.filter { it.localeTag.equals(voiceSettings.localeTag, ignoreCase = true) }
-    }
-
-    val scheme = MaterialTheme.colorScheme
-    val isDark = scheme.surface.luminance() < 0.5f
-
-    val gradientBrush = if (isDark) {
-        Brush.verticalGradient(
-            colors = listOf(
-                blendColors(scheme.surface, scheme.primary, 0.12f).copy(alpha = 0.94f),
-                blendColors(scheme.surface, androidx.compose.ui.graphics.Color.Black, 0.20f).copy(alpha = 0.96f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            colors = listOf(
-                blendColors(scheme.surface, scheme.primaryContainer, 0.35f).copy(alpha = 0.95f),
-                blendColors(scheme.surface, scheme.primary, 0.08f).copy(alpha = 0.97f)
-            )
-        )
-    }
-
-    val borderBrush = if (isDark) {
-        Brush.verticalGradient(
-            colors = listOf(
-                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.22f),
-                scheme.primary.copy(alpha = 0.32f),
-                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            colors = listOf(
-                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.65f),
-                scheme.primary.copy(alpha = 0.25f),
-                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.30f)
-            )
-        )
-    }
-
-    val cornerRadius = androidx.compose.ui.unit.lerp(34.dp, 24.dp, progress)
-    val capsuleShape = RoundedCornerShape(cornerRadius)
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            modifier = Modifier
-                .widthIn(max = 580.dp)
-                .fillMaxWidth()
-                .height(heightDp)
-                .anchoredDraggable(
-                    state = draggableState,
-                    orientation = Orientation.Vertical
-                ),
-            shape = capsuleShape,
-            color = androidx.compose.ui.graphics.Color.Transparent,
-            shadowElevation = if (isDark) 10.dp else 8.dp,
-            tonalElevation = 0.dp
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(brush = gradientBrush, shape = capsuleShape)
-                    .border(width = 1.dp, brush = borderBrush, shape = capsuleShape)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-            // Header Row — visible in both Collapsed and Expanded state
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Tap to toggle expand / collapse
-                TextButton(
-                    onClick = onToggleTextMode,
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primaryContainer,
-                                        MaterialTheme.colorScheme.tertiaryContainer
-                                    )
-                                ),
-                                RoundedCornerShape(10.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.veritas_reader_icon),
-                            contentDescription = "Switch to Text Mode",
-                            modifier = Modifier
-                                .size(30.dp)
-                                .clip(RoundedCornerShape(8.dp)),
-                            contentScale = ContentScale.Fit
-                        )
-                    }
-                }
-
-                // Playback controls
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = onPrevious,
-                        enabled = canGoPrevious
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.NavigateBefore,
-                            contentDescription = "Previous",
-                            tint = if (canGoPrevious) MaterialTheme.colorScheme.onSurface
-                                   else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        )
-                    }
-                    FilledTonalIconButton(onClick = onPlayPause) {
-                        androidx.compose.animation.AnimatedContent(
-                            targetState = isPlaying,
-                            transitionSpec = {
-                                (androidx.compose.animation.scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) +
-                                    androidx.compose.animation.fadeIn(tween(150)))
-                                    .togetherWith(androidx.compose.animation.fadeOut(tween(100)))
-                            },
-                            label = "originalPlayMorph"
-                        ) { playing ->
-                            Icon(
-                                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (playing) "Pause" else "Play"
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = onNext,
-                        enabled = canGoNext
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.NavigateNext,
-                            contentDescription = "Next",
-                            tint = if (canGoNext) MaterialTheme.colorScheme.onSurface
-                                   else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        )
-                    }
-                }
-
-                // Voice Studio shortcut (visible in header)
-                TextButton(
-                    onClick = onOpenVoiceStudio,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Text("Voice ›", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-
-            // Expanded area — Speed, Pitch, Font, Voice picker
-            if (progress > 0.05f) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .graphicsLayer { alpha = progress }
-                        .verticalScroll(rememberScrollState())
-                        .padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        statusMessage.ifBlank { if (isPlaying) "Now reading" else "Original View" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-
-                    // Speed row
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            "Speed ${"%.2f".format(rate)}x",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                                    .clickable {
-                                        val next = (((rate - 0.05f) * 20f).roundToInt().toFloat() / 20f).coerceIn(0.5f, 2.5f)
-                                        onRateChange(next)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("-", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                                    .clickable {
-                                        val next = (((rate + 0.05f) * 20f).roundToInt().toFloat() / 20f).coerceIn(0.5f, 2.5f)
-                                        onRateChange(next)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("+", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(2.dp))
-                    VeritasSleekSlider(
-                        value = rate,
-                        onValueChange = onRateChange,
-                        valueRange = 0.5f..2.5f,
-                        stepIncrement = 0.05f,
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-
-                    Spacer(Modifier.height(10.dp))
-
-                    // Pitch & Font Size row
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "Pitch ${"%.2f".format(pitch)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                                            .clickable {
-                                                val next = (((pitch - 0.05f) * 20f).roundToInt().toFloat() / 20f).coerceIn(0.7f, 1.4f)
-                                                onPitchChange(next)
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("-", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                                            .clickable {
-                                                val next = (((pitch + 0.05f) * 20f).roundToInt().toFloat() / 20f).coerceIn(0.7f, 1.4f)
-                                                onPitchChange(next)
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("+", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            VeritasSleekSlider(
-                                value = pitch,
-                                onValueChange = onPitchChange,
-                                valueRange = 0.7f..1.4f,
-                                stepIncrement = 0.05f
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "Text size ${fontSizeSp}sp",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                                            .clickable { onFontSizeChange((fontSizeSp - 1).coerceIn(10, 28)) },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("-", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .size(22.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-                                            .clickable { onFontSizeChange((fontSizeSp + 1).coerceIn(10, 28)) },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text("+", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            VeritasSleekSlider(
-                                value = fontSizeSp.toFloat(),
-                                onValueChange = { onFontSizeChange(it.toInt().coerceIn(10, 28)) },
-                                valueRange = 10f..28f,
-                                steps = 17
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(6.dp))
-
-                    // Quick Voice Picker
-                    if (availableVoices.isNotEmpty()) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-                        Text(
-                            "Voice",
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            availableVoices.forEach { voice ->
-                                val isSelected = voice.name == voiceSettings.voiceName
-                                if (isSelected) {
-                                    Button(
-                                        onClick = { onVoiceSelected(voice) },
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        shape = RoundedCornerShape(50),
-                                        modifier = Modifier.height(28.dp)
-                                    ) {
-                                        Text(voice.name, style = MaterialTheme.typography.labelMedium)
-                                    }
-                                } else {
-                                    OutlinedButton(
-                                        onClick = { onVoiceSelected(voice) },
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                        shape = RoundedCornerShape(50),
-                                        modifier = Modifier.height(28.dp)
-                                    ) {
-                                        Text(voice.name, style = MaterialTheme.typography.labelMedium)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Full Voice Studio link
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(
-                            onClick = onOpenVoiceStudio,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text("Voice Studio ›", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-}
-}
-
-@Composable
-internal fun SlimPageSlider(
-    pageIndex: Int,
-    pageCount: Int,
-    onPageSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (pageCount <= 1) return
-    val density = LocalDensity.current
-    val tickingPageSelect = com.veritas.reader.ui.rememberStepHaptics(pageIndex, onPageSelected)
-    BoxWithConstraints(
-        modifier = modifier
-            .pointerInput(pageCount) {
-                detectTapGestures { offset ->
-                    val width = size.width.toFloat().coerceAtLeast(1f)
-                    tickingPageSelect(((offset.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
-                }
-            }
-            .pointerInput(pageCount) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        val width = size.width.toFloat().coerceAtLeast(1f)
-                        tickingPageSelect(((offset.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
-                    },
-                    onDrag = { change, _ ->
-                        val width = size.width.toFloat().coerceAtLeast(1f)
-                        tickingPageSelect(((change.position.x / width).coerceIn(0f, 1f) * (pageCount - 1)).roundToInt())
-                    }
-                )
-            },
-        contentAlignment = Alignment.CenterStart
-    ) {
-        val progress = (pageIndex.toFloat() / (pageCount - 1).toFloat()).coerceIn(0f, 1f)
-        val thumbSize = 18.dp
-        val thumbPx = with(density) { thumbSize.toPx() }
-        val trackWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(thumbPx)
-        val usableWidthPx = (trackWidthPx - thumbPx).coerceAtLeast(1f)
-        val thumbOffsetXPx = (usableWidthPx * progress).roundToInt()
-
-        // Full inactive track
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f), CircleShape)
-        )
-
-        // Active track reaching center of thumb
-        val activeWidthPx = (thumbPx / 2f + usableWidthPx * progress).coerceIn(0f, trackWidthPx)
-        val activeWidthDp = with(density) { activeWidthPx.toDp() }
-        if (activeWidthPx > 0f) {
-            Box(
-                modifier = Modifier
-                    .width(activeWidthDp)
-                    .height(4.dp)
-                    .background(MaterialTheme.colorScheme.primary, CircleShape)
-            )
-        }
-
-        // Circular thumb with 2.dp surface border & subtle drop shadow
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(thumbOffsetXPx, 0) }
-                .size(thumbSize)
-                .shadow(2.dp, CircleShape)
-                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+        ActualDocumentBottomBar(
+            bottomBarOffset = bottomBarOffset,
+            isPlaying = isPlaying,
+            statusMessage = statusMessage,
+            rate = rate,
+            pitch = pitch,
+            fontSizeSp = fontSizeSp,
+            sectionSpacingDp = sectionSpacingDp,
+            queueCount = queueCount,
+            canGoPrevious = canGoPrevious,
+            canGoNext = canGoNext,
+            onPrevious = onPrevious,
+            onPlayPause = onPlayPause,
+            onNext = onNext,
+            onRateChange = onRateChange,
+            onPitchChange = onPitchChange,
+            onFontSizeChange = onFontSizeChange,
+            onSectionSpacingChange = onSectionSpacingChange,
+            onOpenVoiceStudio = onOpenVoiceStudio,
+            voices = voices,
+            voiceSettings = voiceSettings,
+            onVoiceSelected = onVoiceSelected,
+            onClose = onClose,
+            modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
 }
-
-@Composable
-private fun getCanvasColors(paperToneMode: PaperToneMode): Pair<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color> {
-    return when (paperToneMode) {
-        PaperToneMode.ACTIVE_THEME -> MaterialTheme.colorScheme.surfaceContainerLow to MaterialTheme.colorScheme.onSurface
-        PaperToneMode.DARK -> androidx.compose.ui.graphics.Color(0xFF141414) to androidx.compose.ui.graphics.Color(0xFFE8E8E8)
-        PaperToneMode.NATURAL_WHITE -> androidx.compose.ui.graphics.Color(0xFFFFFFFF) to androidx.compose.ui.graphics.Color(0xFF1C1B1F)
-    }
 }
 
-@Composable
-private fun PresentationSlideCanvas(
-    slide: PptxSlideContent,
-    slideCount: Int,
-    slideImages: List<Bitmap>,
-    showNotes: Boolean,
-    onToggleNotes: () -> Unit,
-    onNextSlide: () -> Unit,
-    onPrevSlide: () -> Unit,
-    onToggleBars: () -> Unit,
-    onSelectText: ((String) -> Unit)? = null,
-    isPlaying: Boolean = false,
-    activeSentencePage: Int = 0,
-    activeSentenceText: String = "",
-    paperToneMode: PaperToneMode = PaperToneMode.ACTIVE_THEME,
-    rotationDegrees: Int = 0,
-    isLandscape: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    var dragAmountX by remember { mutableFloatStateOf(0f) }
-    val (cardBg, contentColor) = getCanvasColors(paperToneMode)
 
-    Card(
-        modifier = if (isLandscape) modifier.fillMaxSize() else modifier.fillMaxWidth(),
-        shape = if (isLandscape) RectangleShape else RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = cardBg
-        ),
-        border = if (isLandscape) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isLandscape) 0.dp else 8.dp)
-    ) {
-        Column(
-            modifier = if (isLandscape) Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp) else Modifier.fillMaxWidth().padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else 14.dp)
-        ) {
-            // Slide Top Bar (Badge + Notes Pill + Prev/Next Buttons)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = "Slide ${slide.number} of $slideCount",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
 
-                    if (slide.notesLines.isNotEmpty()) {
-                        Surface(
-                            modifier = Modifier.clickable { onToggleNotes() },
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (showNotes) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            Text(
-                                text = "📝 Notes (${slide.notesLines.size})",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (showNotes) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = onPrevSlide,
-                        enabled = slide.number > 1,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.NavigateBefore,
-                            contentDescription = "Previous Slide",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = onNextSlide,
-                        enabled = slide.number < slideCount,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.NavigateNext,
-                            contentDescription = "Next Slide",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            // Slide Title
-            if (slide.titleLines.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = slide.titleLines.joinToString("\n"),
-                        style = if (isLandscape) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
-                        color = contentColor
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(0.2f)
-                            .height(3.dp)
-                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
-                    )
-                }
-            }
-
-            // Slide Body Content (Scrollable with Selectable text & Speech highlighting)
-            androidx.compose.foundation.text.selection.SelectionContainer {
-                Column(
-                    modifier = if (isLandscape) {
-                        Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
-                    } else {
-                        Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())
-                    },
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val totalLines = slide.contentLines.size
-                    val totalImages = slideImages.size
-                    val imagesAfterLine = remember(totalLines, totalImages) {
-                        val map = mutableMapOf<Int, MutableList<Int>>()
-                        if (totalLines == 0) {
-                            map[-1] = (0 until totalImages).toMutableList()
-                        } else if (totalImages > 0) {
-                            for (imgIdx in 0 until totalImages) {
-                                val target = ((imgIdx + 1) * totalLines / (totalImages + 1)).coerceIn(0, totalLines - 1)
-                                map.getOrPut(target) { mutableListOf() }.add(imgIdx)
-                            }
-                        }
-                        map
-                    }
-
-                    // Render images before lines if slide has no text
-                    imagesAfterLine[-1]?.forEach { imgIdx ->
-                        val bmp = slideImages.getOrNull(imgIdx)
-                        if (bmp != null) {
-                            Image(
-                                bitmap = bmp.asImageBitmap(),
-                                contentDescription = "Slide Image",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 220.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .padding(vertical = 4.dp),
-                                contentScale = ContentScale.Fit
-                            )
-                        }
-                    }
-
-                    slide.contentLines.forEachIndexed { lineIdx, line ->
-                        val isHighlighted = isPlaying &&
-                            slide.number == activeSentencePage &&
-                            ActiveSentenceMatcher.matches(line, activeSentenceText)
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectText?.invoke(line) },
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.40f) else androidx.compose.ui.graphics.Color.Transparent
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (isHighlighted) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(3.dp)
-                                            .height(16.dp)
-                                            .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                    )
-                                }
-                                Text(
-                                    text = line,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = contentColor,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        // Inline slide image rendered directly between lines/paragraphs
-                        imagesAfterLine[lineIdx]?.forEach { imgIdx ->
-                            val bmp = slideImages.getOrNull(imgIdx)
-                            if (bmp != null) {
-                                Image(
-                                    bitmap = bmp.asImageBitmap(),
-                                    contentDescription = "Slide Image",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 220.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .padding(vertical = 4.dp),
-                                    contentScale = ContentScale.Fit
-                                )
-                            }
-                        }
-                    }
-
-                    // Speaker Notes Area
-                    if (showNotes && slide.notesLines.isNotEmpty()) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    text = "Speaker Notes",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
-                                slide.notesLines.forEach { note ->
-                                    Text(
-                                        text = note,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun EpubBookCanvas(
-    bookTitle: String,
-    chapter: EpubChapter,
-    chapterCount: Int,
-    onNextChapter: () -> Unit,
-    onPrevChapter: () -> Unit,
-    onToggleBars: () -> Unit,
-    onSelectText: ((String) -> Unit)? = null,
-    isPlaying: Boolean = false,
-    activeSentencePage: Int = 0,
-    activeSentenceText: String = "",
-    paperToneMode: PaperToneMode = PaperToneMode.ACTIVE_THEME,
-    rotationDegrees: Int = 0,
-    isLandscape: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    var dragAmountX by remember { mutableFloatStateOf(0f) }
-    val (cardBg, contentColor) = getCanvasColors(paperToneMode)
-
-    Card(
-        modifier = if (isLandscape) modifier.fillMaxSize() else modifier.fillMaxWidth(),
-        shape = if (isLandscape) RectangleShape else RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = cardBg
-        ),
-        border = if (isLandscape) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isLandscape) 0.dp else 6.dp)
-    ) {
-        Column(
-            modifier = if (isLandscape) Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp) else Modifier.fillMaxWidth().padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else 14.dp)
-        ) {
-            // Book Header (Badge + Prev/Next buttons)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        text = "📕 Chapter ${chapter.number} of $chapterCount",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = onPrevChapter,
-                        enabled = chapter.number > 1,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.NavigateBefore,
-                            contentDescription = "Previous Chapter",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = onNextChapter,
-                        enabled = chapter.number < chapterCount,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.NavigateNext,
-                            contentDescription = "Next Chapter",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            // Chapter Title & Classic Book Ornament
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = chapter.title,
-                    style = if (isLandscape) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = contentColor,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-                Text(
-                    text = "— ❦ —",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                )
-            }
-
-            // Chapter Paragraphs (Scrollable with Selectable text & Speech highlighting)
-            androidx.compose.foundation.text.selection.SelectionContainer {
-                Column(
-                    modifier = if (isLandscape) {
-                        Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
-                    } else {
-                        Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState())
-                    },
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    val totalParas = chapter.paragraphs.size
-                    val totalImages = chapter.images.size
-                    val imagesAfterPara = remember(totalParas, totalImages) {
-                        val map = mutableMapOf<Int, MutableList<Int>>()
-                        if (totalParas == 0) {
-                            map[-1] = (0 until totalImages).toMutableList()
-                        } else if (totalImages > 0) {
-                            for (imgIdx in 0 until totalImages) {
-                                val target = ((imgIdx + 1) * totalParas / (totalImages + 1)).coerceIn(0, totalParas - 1)
-                                map.getOrPut(target) { mutableListOf() }.add(imgIdx)
-                            }
-                        }
-                        map
-                    }
-
-                    // Render images before text if empty paragraphs
-                    imagesAfterPara[-1]?.forEach { imgIdx ->
-                        val bytes = chapter.images.getOrNull(imgIdx)
-                        if (bytes != null) {
-                            val bmp = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-                            if (bmp != null) {
-                                Image(
-                                    bitmap = bmp.asImageBitmap(),
-                                    contentDescription = "Chapter Illustration",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 240.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .padding(vertical = 6.dp),
-                                    contentScale = ContentScale.Fit
-                                )
-                            }
-                        }
-                    }
-
-                    chapter.paragraphs.forEachIndexed { paraIdx, para ->
-                        val isHighlighted = isPlaying &&
-                            chapter.number == activeSentencePage &&
-                            ActiveSentenceMatcher.matches(para, activeSentenceText)
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectText?.invoke(para) },
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f) else androidx.compose.ui.graphics.Color.Transparent
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (isHighlighted) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(3.dp)
-                                            .height(18.dp)
-                                            .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                    )
-                                }
-                                Text(
-                                    text = "    $para",
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        lineHeight = 22.sp
-                                    ),
-                                    color = contentColor,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-
-                        // Inline chapter image placed naturally between paragraphs
-                        imagesAfterPara[paraIdx]?.forEach { imgIdx ->
-                            val bytes = chapter.images.getOrNull(imgIdx)
-                            if (bytes != null) {
-                                val bmp = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
-                                if (bmp != null) {
-                                    Image(
-                                        bitmap = bmp.asImageBitmap(),
-                                        contentDescription = "Chapter Illustration",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 240.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .padding(vertical = 6.dp),
-                                        contentScale = ContentScale.Fit
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DocxDocumentCanvas(
-    docTitle: String,
-    page: DocxPage,
-    pageCount: Int,
-    onNextPage: () -> Unit,
-    onPrevPage: () -> Unit,
-    onToggleBars: () -> Unit,
-    onSelectText: ((String) -> Unit)? = null,
-    isPlaying: Boolean = false,
-    activeSentencePage: Int = 0,
-    activeSentenceText: String = "",
-    paperToneMode: PaperToneMode = PaperToneMode.ACTIVE_THEME,
-    rotationDegrees: Int = 0,
-    isLandscape: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    var dragAmountX by remember { mutableFloatStateOf(0f) }
-    val (cardBg, contentColor) = getCanvasColors(paperToneMode)
-
-    Card(
-        modifier = if (isLandscape) modifier.fillMaxSize() else modifier.fillMaxWidth(),
-        shape = if (isLandscape) RectangleShape else RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = cardBg
-        ),
-        border = if (isLandscape) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isLandscape) 0.dp else 6.dp)
-    ) {
-        Column(
-            modifier = if (isLandscape) Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 8.dp) else Modifier.fillMaxWidth().padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else 12.dp)
-        ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        text = "📄 Page ${page.pageNumber} of $pageCount",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = onPrevPage,
-                        enabled = page.pageNumber > 1,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.NavigateBefore,
-                            contentDescription = "Previous Page",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = onNextPage,
-                        enabled = page.pageNumber < pageCount,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.NavigateNext,
-                            contentDescription = "Next Page",
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            // Blocks (Scrollable with Selectable text & Speech highlighting)
-            androidx.compose.foundation.text.selection.SelectionContainer {
-                Column(
-                    modifier = if (isLandscape) {
-                        Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
-                    } else {
-                        Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState())
-                    },
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    page.blocks.forEachIndexed { blockIdx, block ->
-                        val isHighlighted = isPlaying &&
-                            page.pageNumber == activeSentencePage &&
-                            ActiveSentenceMatcher.matches(docxBlockPlainText(block), activeSentenceText)
-                        when (block) {
-                            is DocxBlock.Heading -> {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 6.dp)
-                                        .clickable { onSelectText?.invoke(block.text) },
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(4.dp)
-                                            .height(if (block.level == 1) 22.dp else 16.dp)
-                                            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
-                                    )
-                                    Text(
-                                        text = block.text,
-                                        style = if (block.level == 1) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Black,
-                                        color = contentColor
-                                    )
-                                }
-                            }
-                            is DocxBlock.Bullet -> {
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onSelectText?.invoke(block.text) },
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f) else androidx.compose.ui.graphics.Color.Transparent
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = (block.level * 16).dp, top = 2.dp, bottom = 2.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.Top
-                                    ) {
-                                        Text(
-                                            text = if (block.level == 0) "•" else "◦",
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = block.text,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = contentColor
-                                        )
-                                    }
-                                }
-                            }
-                            is DocxBlock.Paragraph -> {
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onSelectText?.invoke(block.text) },
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isHighlighted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f) else androidx.compose.ui.graphics.Color.Transparent
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        if (isHighlighted) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .width(3.dp)
-                                                    .height(16.dp)
-                                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                            )
-                                        }
-                                        Text(
-                                            text = block.text,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = contentColor,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                }
-                            }
-                            is DocxBlock.Table -> {
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .clickable { onSelectText?.invoke(block.rows.joinToString("\n") { it.joinToString(" | ") }) },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                                ) {
-                                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        block.rows.forEachIndexed { rowIndex, row ->
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                row.forEach { cell ->
-                                                    Text(
-                                                        text = cell,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        fontWeight = if (rowIndex == 0) FontWeight.Bold else FontWeight.Normal,
-                                                        color = if (rowIndex == 0) MaterialTheme.colorScheme.primary else contentColor,
-                                                        modifier = Modifier.weight(1f)
-                                                    )
-                                                }
-                                            }
-                                            if (rowIndex < block.rows.size - 1) {
-                                                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            is DocxBlock.Image -> {
-                                val bitmap = remember(block.imageBytes) {
-                                    BitmapFactory.decodeByteArray(block.imageBytes, 0, block.imageBytes.size)?.asImageBitmap()
-                                }
-                                if (bitmap != null) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 6.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Image(
-                                            bitmap = bitmap,
-                                            contentDescription = block.description ?: "Document Image",
-                                            modifier = Modifier
-                                                .fillMaxWidth(0.92f)
-                                                .clip(RoundedCornerShape(8.dp)),
-                                            contentScale = ContentScale.FillWidth
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CanvasControlButton(
-    text: String,
-    enabled: Boolean = true,
-    prominent: Boolean = false,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.90f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "canvasControlBounce"
-    )
-    if (prominent) {
-        Button(
-            onClick = onClick,
-            enabled = enabled,
-            interactionSource = interactionSource,
-            shape = androidx.compose.foundation.shape.CircleShape,
-            contentPadding = ButtonDefaults.ContentPadding,
-            modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
-        ) {
-            Text(text)
-        }
-    } else {
-        TextButton(
-            onClick = onClick,
-            enabled = enabled,
-            interactionSource = interactionSource,
-            modifier = Modifier.graphicsLayer(scaleX = scale, scaleY = scale)
-        ) {
-            Text(text)
-        }
-    }
-}
-
-private const val MIN_CANVAS_ZOOM = 0.75f
-private const val MAX_CANVAS_ZOOM = 5.0f
-private const val CANVAS_ZOOM_STEP = 0.25f
-
-/**
- * Decides whether a rendered line in the original-document view is the one currently being
- * spoken. The two sides do not agree on granularity: the reader speaks sentences, while the
- * canvases render slide bullets, EPUB paragraphs, and DOCX blocks, so a line can hold several
- * sentences or a sentence can span several lines. Containment in either direction covers both,
- * and the length floor stops a short line like "Introduction" from matching every sentence that
- * happens to contain the word.
- */
-internal object ActiveSentenceMatcher {
-    /** A sentence short enough to be a stray fragment is not worth matching a whole line on. */
-    private const val MIN_SENTENCE_LENGTH = 12
-
-    /**
-     * When the spoken sentence is the longer side, the rendered line is only a fragment of it,
-     * and a one- or two-word fragment matches far too much: a "Introduction" heading would
-     * light up for every sentence that happens to contain the word. Require the fragment to
-     * carry real content instead.
-     */
-    private const val MIN_FRAGMENT_WORDS = 4
-
-    fun normalize(value: String): String =
-        value.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
-
-    fun matches(line: String, activeSentence: String): Boolean {
-        if (line.isBlank() || activeSentence.isBlank()) return false
-        val normalizedLine = normalize(line)
-        val normalizedSentence = normalize(activeSentence)
-        if (normalizedLine.isBlank() || normalizedSentence.isBlank()) return false
-        if (normalizedLine == normalizedSentence) return true
-
-        // The line holds several sentences and one of them is being spoken.
-        if (normalizedSentence.length >= MIN_SENTENCE_LENGTH &&
-            normalizedLine.contains(normalizedSentence)
-        ) return true
-
-        // The sentence wrapped across several rendered lines and this is one of them.
-        if (normalizedSentence.contains(normalizedLine) &&
-            normalizedLine.split(' ').count { it.isNotBlank() } >= MIN_FRAGMENT_WORDS
-        ) return true
-
-        return false
-    }
-}
-
-/** Flattens a DOCX block to the plain text the extractor would have spoken for it. */
-internal fun docxBlockPlainText(block: DocxBlock): String = when (block) {
-    is DocxBlock.Heading -> block.text
-    is DocxBlock.Paragraph -> block.text
-    is DocxBlock.Bullet -> block.text
-    is DocxBlock.Table -> block.rows.joinToString(" ") { row -> row.joinToString(" ") }
-    is DocxBlock.Image -> ""
-}
 
 /** Quiet time before the reader's chrome collapses on its own. */
 private const val BARS_AUTO_HIDE_MS = 5_000L

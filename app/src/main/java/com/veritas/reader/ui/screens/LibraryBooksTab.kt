@@ -1,0 +1,650 @@
+package com.veritas.reader.ui.screens
+
+import android.graphics.BitmapFactory
+import android.content.Context
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.zIndex
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.SortByAlpha
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
+import kotlin.math.roundToInt
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.scale
+import java.util.Calendar
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import com.veritas.reader.VeritasPackStyle
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.outlined.Note
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material3.*
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.animation.animateContentSize
+import java.util.UUID
+import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import com.veritas.reader.ui.rememberVeritasHaptics
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import android.widget.Toast
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.core.content.edit
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.veritas.reader.ui.OnboardingController
+import com.veritas.reader.ui.OnboardingStep
+import com.veritas.reader.*
+import com.veritas.reader.ui.ReaderUiState
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.automirrored.outlined.Note
+import androidx.compose.ui.res.stringResource
+import com.veritas.reader.R
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+
+import androidx.compose.foundation.lazy.LazyListState
+
+
+@Composable
+internal fun LibraryBooksTab(
+    documents: List<SavedDocument>,
+    queuedDocuments: List<SavedDocument>,
+    uiState: ReaderUiState,
+    libraryListState: LazyListState,
+    libraryQuery: String,
+    onLibraryQueryChange: (String) -> Unit,
+    statusFilter: String,
+    onStatusFilterChange: (String) -> Unit,
+    sourceFilter: String,
+    onSourceFilterChange: (String) -> Unit,
+    collectionFilter: String,
+    onCollectionFilterChange: (String) -> Unit,
+    readingListFilter: String,
+    onReadingListFilterChange: (String) -> Unit,
+    sortMode: String,
+    columnCount: Int,
+    libraryViewMode: LibraryViewMode,
+    onLibraryViewModeChange: (LibraryViewMode) -> Unit,
+    selectedDocumentIds: Set<String>,
+    onSelectedDocumentIdsChange: (Set<String>) -> Unit,
+    onBatchFavoriteDocuments: (Set<String>) -> Unit,
+    onBatchQueueDocuments: (Set<String>) -> Unit,
+    onShowBatchCollectionDialog: () -> Unit,
+    onConfirmBatchDelete: () -> Unit,
+    onOpenDocument: (SavedDocument) -> Unit,
+    onDeleteDocument: (SavedDocument) -> Unit,
+    onToggleQueue: (SavedDocument) -> Unit,
+    onMoveQueueUp: (SavedDocument) -> Unit,
+    onMoveQueueDown: (SavedDocument) -> Unit,
+    onToggleFavorite: (SavedDocument) -> Unit,
+    onRenameDocument: (SavedDocument) -> Unit,
+    onSetCollection: (SavedDocument) -> Unit,
+    onShowDetails: (SavedDocument) -> Unit,
+    onManageLists: (SavedDocument) -> Unit,
+    onImportFile: () -> Unit,
+    onOpenReadingLists: () -> Unit,
+    onOpenReadingHistory: () -> Unit,
+    onSearchLibraryContent: (String) -> Unit,
+    onRefreshMainPage: () -> Unit,
+    isQueued: (SavedDocument) -> Boolean,
+    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
+    modifier: Modifier = Modifier
+) {
+    var lastMainPageRefreshAt by remember { mutableStateOf(0L) }
+    var showLibraryViewMenu by remember { mutableStateOf(false) }
+    var showBatchMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val libraryPrefs = remember { context.getSharedPreferences("veritas_library_settings", Context.MODE_PRIVATE) }
+    val selectionMode = selectedDocumentIds.isNotEmpty()
+    val readingCount = remember(documents) { documents.count { it.chunkCount > 1 && it.currentIndex in 1 until it.chunkCount - 1 } }
+    val completedCount = remember(documents) { documents.count { it.chunkCount > 0 && it.currentIndex >= it.chunkCount - 1 } }
+    val selectedHomeTab = VeritasHomeTab.LIBRARY
+
+    val libraryFeatures = remember(documents.size, queuedDocuments.size) {
+        VeritasFeatureRegistry.resolve(
+            VeritasFeatureSurface.LIBRARY_OVERFLOW,
+            VeritasFeatureContext(
+                hasSavedDocument = documents.isNotEmpty(),
+                queueCount = queuedDocuments.size
+            )
+        ).associateBy { it.definition.id }
+    }
+
+    fun libraryFeature(id: VeritasFeatureId): ResolvedVeritasFeature =
+        libraryFeatures.requireResolvedFeature(id)
+
+    val visibleDocuments by remember(documents, queuedDocuments, libraryQuery, statusFilter, sourceFilter, collectionFilter, readingListFilter, sortMode, uiState.readingListCatalog) {
+        derivedStateOf {
+            documents.asSequence()
+                .filter { doc ->
+                    val q = libraryQuery.trim()
+                    q.isBlank() || doc.title.contains(q, ignoreCase = true) || doc.preview.contains(q, ignoreCase = true) || doc.sourceLabel.contains(q, ignoreCase = true) || doc.collection.contains(q, ignoreCase = true)
+                }
+                .filter { doc ->
+                    when (statusFilter) {
+                        "Favorites" -> doc.favorite
+                        "Queued" -> isQueued(doc)
+                        "Unread" -> doc.currentIndex <= 0
+                        "In progress" -> doc.chunkCount > 1 && doc.currentIndex in 1 until doc.chunkCount - 1
+                        "Completed" -> doc.chunkCount > 0 && doc.currentIndex >= doc.chunkCount - 1
+                        else -> true
+                    }
+                }
+                .filter { doc -> sourceFilter == "All" || doc.sourceLabel == sourceFilter }
+                .filter { doc ->
+                    when (collectionFilter) {
+                        "All" -> true
+                        "Unfiled" -> doc.collection.isBlank()
+                        else -> doc.collection == collectionFilter
+                    }
+                }
+                .filter { doc ->
+                    if (readingListFilter == "All") {
+                        true
+                    } else {
+                        val list = uiState.readingListCatalog.list(readingListFilter)
+                        list?.contains(doc.id) == true
+                    }
+                }
+                .toList()
+                .let { list ->
+                    if (statusFilter == "Queued") {
+                        // Play order, not the library's sort: sequence is the point of a queue.
+                        val position = queuedDocuments.withIndex().associate { (i, doc) -> doc.id to i }
+                        return@let list.sortedBy { position[it.id] ?: Int.MAX_VALUE }
+                    }
+                    when (sortMode) {
+                        "Title" -> list.sortedBy { it.title.lowercase(Locale.getDefault()) }
+                        "Progress" -> list.sortedByDescending { progressFraction(it) }
+                        "Type" -> list.sortedWith(compareBy<SavedDocument> { it.sourceLabel }.thenBy { it.title.lowercase(Locale.getDefault()) })
+                        "Newest" -> list.sortedByDescending { it.createdAt }
+                        else -> list.sortedByDescending { it.updatedAt }
+                    }
+                }
+        }
+    }
+
+
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .zIndex(2f),
+                                        color = Color.Transparent,
+                                        shadowElevation = 0.dp
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .staggeredEntrance(0)
+                                                .fillMaxWidth()
+                                                .padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                        BasicTextField(
+                                            value = libraryQuery,
+                                            onValueChange = { onLibraryQueryChange(it) },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(38.dp)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                                            singleLine = true,
+                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+                                            decorationBox = { innerTextField ->
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(horizontal = 14.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Search,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                    Box(
+                                                        modifier = Modifier.weight(1f),
+                                                        contentAlignment = Alignment.CenterStart
+                                                    ) {
+                                                        if (libraryQuery.isEmpty()) {
+                                                            Text(
+                                                                text = "Search library...",
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                            )
+                                                        }
+                                                        innerTextField()
+                                                    }
+                                                    if (libraryQuery.isNotEmpty()) {
+                                                        IconButton(
+                                                            onClick = { onLibraryQueryChange("") },
+                                                            modifier = Modifier.size(24.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Filled.Close,
+                                                                contentDescription = "Clear search",
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+
+                                        Box {
+                                            IconButton(
+                                                onClick = { showLibraryViewMenu = true },
+                                                modifier = Modifier
+                                                    .size(38.dp)
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                            ) {
+                                                Icon(
+                                                    imageVector = when (libraryViewMode) {
+                                                        LibraryViewMode.TILES -> Icons.Filled.GridView
+                                                        else -> Icons.AutoMirrored.Filled.List
+                                                    },
+                                                    contentDescription = "View mode",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            DropdownMenu(expanded = showLibraryViewMenu, onDismissRequest = { showLibraryViewMenu = false }) {
+                                                LibraryViewMode.entries.forEach { mode ->
+                                                    DropdownMenuItem(
+                                                        text = { Text("${mode.icon} ${mode.label}") },
+                                                        onClick = {
+                                                            onLibraryViewModeChange(mode)
+                                                            libraryPrefs.edit {
+                                                                putString("library_view_mode", mode.name)
+                                                            }
+                                                            showLibraryViewMenu = false
+                                                        }
+                                                    )
+                                                }
+                                                HorizontalDivider()
+                                                FeatureDropdownMenuItem(
+                                                    feature = libraryFeature(VeritasFeatureId.READING_LISTS),
+                                                    label = "Reading lists",
+                                                    onClick = {
+                                                        showLibraryViewMenu = false
+                                                        onOpenReadingLists()
+                                                    }
+                                                )
+                                                FeatureDropdownMenuItem(
+                                                    feature = libraryFeature(VeritasFeatureId.READING_HISTORY),
+                                                    label = "Reading history",
+                                                    onClick = {
+                                                        showLibraryViewMenu = false
+                                                        onOpenReadingHistory()
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    }
+
+                                    if (libraryQuery.trim().length >= 3) {
+                                        TextButton(
+                                            onClick = {
+                                                onSearchLibraryContent(libraryQuery)
+                                                
+                                            },
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
+                                        ) {
+                                            Text("Search inside documents for “${libraryQuery.trim()}”")
+                                        }
+                                    }
+
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .staggeredEntrance(1)
+                                            .fillMaxSize()
+                                            .pointerInput(libraryListState) {
+                                                var pullDistance = 0f
+                                                detectVerticalDragGestures(
+                                                    onDragStart = { pullDistance = 0f },
+                                                    onVerticalDrag = { _, dragAmount ->
+                                                        val atTop = libraryListState.firstVisibleItemIndex == 0 && libraryListState.firstVisibleItemScrollOffset == 0
+                                                        if (atTop && dragAmount > 0f) pullDistance += dragAmount
+                                                    },
+                                                    onDragEnd = {
+                                                        val now = System.currentTimeMillis()
+                                                        if (pullDistance > 120f && now - lastMainPageRefreshAt > 1500L) {
+                                                            lastMainPageRefreshAt = now
+                                                            onRefreshMainPage()
+                                                        }
+                                                        pullDistance = 0f
+                                                    },
+                                                    onDragCancel = { pullDistance = 0f }
+                                                )
+                                            }
+                                            .padding(horizontal = 18.dp),
+                                        state = libraryListState,
+                                        contentPadding = PaddingValues(top = 0.dp, bottom = 22.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        if (selectedHomeTab == VeritasHomeTab.LIBRARY) item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (selectionMode) {
+                            "${selectedDocumentIds.size} selected • ${visibleDocuments.size} showing"
+                        } else {
+                            "${documents.size} total • $readingCount in progress • $completedCount completed"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (selectionMode) {
+                    Box {
+                        TextButton(onClick = { showBatchMenu = true }) {
+                            Icon(imageVector = Icons.Filled.MoreVert, contentDescription = "Batch actions")
+                        }
+                        DropdownMenu(expanded = showBatchMenu, onDismissRequest = { showBatchMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("All") },
+                                onClick = {
+                                    onSelectedDocumentIdsChange(visibleDocuments.map { it.id }.toSet())
+                                    showBatchMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                onClick = {
+                                    showBatchMenu = false
+                                    onConfirmBatchDelete()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Add to favorites") },
+                                onClick = {
+                                    onBatchFavoriteDocuments(selectedDocumentIds)
+                                    onSelectedDocumentIdsChange(emptySet())
+                                    showBatchMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Add to Queue") },
+                                onClick = {
+                                    onBatchQueueDocuments(selectedDocumentIds)
+                                    onSelectedDocumentIdsChange(emptySet())
+                                    showBatchMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Move to collection") },
+                                onClick = {
+                                    
+                                    showBatchMenu = false
+                                    onShowBatchCollectionDialog()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Cancel") },
+                                onClick = {
+                                    onSelectedDocumentIdsChange(emptySet())
+                                    showBatchMenu = false
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SoftChip(sortMode)
+                    }
+                }
+            }
+        }
+
+        if (documents.isEmpty()) {
+            item { EmptyLibraryCard(onImportFile = onImportFile) }
+        } else if (visibleDocuments.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("No matching readings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                        Text("Clear the search or change filters to see more saved readings.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        OutlinedButton(
+                            onClick = {
+                                onLibraryQueryChange("")
+                                onStatusFilterChange("All")
+                                onSourceFilterChange("All")
+                                onCollectionFilterChange("All")
+                                onReadingListFilterChange("All")
+                            }
+                        ) {
+                            Text("Clear filters")
+                        }
+                    }
+                }
+            }
+        } else {
+            if (libraryViewMode == LibraryViewMode.TILES) {
+                itemsIndexed(visibleDocuments.chunked(columnCount), key = { index, row -> row.joinToString("-") { it.id }.ifBlank { "row-$index" } }) { _, rowDocs ->
+                    Row(
+                        modifier = Modifier
+                            .animateItem()
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowDocs.forEach { doc ->
+                            DocumentTileCard(
+                                document = doc,
+                                isQueued = isQueued(doc),
+                                selectionMode = selectionMode,
+                                selected = doc.id in selectedDocumentIds,
+                                onOpen = { onOpenDocument(doc) },
+                                onLongPress = { onSelectedDocumentIdsChange(selectedDocumentIds + doc.id) },
+                                onToggleSelected = {
+                                    onSelectedDocumentIdsChange(if (doc.id in selectedDocumentIds) selectedDocumentIds - doc.id else selectedDocumentIds + doc.id)
+                                },
+                                onDelete = { onDeleteDocument(doc) },
+                                onToggleQueue = { onToggleQueue(doc) },
+                                                            onMoveQueueUp = { onMoveQueueUp(doc) },
+                                                            onMoveQueueDown = { onMoveQueueDown(doc) },
+                                onToggleFavorite = { onToggleFavorite(doc) },
+                                onRename = { onRenameDocument(doc) },
+                                onSetCollection = { onSetCollection(doc) },
+                                onShowDetails = { onShowDetails(doc) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .then(
+                                        if (doc == visibleDocuments.firstOrNull()) {
+                                            Modifier.onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
+                                        } else {
+                                            Modifier
+                                        }
+                                    ),
+                                onManageLists = { onManageLists(doc) },
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope
+                            )
+                        }
+                        val remainder = columnCount - rowDocs.size
+                        repeat(remainder) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            } else {
+                itemsIndexed(visibleDocuments, key = { _, doc -> doc.id }) { _, doc ->
+                    DocumentCard(
+                        document = doc,
+                        isQueued = isQueued(doc),
+                        viewMode = libraryViewMode,
+                        selectionMode = selectionMode,
+                        selected = doc.id in selectedDocumentIds,
+                        onOpen = { onOpenDocument(doc) },
+                        onLongPress = { onSelectedDocumentIdsChange(selectedDocumentIds + doc.id) },
+                        onToggleSelected = {
+                            onSelectedDocumentIdsChange(if (doc.id in selectedDocumentIds) selectedDocumentIds - doc.id else selectedDocumentIds + doc.id)
+                        },
+                        onDelete = { onDeleteDocument(doc) },
+                        onToggleQueue = { onToggleQueue(doc) },
+                                                            onMoveQueueUp = { onMoveQueueUp(doc) },
+                                                            onMoveQueueDown = { onMoveQueueDown(doc) },
+                        onToggleFavorite = { onToggleFavorite(doc) },
+                        onRename = { onRenameDocument(doc) },
+                        onSetCollection = { onSetCollection(doc) },
+                        onShowDetails = { onShowDetails(doc) },
+                        onManageLists = { onManageLists(doc) },
+                        modifier = if (doc == visibleDocuments.firstOrNull()) {
+                            Modifier.animateItem().onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
+                        } else {
+                            Modifier.animateItem()
+                        },
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope
+                    )
+                }
+            }
+        }
+
+        item { Spacer(modifier = Modifier.height(22.dp)) }
+                                    }
+                                }
+
+}

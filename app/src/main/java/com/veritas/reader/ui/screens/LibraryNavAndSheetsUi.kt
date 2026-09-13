@@ -1,0 +1,678 @@
+package com.veritas.reader.ui.screens
+
+
+import android.graphics.BitmapFactory
+import android.content.Context
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.SortByAlpha
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.scale
+import java.util.Calendar
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
+import com.veritas.reader.VeritasPackStyle
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.outlined.Note
+import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material3.*
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.animation.animateContentSize
+import java.util.UUID
+import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import android.widget.Toast
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.core.content.edit
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.veritas.reader.ui.OnboardingController
+import com.veritas.reader.ui.OnboardingStep
+import com.veritas.reader.ui.pressScale
+import com.veritas.reader.*
+import com.veritas.reader.ui.ReaderUiState
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.delay
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.material.icons.automirrored.outlined.Note
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+
+
+
+@Composable
+fun QueueSection(
+    queuedDocuments: List<SavedDocument>,
+    onPlayQueue: () -> Unit,
+    onOpenDocument: (SavedDocument) -> Unit,
+    onMoveUp: (SavedDocument) -> Unit,
+    onMoveDown: (SavedDocument) -> Unit,
+    onRemove: (SavedDocument) -> Unit,
+    onClearQueue: () -> Unit
+) {
+    Card(
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Queue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                    Text(
+                        if (queuedDocuments.isEmpty()) "Build a playlist from your library." else "${queuedDocuments.size} queued item${if (queuedDocuments.size == 1) "" else "s"} ready for continuous playback.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                OutlinedButton(onClick = onClearQueue, enabled = queuedDocuments.isNotEmpty()) { Text("Clear") }
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(onClick = onPlayQueue, enabled = queuedDocuments.isNotEmpty()) { Text("Play") }
+            }
+
+            if (queuedDocuments.isEmpty()) {
+                Card(
+                    shape = MaterialTheme.shapes.medium,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Text(
+                        "Use Queue on any document card to add it here. Queue order controls what plays next in the background service.",
+                        modifier = Modifier.padding(14.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                queuedDocuments.forEachIndexed { index, document ->
+                    QueueItemRow(
+                        position = index + 1,
+                        document = document,
+                        canMoveUp = index > 0,
+                        canMoveDown = index < queuedDocuments.lastIndex,
+                        onOpen = { onOpenDocument(document) },
+                        onMoveUp = { onMoveUp(document) },
+                        onMoveDown = { onMoveDown(document) },
+                        onRemove = { onRemove(document) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun QueueItemRow(
+    position: Int,
+    document: SavedDocument,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onOpen: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onRemove: () -> Unit
+) {
+    val progress = progressFraction(document)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.small),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("$position", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f).clickable { onOpen() }) {
+                    Text(document.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                    Text("${document.sourceLabel} • ${progressPercent(document)}% • sentence ${document.currentIndex + 1}/${document.chunkCount.coerceAtLeast(1)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                SourceBadge(document.sourceLabel)
+            }
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onMoveUp, enabled = canMoveUp) { Text("Up") }
+                OutlinedButton(onClick = onMoveDown, enabled = canMoveDown) { Text("Down") }
+                TextButton(onClick = onRemove) { Text("Remove") }
+            }
+        }
+    }
+}
+
+
+
+@Composable
+internal fun EmbeddedOnboardingBlock(
+    onOpenFileBrowser: () -> Unit,
+    onPasteText: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.medium),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("🎧", fontSize = 40.sp)
+            }
+            Text(
+                "Listen to anything, eyes-free.",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Import PDFs, EPUBs, documents, or paste web articles to get started.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = onOpenFileBrowser,
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Text("Browse Files")
+                }
+                FilledTonalButton(
+                    onClick = onPasteText,
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Text("Paste Text")
+                }
+            }
+        }
+    }
+}
+
+
+// One-time staggered entrance for top-level home cards: fade in + slide up ~16dp
+// with a per-card delay, on the tab's FIRST show only. `played` is saveable, so
+// scrolling away and back (or revisiting the tab) never replays it — the animation
+// can therefore never run during scroll frames.
+@Composable
+internal fun Modifier.staggeredEntrance(position: Int): Modifier {
+    if (VeritasThemeState.reduceMotion) return this
+    var played by rememberSaveable { mutableStateOf(false) }
+    val progress = remember { Animatable(if (played) 1f else 0f) }
+    if (!played) {
+        LaunchedEffect(Unit) {
+            delay(position * 40L)
+            progress.animateTo(1f, tween(durationMillis = 280, easing = LinearOutSlowInEasing))
+            played = true
+        }
+    }
+    return this.graphicsLayer {
+        alpha = progress.value
+        translationY = (1f - progress.value) * 16.dp.toPx()
+    }
+}
+
+@Composable
+internal fun RowScope.BottomNavItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: @Composable (Color, androidx.compose.ui.unit.Dp) -> Unit,
+    label: String,
+    showLabel: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.surface.luminance() < 0.5f
+
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
+            scheme.primary
+        } else {
+            scheme.onSurfaceVariant.copy(alpha = 0.72f)
+        },
+        animationSpec = tween(durationMillis = 200),
+        label = "navColor"
+    )
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    // 0.92x press-scale with a springy release so taps feel physical.
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "navPress"
+    )
+    // Pronounced pill indicator softly scales/fades in behind the active icon and text.
+    val pillProgress by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "navPill"
+    )
+    val activePillColor = if (isDark) {
+        scheme.primary.copy(alpha = 0.28f)
+    } else {
+        scheme.primary.copy(alpha = 0.18f)
+    }
+    val activePillBorder = if (isDark) {
+        scheme.primary.copy(alpha = 0.50f)
+    } else {
+        scheme.primary.copy(alpha = 0.35f)
+    }
+
+    val pillWidth = if (showLabel) 70.dp else 56.dp
+    val pillHeight = if (showLabel) 48.dp else 42.dp
+    val pillRadius = if (showLabel) 24.dp else 21.dp
+
+    Box(
+        modifier = modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .semantics(mergeDescendants = true) {
+                this.selected = selected
+                this.role = Role.Tab
+                this.contentDescription = label
+            }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (pillProgress > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .width(pillWidth)
+                    .height(pillHeight)
+                    .graphicsLayer {
+                        scaleX = 0.65f + 0.35f * pillProgress
+                        scaleY = 0.65f + 0.35f * pillProgress
+                        alpha = pillProgress.coerceIn(0f, 1f)
+                    }
+                    .background(
+                        color = activePillColor,
+                        shape = RoundedCornerShape(pillRadius)
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = activePillBorder,
+                        shape = RoundedCornerShape(pillRadius)
+                    )
+            )
+        }
+
+        if (showLabel) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                icon(contentColor, if (selected) 23.dp else 22.dp)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                    ),
+                    color = contentColor,
+                    maxLines = 1
+                )
+            }
+        } else {
+            Box(
+                contentAlignment = Alignment.Center
+            ) {
+                icon(contentColor, if (selected) 27.dp else 25.dp)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ImportSheetMenu(
+    onSelectOption: (ImportOption) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Add something", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            IconButton(onClick = onDismiss) {
+                Icon(imageVector = Icons.Filled.Close, contentDescription = "Close")
+            }
+        }
+        
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ImportSheetOptionCard(
+                icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                title = "Classic Books Catalog",
+                subtitle = "Browse free public domain masterpieces (Meditations, Art of War…)",
+                onClick = { onSelectOption(ImportOption.CLASSICS) }
+            )
+            ImportSheetOptionCard(
+                icon = Icons.Filled.FolderOpen,
+                title = "File browser",
+                subtitle = "Browse and batch import local files",
+                onClick = { onSelectOption(ImportOption.BROWSE) }
+            )
+            ImportSheetOptionCard(
+                icon = Icons.Filled.ContentPaste,
+                title = "Paste text",
+                subtitle = "Copy and paste any content",
+                onClick = { onSelectOption(ImportOption.PASTE) }
+            )
+            ImportSheetOptionCard(
+                icon = Icons.Filled.Language,
+                title = "From web",
+                subtitle = "Paste a link to an article",
+                onClick = { onSelectOption(ImportOption.WEB) }
+            )
+            ImportSheetOptionCard(
+                icon = Icons.Filled.PhotoCamera,
+                title = "Scan / OCR",
+                subtitle = "Take a photo of printed text",
+                onClick = { onSelectOption(ImportOption.SCAN) }
+            )
+            ImportSheetOptionCard(
+                icon = Icons.Filled.Description,
+                title = "Browse phone folders",
+                subtitle = "Open system file chooser",
+                onClick = { onSelectOption(ImportOption.FILE) }
+            )
+            ImportSheetOptionCard(
+                icon = Icons.Filled.EditNote,
+                title = "Write note",
+                subtitle = "Create a freeform reading note",
+                onClick = { onSelectOption(ImportOption.WRITE_NOTE) }
+            )
+        }
+    }
+}
+
+@Composable
+internal fun ImportSheetOptionCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(26.dp)
+            )
+            Column {
+                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ImportSheetWeb(
+    urlText: String,
+    onUrlChange: (String) -> Unit,
+    onImport: (String) -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            IconButton(onClick = onBack) {
+                Text("←", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Text("Import link", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        
+        Text("Paste a link to any web article, report, or blog post below:", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        
+        OutlinedTextField(
+            value = urlText,
+            onValueChange = onUrlChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Article Link") },
+            placeholder = { Text("https://example.com/article...") },
+            singleLine = true
+        )
+        
+        Button(
+            onClick = { onImport(urlText) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = urlText.isNotBlank() && WebArticleExtractor.looksLikeUrl(urlText)
+        ) {
+            Text("Import web article")
+        }
+    }
+}
+
+@Composable
+internal fun ImportSheetPaste(
+    pastedText: String,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            IconButton(onClick = onBack) {
+                Text("←", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Text("Paste text", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        
+        Text("Paste loose text, a document snippet, or email contents below:", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        
+        OutlinedTextField(
+            value = pastedText,
+            onValueChange = onTextChange,
+            modifier = Modifier.fillMaxWidth().height(180.dp),
+            label = { Text("Content") },
+            placeholder = { Text("Paste text here...") }
+        )
+        
+        Button(
+            onClick = onSave,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = pastedText.isNotBlank()
+        ) {
+            Text("Save reading")
+        }
+    }
+}
+
+
+

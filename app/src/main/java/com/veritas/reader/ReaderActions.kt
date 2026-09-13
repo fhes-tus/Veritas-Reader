@@ -120,8 +120,14 @@ fun openPlayStoreForPackage(context: Context, packageName: String) {
 
 fun copyTextToClipboard(context: Context, label: String, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
-    Toast.makeText(context, "Copied to clipboard.", Toast.LENGTH_SHORT).show()
+    val safeText = if (text.length > 200_000) {
+        text.take(200_000) + "\n\n[Text truncated for clipboard safety]"
+    } else {
+        text
+    }
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, safeText))
+    val msg = if (text.length > 200_000) "Copied (truncated to fit clipboard limit)." else "Copied to clipboard."
+    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 }
 
 fun sharePlainText(context: Context, title: String, text: String) {

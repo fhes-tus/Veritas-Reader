@@ -60,7 +60,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.veritas.reader.DocumentRepository
+import com.veritas.reader.PlaybackActions
 import com.veritas.reader.ReaderDocument
+import com.veritas.reader.VoiceConfigurator
+import com.veritas.reader.sendPlaybackIntent
 import kotlinx.coroutines.delay
 
 /**
@@ -111,18 +115,31 @@ fun RsvpSpeedReader(
     }
 
     var currentWordIndex by remember { mutableIntStateOf(startingWordIndex) }
-    var isPlaying by remember { mutableStateOf(true) }
+    var isPlaying by remember { mutableStateOf(false) }
     var wordsPerMinute by remember { mutableFloatStateOf(350f) }
     var audioNarration by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
 
     val context = LocalContext.current
+    val voiceSettings = remember(context) {
+        DocumentRepository(context).loadVoiceSettings()
+    }
+
+    LaunchedEffect(Unit) {
+        sendPlaybackIntent(context, PlaybackActions.ACTION_PAUSE)
+    }
+
     var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
     var isTtsReady by remember { mutableStateOf(false) }
 
     DisposableEffect(context) {
-        val tts = TextToSpeech(context.applicationContext) { status ->
+        var tts: TextToSpeech? = null
+        tts = TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) {
+                tts?.let { engine ->
+                    VoiceConfigurator.apply(engine, voiceSettings)
+                    engine.setPitch(voiceSettings.preferredPitch)
+                }
                 isTtsReady = true
             }
         }
@@ -161,6 +178,7 @@ fun RsvpSpeedReader(
                 if (!sentenceText.isNullOrBlank()) {
                     val ttsRate = (wordsPerMinute / 200f).coerceIn(0.5f, 3.0f)
                     ttsEngine?.setSpeechRate(ttsRate)
+                    ttsEngine?.setPitch(voiceSettings.preferredPitch)
                     ttsEngine?.speak(sentenceText, TextToSpeech.QUEUE_FLUSH, null, "rsvp_$activeSentenceIndex")
                 }
             }

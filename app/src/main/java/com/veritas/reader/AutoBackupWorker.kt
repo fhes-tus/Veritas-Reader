@@ -27,14 +27,32 @@ class AutoBackupWorker(
         val repository = DocumentRepository(applicationContext)
         if (!repository.loadReaderSettings().autoBackupWeekly) return Result.success()
         return runCatching {
+            val json = repository.buildBackupJson()
+            val dateStr = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+            val name = "veritas_auto_backup_$dateStr.json"
+
+            // 1. Internal app files safety net
             val dir = File(applicationContext.filesDir, "auto_backups").apply { mkdirs() }
-            val name = "veritas_auto_backup_${SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())}.json"
-            File(dir, name).writeText(repository.buildBackupJson(), Charsets.UTF_8)
+            File(dir, name).writeText(json, Charsets.UTF_8)
             dir.listFiles()
                 ?.filter { it.name.startsWith("veritas_auto_backup_") }
                 ?.sortedByDescending { it.name }
                 ?.drop(KEEP_COUNT)
                 ?.forEach { runCatching { it.delete() } }
+
+            // 2. External app storage safety net (survives app cache clear, accessible to user)
+            runCatching {
+                val externalDir = applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)
+                if (externalDir != null) {
+                    val backupDir = File(externalDir, "VeritasBackups").apply { mkdirs() }
+                    File(backupDir, name).writeText(json, Charsets.UTF_8)
+                    backupDir.listFiles()
+                        ?.filter { it.name.startsWith("veritas_auto_backup_") }
+                        ?.sortedByDescending { it.name }
+                        ?.drop(KEEP_COUNT)
+                        ?.forEach { runCatching { it.delete() } }
+                }
+            }
         }.fold({ Result.success() }, { Result.retry() })
     }
 

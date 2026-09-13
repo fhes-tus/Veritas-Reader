@@ -20,9 +20,10 @@ data class EpubBook(
 
 object EpubDocumentParser {
 
-    fun parse(bytes: ByteArray, defaultTitle: String): EpubBook {
+    fun parse(bytes: ByteArray, defaultTitle: String, includeImages: Boolean = true): EpubBook {
         val entries = linkedMapOf<String, String>()
-        val imageEntries = linkedMapOf<String, ByteArray>()
+        val imageEntries = if (includeImages) linkedMapOf<String, ByteArray>() else emptyMap<String, ByteArray>()
+        val knownImagePaths = mutableSetOf<String>()
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
@@ -34,10 +35,13 @@ object EpubDocumentParser {
                             lower.endsWith(".html") || lower.endsWith(".htm")
                     val isImage = lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
                             lower.endsWith(".png") || lower.endsWith(".webp") || lower.endsWith(".gif")
+                    if (isImage) {
+                        knownImagePaths.add(normalizedName)
+                    }
                     if (shouldReadText) {
                         entries[normalizedName] = zip.readBytes().toString(Charsets.UTF_8)
-                    } else if (isImage) {
-                        imageEntries[normalizedName] = zip.readBytes()
+                    } else if (includeImages && isImage) {
+                        (imageEntries as MutableMap)[normalizedName] = zip.readBytes()
                     }
                 }
             }
@@ -67,7 +71,7 @@ object EpubDocumentParser {
         for (path in orderedContentPaths) {
             val rawHtml = entries[path] ?: entries.entries.firstOrNull { it.key.equals(path, ignoreCase = true) }?.value ?: continue
             val baseDir = path.substringBeforeLast('/', missingDelimiterValue = "")
-            val (chapterTitle, paragraphs, chapterImages) = extractChapterContent(rawHtml, chapterIndex, baseDir, imageEntries)
+            val (chapterTitle, paragraphs, chapterImages) = extractChapterContent(rawHtml, chapterIndex, baseDir, imageEntries, knownImagePaths)
             if (paragraphs.isNotEmpty() || chapterImages.isNotEmpty()) {
                 chapters.add(
                     EpubChapter(
@@ -155,7 +159,8 @@ object EpubDocumentParser {
         html: String,
         defaultNum: Int,
         baseDir: String = "",
-        imageEntries: Map<String, ByteArray> = emptyMap()
+        imageEntries: Map<String, ByteArray> = emptyMap(),
+        knownImagePaths: Set<String> = emptySet()
     ): Triple<String, List<String>, List<ByteArray>> {
         var chapterTitle = "Chapter $defaultNum"
 
@@ -169,25 +174,69 @@ object EpubDocumentParser {
             }
         }
 
-        val plainText = cleanHtmlText(html)
-        val paragraphs = plainText.split(Regex("""\n\s*\n+"""))
-            .map { it.trim().replace(Regex("""\s+"""), " ") }
-            .filter { it.isNotBlank() && it != chapterTitle }
-
         val images = mutableListOf<ByteArray>()
-        if (imageEntries.isNotEmpty()) {
-            val imgRegex = Regex("""<img\b[^>]*src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-            imgRegex.findAll(html).forEach { match ->
-                val src = match.groupValues[1]
-                val resolved = resolveZipPath(baseDir, src)
-                val imgBytes = imageEntries[resolved] ?: imageEntries.entries.firstOrNull { it.key.endsWith(src.substringAfterLast('/'), ignoreCase = true) }?.value
+        val imgRegex = Regex("""<img\b[^>]*src=["']([^"']+)["'][^>]*>""", RegexOption.IGNORE_CASE)
+        var imgCounter = 0
+        val htmlWithImageMarkers = imgRegex.replace(html) { match ->
+            val src = match.groupValues[1]
+            val resolved = resolveZipPath(baseDir, src)
+            val hasImage = resolved in knownImagePaths ||
+                imageEntries.containsKey(resolved) ||
+                knownImagePaths.any { it.endsWith(src.substringAfterLast('/'), ignoreCase = true) } ||
+                imageEntries.keys.any { it.endsWith(src.substringAfterLast('/'), ignoreCase = true) }
+
+            if (hasImage) {
+                val imgBytes = imageEntries[resolved]
+                    ?: imageEntries.entries.firstOrNull { it.key.endsWith(src.substringAfterLast('/'), ignoreCase = true) }?.value
                 if (imgBytes != null && imgBytes.isNotEmpty()) {
                     images.add(imgBytes)
                 }
+                val marker = "\n\n[[VERITAS_IMAGE:$imgCounter]]\n\n"
+                imgCounter++
+                marker
+            } else {
+                ""
             }
         }
 
+        val htmlWithTables = convertHtmlTablesToMarkdown(htmlWithImageMarkers)
+        val plainText = cleanHtmlText(htmlWithTables)
+        val paragraphs = plainText.split(Regex("""\n\s*\n+"""))
+            .map { p ->
+                if (p.contains("|")) {
+                    p.lines().map { it.trim().replace(Regex("""[ \t]+"""), " ") }.filter { it.isNotBlank() }.joinToString("\n")
+                } else {
+                    p.trim().replace(Regex("""\s+"""), " ")
+                }
+            }
+            .filter { it.isNotBlank() && it != chapterTitle }
+
         return Triple(chapterTitle, paragraphs, images)
+    }
+
+    private fun convertHtmlTablesToMarkdown(html: String): String {
+        val tableRegex = Regex("(?is)<table\\b[^>]*>(.*?)</table>")
+        return tableRegex.replace(html) { tableMatch ->
+            val tableContent = tableMatch.groupValues[1]
+            val trRegex = Regex("(?is)<tr\\b[^>]*>(.*?)</tr>")
+            val rows = mutableListOf<List<String>>()
+            trRegex.findAll(tableContent).forEach { trMatch ->
+                val trContent = trMatch.groupValues[1]
+                val cellRegex = Regex("(?is)<(td|th)\\b[^>]*>(.*?)</\\1>")
+                val cells = cellRegex.findAll(trContent).map { cellMatch ->
+                    cleanHtmlText(cellMatch.groupValues[2]).replace(Regex("\\s+"), " ").trim()
+                }.toList()
+                if (cells.isNotEmpty() && cells.any { it.isNotBlank() }) {
+                    rows.add(cells)
+                }
+            }
+            if (rows.isEmpty()) ""
+            else {
+                "\n\n" + rows.joinToString("\n") { row ->
+                    "| " + row.joinToString(" | ") + " |"
+                } + "\n\n"
+            }
+        }
     }
 
     private fun cleanHtmlText(raw: String): String {

@@ -239,6 +239,12 @@ enum class OnboardingStep(
         title = "Your Quest Checklist",
         body = "This floating checklist shows your active missions. Complete all quests to master the app!"
     ),
+    CLASSICS_SPOTLIGHT(
+        key = "classics",
+        targetKey = "classics_catalog_card",
+        title = "Classic Books Catalog",
+        body = "Explore 36 curated timeless classics across 7 categories — from family stories and adventures to mindset and mysteries — ready to download and read in one tap."
+    ),
     INSIGHTS_SPOTLIGHT(
         key = "insights",
         targetKey = "insights_trigger",

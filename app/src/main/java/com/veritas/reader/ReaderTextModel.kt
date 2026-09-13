@@ -291,7 +291,7 @@ object ReaderTextIndex {
         val normalized = rawSeparator.replace('\r', '\n')
         val currText = currentSentence.text.trim()
         val prevText = previousSentence?.text?.trim().orEmpty()
-        val isHeading = currText.startsWith("#") || prevText.startsWith("#") || isTitleCasedSubheading(currText) || isTitleCasedSubheading(prevText)
+        val isHeading = currText.startsWith("#") || prevText.startsWith("#")
         val isBulletOrList = currText.startsWith("- ") || currText.startsWith("* ") || currText.startsWith("• ") || Regex("""^\d+[.)]\s+""").containsMatchIn(currText)
         val isDialogueStart = (currText.startsWith("\"") || currText.startsWith("“") || currText.startsWith("—") || currText.startsWith("–")) && (prevText.endsWith("\"") || prevText.endsWith("”") || prevText.endsWith(".") || prevText.endsWith("!") || prevText.endsWith("?"))
 
@@ -301,7 +301,7 @@ object ReaderTextIndex {
             isBulletOrList -> "\n\n"
             isDialogueStart && normalized.contains('\n') -> "\n\n"
             normalized.count { it == '\n' } >= 2 -> "\n\n"
-            normalized.contains('\n') -> "\n\n"
+            normalized.contains('\n') -> " "
             normalized.contains('\t') -> " "
             normalized.isNotBlank() -> " "
             else -> " "
@@ -416,20 +416,40 @@ object ReaderTextIndex {
     private fun isLineBoundary(text: String, newlineIndex: Int): Boolean {
         val previous = text.lastNonWhitespaceBefore(newlineIndex) ?: return false
         val next = text.firstNonWhitespaceAfter(newlineIndex) ?: return false
-        
-        val prevLine = text.substring(0, newlineIndex).substringAfterLast('\n').trim()
-        val nextLine = text.substring(newlineIndex + 1).substringBefore('\n').trim()
-        
-        if (prevLine.startsWith("#") || nextLine.startsWith("#")) return true
-        if (isTitleCasedSubheading(prevLine) || isTitleCasedSubheading(nextLine)) return true
-        if (Regex("""^(CHAPTER|Chapter|PROLOGUE|Prologue|EPILOGUE|Epilogue|INTRODUCTION|Introduction|PREFACE|Preface|PART|Part|BOOK|Book|SECTION|Section)\b.*""", RegexOption.IGNORE_CASE).matches(prevLine)) return true
-        if (Regex("""^(CHAPTER|Chapter|PROLOGUE|Prologue|EPILOGUE|Epilogue|INTRODUCTION|Introduction|PART|Part|BOOK|Book|SECTION|Section)\b.*""", RegexOption.IGNORE_CASE).matches(nextLine)) return true
-        
+
+        // Double newline (blank line between lines) is always a paragraph boundary
         if (text.getOrNull(newlineIndex + 1) == '\n') return true
         if (newlineIndex > 0 && text.getOrNull(newlineIndex - 1) == '\n') return true
+
+        val prevLine = text.substring(0, newlineIndex).substringAfterLast('\n').trim()
+        val nextLine = text.substring(newlineIndex + 1).substringBefore('\n').trim()
+
+        // Markdown headings
+        if (prevLine.startsWith("#") || nextLine.startsWith("#")) return true
+
+        // Explicit chapter or major section labels
+        val chapterRegex = Regex("""^(CHAPTER|Chapter|PROLOGUE|Prologue|EPILOGUE|Epilogue|INTRODUCTION|Introduction|PREFACE|Preface|PART|Part|BOOK|Book|SECTION|Section)\b.*""", RegexOption.IGNORE_CASE)
+        if (chapterRegex.matches(prevLine) || chapterRegex.matches(nextLine)) return true
+
+        // Bullet / numbered list starts
+        if (nextLine.startsWith("- ") || nextLine.startsWith("* ") || nextLine.startsWith("• ") || Regex("""^\d+[.)]\s+""").containsMatchIn(nextLine)) {
+            return true
+        }
+
         if (previous == '-') return false
-        if (previous in listOf('.', '!', '?', ':', ';')) return true
-        return next.isUpperCase() || next.isDigit() || next in "\"'`(["
+
+        // A single newline is a sentence boundary ONLY if the preceding text ended with terminal punctuation
+        // and the following text starts a new sentence.
+        if (previous in listOf('.', '!', '?')) {
+            return next.isUpperCase() || next.isDigit() || next in "\"'`(["
+        }
+
+        // Colon followed by uppercase or dialogue
+        if (previous == ':' && (next.isUpperCase() || next in "\"'`([")) {
+            return true
+        }
+
+        return false
     }
 
     private fun nearestSoftBreak(text: String, desiredEnd: Int, min: Int): Int {

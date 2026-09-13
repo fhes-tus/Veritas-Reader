@@ -2,7 +2,7 @@ package com.veritas.reader.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -45,8 +45,9 @@ fun VeritasSleekSlider(
     steps: Int = 0,
     stepIncrement: Float = 0f,
     enabled: Boolean = true,
+    sliderHeight: Dp = 20.dp,
     trackHeight: Dp = 4.dp,
-    thumbSize: Dp = 18.dp,
+    thumbSize: Dp = 16.dp,
     activeTrackColor: Color = MaterialTheme.colorScheme.primary,
     inactiveTrackColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
     thumbColor: Color = MaterialTheme.colorScheme.primary,
@@ -85,6 +86,7 @@ fun VeritasSleekSlider(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .height(sliderHeight)
             .pointerInput(enabled, valueRange, steps, stepIncrement) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { offset ->
@@ -98,7 +100,7 @@ fun VeritasSleekSlider(
             }
             .pointerInput(enabled, valueRange, steps, stepIncrement) {
                 if (!enabled) return@pointerInput
-                detectDragGestures(
+                detectHorizontalDragGestures(
                     onDragStart = { offset ->
                         val thumbPx = with(density) { thumbSize.toPx() }
                         val totalWidth = size.width.toFloat().coerceAtLeast(1f)
@@ -106,7 +108,7 @@ fun VeritasSleekSlider(
                         val rawProgress = ((offset.x - thumbPx / 2f) / usableWidth).coerceIn(0f, 1f)
                         hapticTick(quantize(rawProgress))
                     },
-                    onDrag = { change, _ ->
+                    onHorizontalDrag = { change, _ ->
                         val thumbPx = with(density) { thumbSize.toPx() }
                         val totalWidth = size.width.toFloat().coerceAtLeast(1f)
                         val usableWidth = (totalWidth - thumbPx).coerceAtLeast(1f)

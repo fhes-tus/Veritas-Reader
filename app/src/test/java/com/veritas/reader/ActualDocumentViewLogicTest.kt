@@ -93,26 +93,24 @@ class ActualDocumentViewLogicTest {
 
     @Test
     fun testPaperToneModeTransitions() {
-        var tone = PaperToneMode.ACTIVE_THEME
-        tone = when (tone) {
+        fun nextTone(tone: PaperToneMode): PaperToneMode = when (tone) {
             PaperToneMode.ACTIVE_THEME -> PaperToneMode.DARK
             PaperToneMode.DARK -> PaperToneMode.NATURAL_WHITE
-            PaperToneMode.NATURAL_WHITE -> PaperToneMode.ACTIVE_THEME
+            PaperToneMode.NATURAL_WHITE -> PaperToneMode.WARM_SEPIA
+            PaperToneMode.WARM_SEPIA -> PaperToneMode.ACTIVE_THEME
         }
+
+        var tone = PaperToneMode.ACTIVE_THEME
+        tone = nextTone(tone)
         assertEquals(PaperToneMode.DARK, tone)
 
-        tone = when (tone) {
-            PaperToneMode.ACTIVE_THEME -> PaperToneMode.DARK
-            PaperToneMode.DARK -> PaperToneMode.NATURAL_WHITE
-            PaperToneMode.NATURAL_WHITE -> PaperToneMode.ACTIVE_THEME
-        }
+        tone = nextTone(tone)
         assertEquals(PaperToneMode.NATURAL_WHITE, tone)
 
-        tone = when (tone) {
-            PaperToneMode.ACTIVE_THEME -> PaperToneMode.DARK
-            PaperToneMode.DARK -> PaperToneMode.NATURAL_WHITE
-            PaperToneMode.NATURAL_WHITE -> PaperToneMode.ACTIVE_THEME
-        }
+        tone = nextTone(tone)
+        assertEquals(PaperToneMode.WARM_SEPIA, tone)
+
+        tone = nextTone(tone)
         assertEquals(PaperToneMode.ACTIVE_THEME, tone)
     }
 

@@ -28,10 +28,10 @@ data class DocxDocument(
 
 object DocxDocumentParser {
 
-    fun parse(bytes: ByteArray, defaultTitle: String): DocxDocument {
+    fun parse(bytes: ByteArray, defaultTitle: String, includeImages: Boolean = true): DocxDocument {
         var documentXml: String? = null
         var relsXml: String? = null
-        val mediaMap = mutableMapOf<String, ByteArray>()
+        val mediaMap = if (includeImages) mutableMapOf<String, ByteArray>() else emptyMap<String, ByteArray>()
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
@@ -41,8 +41,8 @@ object DocxDocumentParser {
                         documentXml = zip.readBytes().toString(Charsets.UTF_8)
                     } else if (name == "word/_rels/document.xml.rels" || name == "_rels/document.xml.rels") {
                         relsXml = zip.readBytes().toString(Charsets.UTF_8)
-                    } else if (name.startsWith("word/media/") || name.startsWith("media/")) {
-                        mediaMap[name] = zip.readBytes()
+                    } else if (includeImages && (name.startsWith("word/media/") || name.startsWith("media/"))) {
+                        (mediaMap as MutableMap)[name] = zip.readBytes()
                     }
                 }
             }

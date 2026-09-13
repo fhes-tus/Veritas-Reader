@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <exclude domain="root" path="." />
+    <include domain="sharedpref" path="." />
+    <include domain="database" path="." />
+    <include domain="file" path="." />
+    <exclude domain="file" path="original_documents" />
+    <exclude domain="file" path="covers" />
 </full-backup-content>

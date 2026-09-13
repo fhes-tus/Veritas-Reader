@@ -15,12 +15,20 @@ class ReaderTextModelTest {
     }
 
     @Test
-    fun `pdf newline with capitalized next line splits as requested`() {
+    fun `soft-wrapped newline within sentence does not split mid-sentence`() {
         val input = "The lead researcher at\nHarvard University discovered a cure."
         val sentences = ReaderTextIndex.sentences(input)
-        assertTrue(sentences.size >= 2)
-        assertEquals("The lead researcher at", sentences[0])
-        assertEquals("Harvard University discovered a cure.", sentences[1])
+        assertEquals(1, sentences.size)
+        assertEquals(input, sentences[0])
+    }
+
+    @Test
+    fun `distinct paragraphs with blank lines split correctly`() {
+        val input = "First paragraph ends here.\n\nSecond paragraph begins here."
+        val sentences = ReaderTextIndex.sentences(input)
+        assertEquals(2, sentences.size)
+        assertEquals("First paragraph ends here.", sentences[0])
+        assertEquals("Second paragraph begins here.", sentences[1])
     }
 
     @Test

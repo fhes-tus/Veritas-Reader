@@ -334,15 +334,6 @@ fun ReaderToolsSheet(
                     onClick = { choose(onOpenReaderSettings) }
                 )
 
-                val recordSoundFeature = readerFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT)
-                SettingsItem(
-                    title = "Record sound file",
-                    leadingIcon = Icons.Outlined.GraphicEq,
-                    enabled = recordSoundFeature.enabled,
-                    subtitle = if (!recordSoundFeature.enabled) recordSoundFeature.disabledReason else null,
-                    onClick = { choose(onStartRecord) }
-                )
-
                 val exportAudioFeature = readerFeature(VeritasFeatureId.QUEUE_AUDIO_EXPORT)
                 SettingsItem(
                     title = "Export audio",

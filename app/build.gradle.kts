@@ -28,6 +28,7 @@ android {
 
     buildTypes {
         debug {
+            applicationIdSuffix = ".preview"
             signingConfig = signingConfigs.getByName("release")
         }
         release {
@@ -52,8 +53,8 @@ android {
         applicationId = "com.veritas.reader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 35
-        versionName = "2.3.2"
+        versionCode = 36
+        versionName = "2.4.0"
 
         ndk {
             abiFilters.addAll(setOf("armeabi-v7a", "arm64-v8a"))
@@ -62,7 +63,8 @@ android {
 
     splits {
         abi {
-            isEnable = true
+            val isBundleTask = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
+            isEnable = !isBundleTask
             reset()
             include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = true
@@ -88,6 +90,11 @@ android {
             // cannot strip them because they are jar resources, not classes.
             excludes += setOf("org/bouncycastle/pqc/**")
         }
+    }
+
+    lint {
+        checkReleaseBuilds = true
+        abortOnError = false
     }
 }
 

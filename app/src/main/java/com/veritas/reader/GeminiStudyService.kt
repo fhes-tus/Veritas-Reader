@@ -2,6 +2,9 @@ package com.veritas.reader
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -293,6 +296,62 @@ object GeminiStudyService {
         }
     }
 
+    class ApiException(
+        val statusCode: Int,
+        message: String,
+        val retryAfterSeconds: Long? = null
+    ) : IllegalStateException(message) {
+        val isRetryable: Boolean
+            get() = statusCode == 429 || statusCode in 500..599
+    }
+
+    /**
+     * Executes [block] with exponential backoff and jitter on retryable HTTP errors (429, 500..599)
+     * and transient network failures (SocketTimeoutException, ConnectException, UnknownHostException).
+     * Non-retryable errors (400, 401, 403) fail immediately.
+     */
+    fun <T> executeWithRetry(
+        maxAttempts: Int = 3,
+        initialDelayMs: Long = 1000L,
+        maxDelayMs: Long = 8000L,
+        block: () -> T
+    ): T {
+        var currentDelay = initialDelayMs
+        var lastException: Throwable? = null
+        for (attempt in 1..maxAttempts) {
+            try {
+                return block()
+            } catch (e: Exception) {
+                lastException = e
+                val isRetryable = when (e) {
+                    is java.net.SocketTimeoutException,
+                    is java.net.ConnectException,
+                    is java.net.UnknownHostException -> true
+                    is ApiException -> e.isRetryable
+                    is IllegalStateException -> {
+                        val msg = e.message.orEmpty()
+                        msg.contains("429") || msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("504") || msg.contains("timeout", ignoreCase = true)
+                    }
+                    else -> false
+                }
+                if (!isRetryable || attempt == maxAttempts) {
+                    throw e
+                }
+                val retryAfterMs = (e as? ApiException)?.retryAfterSeconds?.let { it * 1000L } ?: currentDelay
+                val jitter = (Math.random() * 300).toLong()
+                val sleepTime = (retryAfterMs + jitter).coerceAtMost(maxDelayMs)
+                try {
+                    Thread.sleep(sleepTime)
+                } catch (ie: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw e
+                }
+                currentDelay = (currentDelay * 2).coerceAtMost(maxDelayMs)
+            }
+        }
+        throw lastException ?: IllegalStateException("Execution failed after $maxAttempts attempts")
+    }
+
     private fun callUniversalAiApi(
         apiKey: String,
         prompt: String,
@@ -302,10 +361,12 @@ object GeminiStudyService {
             throw IllegalArgumentException("AI API key is missing. Please configure your key in Study Hub Settings.")
         }
 
-        return when (activeProvider) {
-            AiProvider.GEMINI -> callGeminiApi(apiKey, prompt, responseSchema, activeCustomModel)
-            AiProvider.ANTHROPIC -> callAnthropicApi(apiKey, prompt, responseSchema, activeCustomModel)
-            else -> callOpenAiCompatibleApi(apiKey, prompt, responseSchema, activeProvider, activeCustomModel, activeCustomEndpoint)
+        return executeWithRetry {
+            when (activeProvider) {
+                AiProvider.GEMINI -> callGeminiApi(apiKey, prompt, responseSchema, activeCustomModel)
+                AiProvider.ANTHROPIC -> callAnthropicApi(apiKey, prompt, responseSchema, activeCustomModel)
+                else -> callOpenAiCompatibleApi(apiKey, prompt, responseSchema, activeProvider, activeCustomModel, activeCustomEndpoint)
+            }
         }
     }
 
@@ -350,7 +411,8 @@ object GeminiStudyService {
             val errorMessage = runCatching {
                 JSONObject(errorBody).optJSONObject("error")?.optString("message", "")
             }.getOrNull()?.ifBlank { null } ?: "Gemini API Error ($statusCode): $errorBody"
-            throw IllegalStateException(errorMessage)
+            val retryAfter = conn.getHeaderField("Retry-After")?.toLongOrNull()
+            throw ApiException(statusCode, errorMessage, retryAfter)
         }
 
         val responseText = conn.inputStream.bufferedReader().use { it.readText() }
@@ -415,7 +477,8 @@ object GeminiStudyService {
             val errorMessage = runCatching {
                 JSONObject(errorBody).optJSONObject("error")?.optString("message", "")
             }.getOrNull()?.ifBlank { null } ?: "${provider.label} Error ($statusCode): $errorBody"
-            throw IllegalStateException(errorMessage)
+            val retryAfter = conn.getHeaderField("Retry-After")?.toLongOrNull()
+            throw ApiException(statusCode, errorMessage, retryAfter)
         }
 
         val responseText = conn.inputStream.bufferedReader().use { it.readText() }
@@ -474,7 +537,8 @@ object GeminiStudyService {
             val errorMessage = runCatching {
                 JSONObject(errorBody).optJSONObject("error")?.optString("message", "")
             }.getOrNull()?.ifBlank { null } ?: "Anthropic Error ($statusCode): $errorBody"
-            throw IllegalStateException(errorMessage)
+            val retryAfter = conn.getHeaderField("Retry-After")?.toLongOrNull()
+            throw ApiException(statusCode, errorMessage, retryAfter)
         }
 
         val responseText = conn.inputStream.bufferedReader().use { it.readText() }
@@ -513,6 +577,343 @@ object GeminiStudyService {
                 apiKey = apiKey,
                 prompt = prompt
             ).trim()
+        }
+    }
+
+    /**
+     * Direct synchronous / suspend text generation contract for ad-hoc prompts,
+     * preserving full backwards-compatibility.
+     */
+    suspend fun generate(
+        apiKey: String,
+        prompt: String,
+        responseSchema: JSONObject? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            callUniversalAiApi(apiKey = apiKey, prompt = prompt, responseSchema = responseSchema)
+        }
+    }
+
+    /**
+     * Modern reactive streaming generator that emits text deltas as they arrive from
+     * the active AI provider (Gemini SSE, OpenAI/Groq/OpenRouter SSE, Anthropic SSE).
+     */
+    fun streamGenerate(
+        apiKey: String,
+        prompt: String,
+        responseSchema: JSONObject? = null
+    ): Flow<String> = flow {
+        if (apiKey.isBlank()) {
+            throw IllegalArgumentException("AI API key is missing. Please configure your key in Study Hub Settings.")
+        }
+        var currentDelay = 1000L
+        val maxAttempts = 3
+        for (attempt in 1..maxAttempts) {
+            try {
+                when (activeProvider) {
+                    AiProvider.GEMINI -> streamGemini(apiKey, prompt, responseSchema, activeCustomModel)
+                    AiProvider.ANTHROPIC -> streamAnthropic(apiKey, prompt, responseSchema, activeCustomModel)
+                    else -> streamOpenAiCompatible(apiKey, prompt, responseSchema, activeProvider, activeCustomModel, activeCustomEndpoint)
+                }
+                return@flow
+            } catch (e: Exception) {
+                val isRetryable = when (e) {
+                    is java.net.SocketTimeoutException,
+                    is java.net.ConnectException,
+                    is java.net.UnknownHostException -> true
+                    is ApiException -> e.isRetryable
+                    is IllegalStateException -> {
+                        val msg = e.message.orEmpty()
+                        msg.contains("429") || msg.contains("500") || msg.contains("502") || msg.contains("503") || msg.contains("504")
+                    }
+                    else -> false
+                }
+                if (!isRetryable || attempt == maxAttempts) {
+                    throw e
+                }
+                val retryAfterMs = (e as? ApiException)?.retryAfterSeconds?.let { it * 1000L } ?: currentDelay
+                kotlinx.coroutines.delay(retryAfterMs)
+                currentDelay = (currentDelay * 2).coerceAtMost(8000L)
+            }
+        }
+    }.flowOn(Dispatchers.IO)
+
+    fun generateStudySummaryStream(
+        apiKey: String,
+        documentTitle: String,
+        textContext: String
+    ): Flow<String> {
+        val prompt = """
+            You are a master study coach. Summarize the key concepts of '$documentTitle' for maximum retention.
+            Structure your response with:
+            # 📌 Executive Overview
+            # 💡 Key Concepts & Takeaways
+            # ⚠️ Common Pitfalls & Traps
+            # 🎯 Quick Self-Check Checklist
+            
+            Content:
+            ${textContext.take(30000)}
+        """.trimIndent()
+        return streamGenerate(apiKey = apiKey, prompt = prompt, responseSchema = null)
+    }
+
+    fun generateExplanationStream(
+        apiKey: String,
+        documentTitle: String,
+        textContext: String,
+        targetPassage: String = ""
+    ): Flow<String> {
+        val prompt = """
+            You are an expert tutor using the Feynman technique.
+            Explain the following passage or ideas from '$documentTitle' so clearly that anyone can immediately grasp it.
+            ${if (targetPassage.isNotBlank()) "Focus especially on: \"$targetPassage\"" else ""}
+            
+            Structure your response with:
+            # 💡 The Core Idea (In plain English)
+            # 🔍 Real-World Analogy
+            # 📖 Breakdown of Difficult Terms & Jargon
+            # 🔑 Why It Matters
+            
+            Context:
+            ${textContext.take(25000)}
+        """.trimIndent()
+        return streamGenerate(apiKey = apiKey, prompt = prompt, responseSchema = null)
+    }
+
+    fun generateStudyGuideStream(
+        apiKey: String,
+        documentTitle: String,
+        textContext: String
+    ): Flow<String> {
+        val prompt = """
+            You are an elite academic coach. Create an organized, high-yield study guide from this excerpt of '$documentTitle'.
+            Structure your response with:
+            # 📚 Study Cheatsheet & Summary
+            # 🗝️ Core Terminology & Definitions
+            # ⚡ Key Principles, Takeaways & Cause-and-Effect
+            # 📝 Quick Self-Review Questions
+            
+            Content:
+            ${textContext.take(30000)}
+        """.trimIndent()
+        return streamGenerate(apiKey = apiKey, prompt = prompt, responseSchema = null)
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<String>.streamGemini(
+        apiKey: String,
+        prompt: String,
+        responseSchema: JSONObject?,
+        customModel: String
+    ) {
+        val model = customModel.ifBlank { AiProvider.GEMINI.defaultModel }
+        val endpointUrl = "$BASE_URL/$model:streamGenerateContent?alt=sse&key=$apiKey"
+        val conn = (URL(endpointUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Accept", "text/event-stream")
+            connectTimeout = 20000
+            readTimeout = 40000
+            doOutput = true
+        }
+
+        val requestBody = JSONObject()
+        val contentsArray = JSONArray()
+        val partsArray = JSONArray().put(JSONObject().put("text", prompt))
+        contentsArray.put(JSONObject().put("parts", partsArray))
+        requestBody.put("contents", contentsArray)
+
+        if (responseSchema != null) {
+            val genConfig = JSONObject()
+                .put("response_mime_type", "application/json")
+                .put("response_schema", responseSchema)
+            requestBody.put("generationConfig", genConfig)
+        }
+
+        try {
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                writer.write(requestBody.toString())
+                writer.flush()
+            }
+
+            val statusCode = conn.responseCode
+            if (statusCode !in 200..299) {
+                val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val errorMessage = runCatching {
+                    JSONObject(errorBody).optJSONObject("error")?.optString("message", "")
+                }.getOrNull()?.ifBlank { null } ?: "Gemini API Error ($statusCode): $errorBody"
+                val retryAfter = conn.getHeaderField("Retry-After")?.toLongOrNull()
+                throw ApiException(statusCode, errorMessage, retryAfter)
+            }
+
+            conn.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val l = line?.trim().orEmpty()
+                    if (!l.startsWith("data:")) continue
+                    val data = l.removePrefix("data:").trim()
+                    if (data.isBlank() || data == "[DONE]") continue
+                    val json = runCatching { JSONObject(data) }.getOrNull() ?: continue
+                    val textPart = json.optJSONArray("candidates")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("content")
+                        ?.optJSONArray("parts")
+                        ?.optJSONObject(0)
+                        ?.optString("text", "")
+                    if (!textPart.isNullOrEmpty()) {
+                        emit(textPart)
+                    }
+                }
+            }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<String>.streamOpenAiCompatible(
+        apiKey: String,
+        prompt: String,
+        responseSchema: JSONObject?,
+        provider: AiProvider,
+        customModel: String,
+        customEndpoint: String
+    ) {
+        val endpoint = if (provider == AiProvider.CUSTOM && customEndpoint.isNotBlank()) {
+            customEndpoint
+        } else {
+            provider.defaultEndpoint
+        }
+        val model = customModel.ifBlank { provider.defaultModel }
+
+        val systemInstruction = if (responseSchema != null) {
+            "\nYou must respond ONLY with a raw JSON array matching the requested structure. Do not include markdown fences (no ```json) or explanation outside the JSON."
+        } else ""
+
+        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Authorization", "Bearer $apiKey")
+            setRequestProperty("Accept", "text/event-stream")
+            connectTimeout = 25000
+            readTimeout = 40000
+            doOutput = true
+        }
+
+        val messages = JSONArray()
+        messages.put(JSONObject().put("role", "user").put("content", prompt + systemInstruction))
+
+        val requestBody = JSONObject()
+            .put("model", model)
+            .put("messages", messages)
+            .put("temperature", 0.3)
+            .put("stream", true)
+
+        try {
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                writer.write(requestBody.toString())
+                writer.flush()
+            }
+
+            val statusCode = conn.responseCode
+            if (statusCode !in 200..299) {
+                val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val errorMessage = runCatching {
+                    JSONObject(errorBody).optJSONObject("error")?.optString("message", "")
+                }.getOrNull()?.ifBlank { null } ?: "${provider.label} Error ($statusCode): $errorBody"
+                val retryAfter = conn.getHeaderField("Retry-After")?.toLongOrNull()
+                throw ApiException(statusCode, errorMessage, retryAfter)
+            }
+
+            conn.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val l = line?.trim().orEmpty()
+                    if (!l.startsWith("data:")) continue
+                    val data = l.removePrefix("data:").trim()
+                    if (data == "[DONE]") break
+                    if (data.isBlank()) continue
+                    val json = runCatching { JSONObject(data) }.getOrNull() ?: continue
+                    val delta = json.optJSONArray("choices")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("delta")
+                        ?.optString("content", "")
+                    if (!delta.isNullOrEmpty()) {
+                        emit(delta)
+                    }
+                }
+            }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<String>.streamAnthropic(
+        apiKey: String,
+        prompt: String,
+        responseSchema: JSONObject?,
+        customModel: String
+    ) {
+        val model = customModel.ifBlank { AiProvider.ANTHROPIC.defaultModel }
+        val endpoint = AiProvider.ANTHROPIC.defaultEndpoint
+
+        val systemInstruction = if (responseSchema != null) {
+            "\nYou must respond ONLY with a raw JSON array matching the requested schema. Do not include markdown fences or any explanation outside the JSON."
+        } else ""
+
+        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("x-api-key", apiKey)
+            setRequestProperty("anthropic-version", "2023-06-01")
+            setRequestProperty("Accept", "text/event-stream")
+            connectTimeout = 25000
+            readTimeout = 40000
+            doOutput = true
+        }
+
+        val messages = JSONArray()
+        messages.put(JSONObject().put("role", "user").put("content", prompt + systemInstruction))
+
+        val requestBody = JSONObject()
+            .put("model", model)
+            .put("max_tokens", 4096)
+            .put("messages", messages)
+            .put("stream", true)
+
+        try {
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                writer.write(requestBody.toString())
+                writer.flush()
+            }
+
+            val statusCode = conn.responseCode
+            if (statusCode !in 200..299) {
+                val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val errorMessage = runCatching {
+                    JSONObject(errorBody).optJSONObject("error")?.optString("message", "")
+                }.getOrNull()?.ifBlank { null } ?: "Anthropic Error ($statusCode): $errorBody"
+                val retryAfter = conn.getHeaderField("Retry-After")?.toLongOrNull()
+                throw ApiException(statusCode, errorMessage, retryAfter)
+            }
+
+            conn.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val l = line?.trim().orEmpty()
+                    if (!l.startsWith("data:")) continue
+                    val data = l.removePrefix("data:").trim()
+                    if (data.isBlank()) continue
+                    val json = runCatching { JSONObject(data) }.getOrNull() ?: continue
+                    val type = json.optString("type")
+                    if (type == "content_block_delta") {
+                        val deltaText = json.optJSONObject("delta")?.optString("text", "")
+                        if (!deltaText.isNullOrEmpty()) {
+                            emit(deltaText)
+                        }
+                    }
+                }
+            }
+        } finally {
+            conn.disconnect()
         }
     }
 }

@@ -91,6 +91,74 @@ class EpubDocumentParserTest {
     }
 
     @Test
+    fun parse_skipsImagesWhenIncludeImagesIsFalse() {
+        val containerXml = """
+            <?xml version="1.0"?>
+            <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+              <rootfiles>
+                <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+              </rootfiles>
+            </container>
+        """.trimIndent()
+
+        val opfXml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <dc:title>Illustrated Story</dc:title>
+              </metadata>
+              <manifest>
+                <item id="chap1" href="chap1.xhtml" media-type="application/xhtml+xml"/>
+                <item id="cover_img" href="cover.jpg" media-type="image/jpeg"/>
+              </manifest>
+              <spine>
+                <itemref idref="chap1"/>
+              </spine>
+            </package>
+        """.trimIndent()
+
+        val chap1Xhtml = """
+            <!DOCTYPE html>
+            <html>
+            <head><title>Chapter 1</title></head>
+            <body>
+              <h1>Chapter 1</h1>
+              <img src="cover.jpg" alt="Cover"/>
+              <p>Text under image.</p>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val fakeImageBytes = ByteArray(1024) { 0x42 }
+
+        val baos = ByteArrayOutputStream()
+        ZipOutputStream(baos).use { zip ->
+            zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+            zip.write(containerXml.toByteArray())
+            zip.closeEntry()
+
+            zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+            zip.write(opfXml.toByteArray())
+            zip.closeEntry()
+
+            zip.putNextEntry(ZipEntry("OEBPS/chap1.xhtml"))
+            zip.write(chap1Xhtml.toByteArray())
+            zip.closeEntry()
+
+            zip.putNextEntry(ZipEntry("OEBPS/cover.jpg"))
+            zip.write(fakeImageBytes)
+            zip.closeEntry()
+        }
+
+        val bookWithoutImages = EpubDocumentParser.parse(baos.toByteArray(), "Story", includeImages = false)
+        assertTrue(bookWithoutImages.chapters[0].images.isEmpty())
+
+        val bookWithImages = EpubDocumentParser.parse(baos.toByteArray(), "Story", includeImages = true)
+        assertEquals(1, bookWithImages.chapters[0].images.size)
+        assertEquals(1024, bookWithImages.chapters[0].images[0].size)
+    }
+
+    @Test
     fun parse_handlesCorruptedOrEmptyArchiveGracefully() {
         val emptyBytes = ByteArray(0)
         val book = EpubDocumentParser.parse(emptyBytes, "Safe Default")

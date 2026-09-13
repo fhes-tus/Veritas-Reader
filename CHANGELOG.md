@@ -4,6 +4,22 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ---
 
+## [2.4.0] - 2026-09-13
+
+### Added
+*   **Universal Classic Books Bookstore & Catalogue:** Completely redesigned into a universal digital bookstore with 36 curated public domain masterpieces spanning 7 categories (*Family & Youth*, *Mystery*, *Adventure*, *Romance*, *Life & Habits*, *Quick Reads*, and *Epic Classics*).
+*   **Bookstore Shelf (2-Column Grid) vs. List View Toggle:** Added a dynamic view switcher to explore realistic cloth-bound covers on a bookshelf grid or browse detailed title rows.
+*   **Interactive Book Details Sheet & Spotlight Hero:** Integrated daily spotlight hero card, quotes, reading times, and a bottom sheet previewing synopsis, 3D cover, and 1-tap library download/open.
+*   **Classic Books Catalog Guided Tour Integration:** Seamlessly integrated into the in-app interactive walkthrough with spotlight cutouts, auto-scrolling viewport, and voice narration.
+*   **Zero-Bloat Expected Read Time Indicators:** Added calculated reading duration pills (e.g. `~15m`, `~1h 20m`) to subtitle metadata across all Library cards (`DocumentCard`, `DocumentTileCard`, `HomeRecentBookGridItem`, `RecentImportItem`) with zero card height increase.
+*   **Dual Google Play & GitHub In-App Updater:** Added source-aware update routing detecting installer origin (`com.android.vending`), prioritizing compliant Google Play store updates for Play Store installations while preserving direct in-app APK download & installation for GitHub/sideload users.
+
+### Changed
+*   **Reader Gestures & Animation Polish:** Smoother text selection, intuitive tap-to-toggle bars with deceleration curves, natural aspect-ratio image sizing, and prevention of native Android text selection popup on double tap.
+*   **Dynamic Bundle Build Optimization:** Configured automatic ABI split suppression during Android App Bundle creation for Google Play Console compatibility.
+
+---
+
 ## [2.3.2] - 2026-09-08
 
 ### Added

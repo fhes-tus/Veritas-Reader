@@ -111,9 +111,34 @@ class AudioExportManager(private val context: Context) {
             }
 
             Log.i(TAG, "Successfully exported $title to ${finalFile.absolutePath} (${finalFile.length()} bytes, ${partFiles.size} parts)")
-            return ExportResult(finalFile, displayName, partFiles.size)
+            return ExportResult(finalFile, displayName, chunks.size)
         } catch (e: CancellationException) {
-            Log.i(TAG, "WAV export cancelled for $title")
+            Log.i(TAG, "WAV export cancelled for $title, synthesized ${partFiles.size} parts")
+            if (partFiles.isNotEmpty()) {
+                val exportDir = File(context.cacheDir, "VeritasExports").apply { mkdirs() }
+                val displayName = "${safeFileName(title)}_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())}.wav"
+                val finalFile = File(exportDir, displayName)
+                runCatching {
+                    if (partFiles.size == 1) {
+                        val parsed = WavFile.read(partFiles.first())
+                        if (parsed == null) {
+                            partFiles.first().copyTo(finalFile, overwrite = true)
+                        } else {
+                            WavFile.write(finalFile, parsed.formatChunk, listOf(parsed.dataChunk))
+                        }
+                    } else {
+                        val parsedParts = partFiles.mapNotNull { WavFile.read(it) }
+                        if (parsedParts.isNotEmpty()) {
+                            val firstFormat = parsedParts.first().formatChunk
+                            val compatible = parsedParts.filter { it.formatChunk.contentEquals(firstFormat) }
+                            WavFile.write(finalFile, firstFormat, compatible.map { it.dataChunk })
+                        }
+                    }
+                }
+                if (finalFile.exists() && finalFile.length() > 44L) {
+                    return ExportResult(finalFile, displayName, partFiles.size)
+                }
+            }
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "WAV export failed for $title: ${e.message}", e)

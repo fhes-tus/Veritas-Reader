@@ -95,14 +95,14 @@ class PptxExtractorTest {
     }
 
     @Test
-    fun `tables read row by row with comma-joined cells`() {
+    fun `tables read row by row with pipe-joined cells`() {
         val table = """<p:graphicFrame><a:tbl><a:tr>""" +
             """<a:tc><a:txBody><a:p><a:r><a:t>Region</a:t></a:r></a:p></a:txBody></a:tc>""" +
             """<a:tc><a:txBody><a:p><a:r><a:t>Growth</a:t></a:r></a:p></a:txBody></a:tc>""" +
             """</a:tr></a:tbl></p:graphicFrame>"""
         val bytes = buildPptx(mapOf("ppt/slides/slide1.xml" to slideXml(table)))
         val text = PptxExtractor.renderDeckText(PptxExtractor.parseDeck(bytes, true))
-        assertTrue(text.contains("Region, Growth"))
+        assertTrue(text.contains("| Region | Growth |"))
     }
 
     @Test

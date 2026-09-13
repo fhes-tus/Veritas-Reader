@@ -270,8 +270,10 @@ object PptxExtractor {
                 }
                 name == "tr" && !closing && !selfClosing -> rowCells.clear()
                 name == "tr" && closing -> {
-                    val row = rowCells.filter { it.isNotBlank() }.joinToString(", ")
-                    if (row.isNotBlank()) contentLines.add(row)
+                    if (rowCells.any { it.isNotBlank() }) {
+                        val row = "| " + rowCells.joinToString(" | ") { it.trim().replace('\n', ' ') } + " |"
+                        contentLines.add(row)
+                    }
                     rowCells.clear()
                 }
             }

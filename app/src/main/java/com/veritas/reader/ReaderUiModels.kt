@@ -27,7 +27,17 @@ import androidx.compose.material.icons.outlined.Share
 enum class PaperToneMode {
     ACTIVE_THEME,
     DARK,
-    NATURAL_WHITE
+    NATURAL_WHITE,
+    WARM_SEPIA;
+
+    companion object {
+        fun fromString(value: String): PaperToneMode = when (value.lowercase()) {
+            "dark", "amoled", "amoled_black" -> DARK
+            "natural_white", "white" -> NATURAL_WHITE
+            "warm_sepia", "sepia" -> WARM_SEPIA
+            else -> ACTIVE_THEME
+        }
+    }
 }
 
 fun progressFraction(document: SavedDocument): Float {
@@ -112,6 +122,22 @@ fun aiAssistantIcon(assistantId: String): ImageVector {
 }
 
 fun progressPercent(document: SavedDocument): Int = (progressFraction(document) * 100f).toInt().coerceIn(0, 100)
+
+fun formatEstimatedReadTime(document: SavedDocument): String {
+    val wordCount = if (document.charCount > 0) {
+        document.charCount / 5
+    } else {
+        document.chunkCount * 17
+    }
+    val totalMinutes = (wordCount / 200).coerceAtLeast(1)
+    return if (totalMinutes < 60) {
+        "~${totalMinutes}m"
+    } else {
+        val hours = totalMinutes / 60
+        val mins = totalMinutes % 60
+        if (mins == 0) "~${hours}h" else "~${hours}h ${mins}m"
+    }
+}
 
 fun capWords(text: String, maxWords: Int): String {
     val words = text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }

@@ -35,7 +35,9 @@ fun UpdateAvailableDialog(
     isDownloading: Boolean,
     downloadProgress: Float,
     downloadError: String?,
+    isPlayStoreInstall: Boolean = false,
     onUpdate: () -> Unit,
+    onOpenPlayStore: () -> Unit = {},
     onCancelDownload: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -83,7 +85,11 @@ fun UpdateAvailableDialog(
                     )
                 } else {
                     Text(
-                        text = "A new version of Veritas Reader is ready with latest enhancements.",
+                        text = if (isPlayStoreInstall) {
+                            "A new version of Veritas Reader is available on Google Play and GitHub."
+                        } else {
+                            "A new version of Veritas Reader is ready with latest enhancements."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -131,8 +137,19 @@ fun UpdateAvailableDialog(
         },
         confirmButton = {
             if (!isDownloading) {
-                Button(onClick = onUpdate) {
-                    Text(if (downloadError != null) "Retry Update" else "Update Now")
+                if (isPlayStoreInstall) {
+                    Button(
+                        onClick = {
+                            onOpenPlayStore()
+                            onDismiss()
+                        }
+                    ) {
+                        Text("Update on Google Play")
+                    }
+                } else {
+                    Button(onClick = onUpdate) {
+                        Text(if (downloadError != null) "Retry Update" else "Update Now")
+                    }
                 }
             }
         },
@@ -142,8 +159,24 @@ fun UpdateAvailableDialog(
                     Text("Cancel")
                 }
             } else {
-                TextButton(onClick = onDismiss) {
-                    Text("Later")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isPlayStoreInstall) {
+                        TextButton(onClick = onUpdate) {
+                            Text("Direct APK", style = MaterialTheme.typography.labelMedium)
+                        }
+                    } else {
+                        TextButton(
+                            onClick = {
+                                onOpenPlayStore()
+                                onDismiss()
+                            }
+                        ) {
+                            Text("Google Play", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text("Later", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
         }

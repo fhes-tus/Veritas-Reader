@@ -34,6 +34,8 @@ object PlaybackAdvance {
  */
 object SpeechSanitizer {
     private val extraSilentGlyphs = setOf(
+        '#', // markdown heading delimiter
+        '|', // table / column delimiter
         '•', // • bullet
         '‣', // ‣ triangular bullet
         '⁃', // ⁃ hyphen bullet
@@ -55,8 +57,14 @@ object SpeechSanitizer {
 
     fun forSpeech(text: String): String {
         if (text.isEmpty()) return text
-        val chars = CharArray(text.length) { index ->
-            val char = text[index]
+        val raw = if (text.contains("[[VERITAS_")) {
+            text.replace(Regex("""\[\[VERITAS_[^\]]+\]\]"""), "").trim()
+        } else {
+            text
+        }
+        if (raw.isEmpty()) return ""
+        val chars = CharArray(raw.length) { index ->
+            val char = raw[index]
             when {
                 isSilent(char) -> ' '
                 char == '…' -> '.' // … one pause, not "dot dot dot"
