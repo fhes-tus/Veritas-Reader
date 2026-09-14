@@ -259,8 +259,8 @@ internal fun MainOnboardingAndTourHost(
                     TutorialSpeaker.shutdown()
                 }
             }
-            // INSIGHTS_PAGE_SPOTLIGHT and SETTINGS_SPOTLIGHT render their tour cards inside their own dialog windows
-            if (activeStep != null && activeStep != OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT && activeStep != OnboardingStep.SETTINGS_SPOTLIGHT) {
+            // INSIGHTS_PAGE_SPOTLIGHT, SETTINGS_SPOTLIGHT, and CLASSICS_SPOTLIGHT render their tour cards inside their own dialog windows
+            if (activeStep != null && activeStep != OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT && activeStep != OnboardingStep.SETTINGS_SPOTLIGHT && activeStep != OnboardingStep.CLASSICS_SPOTLIGHT) {
                 OnboardingSpotlightOverlay(
                     step = activeStep,
                     userName = uiState.userName,
@@ -279,8 +279,14 @@ internal fun MainOnboardingAndTourHost(
                                             OnboardingStep.FAB_SPOTLIGHT
                                         }
                                         OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
-                                        OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.CLASSICS_SPOTLIGHT
-                                        OnboardingStep.CLASSICS_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
+                                        OnboardingStep.CHECKLIST_SPOTLIGHT -> {
+                                            viewModel.updateState { it.copy(showClassicsCatalog = true) }
+                                            OnboardingStep.CLASSICS_SPOTLIGHT
+                                        }
+                                        OnboardingStep.CLASSICS_SPOTLIGHT -> {
+                                            viewModel.updateState { it.copy(showClassicsCatalog = false) }
+                                            OnboardingStep.INSIGHTS_SPOTLIGHT
+                                        }
                                         OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
                                         OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.NOTES_TAB_SPOTLIGHT
                                         OnboardingStep.NOTES_TAB_SPOTLIGHT -> OnboardingStep.STUDY_TAB_SPOTLIGHT
@@ -343,8 +349,14 @@ internal fun MainOnboardingAndTourHost(
                                         OnboardingStep.NAME_INPUT -> OnboardingStep.WELCOME
                                         OnboardingStep.FAB_SPOTLIGHT -> OnboardingStep.WELCOME
                                         OnboardingStep.CHECKLIST_SPOTLIGHT -> OnboardingStep.FAB_SPOTLIGHT
-                                        OnboardingStep.CLASSICS_SPOTLIGHT -> OnboardingStep.CHECKLIST_SPOTLIGHT
-                                        OnboardingStep.INSIGHTS_SPOTLIGHT -> OnboardingStep.CLASSICS_SPOTLIGHT
+                                        OnboardingStep.CLASSICS_SPOTLIGHT -> {
+                                            viewModel.updateState { it.copy(showClassicsCatalog = false) }
+                                            OnboardingStep.CHECKLIST_SPOTLIGHT
+                                        }
+                                        OnboardingStep.INSIGHTS_SPOTLIGHT -> {
+                                            viewModel.updateState { it.copy(showClassicsCatalog = true) }
+                                            OnboardingStep.CLASSICS_SPOTLIGHT
+                                        }
                                         OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT -> OnboardingStep.INSIGHTS_SPOTLIGHT
                                         OnboardingStep.NOTES_TAB_SPOTLIGHT -> OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT
                                         OnboardingStep.STUDY_TAB_SPOTLIGHT -> OnboardingStep.NOTES_TAB_SPOTLIGHT
@@ -400,6 +412,9 @@ internal fun MainOnboardingAndTourHost(
                             TutorialSpeaker.stop()
                             if (uiState.activeDocument != null) {
                                 viewModel.returnToLibrary()
+                            }
+                            if (uiState.showClassicsCatalog) {
+                                viewModel.updateState { it.copy(showClassicsCatalog = false) }
                             }
                             OnboardingController.activeStep = null
                         }

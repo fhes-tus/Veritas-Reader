@@ -1,17 +1,21 @@
 package com.veritas.reader.ui.screens
 
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.outlined.Accessibility
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -38,11 +42,14 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.veritas.reader.*
+import com.veritas.reader.ui.OnboardingController
+import com.veritas.reader.ui.OnboardingStep
 import com.veritas.reader.ui.ReaderUiState
 import com.veritas.reader.ui.VeritasSleekSlider
 import java.util.Locale
@@ -243,38 +250,92 @@ fun SettingsHubDialog(
             }
 
             // Onboarding tour card: rendered inside SettingsHubDialog window
-            if (com.veritas.reader.ui.OnboardingController.activeStep == com.veritas.reader.ui.OnboardingStep.SETTINGS_SPOTLIGHT) {
+            if (OnboardingController.activeStep == OnboardingStep.SETTINGS_SPOTLIGHT) {
                 Card(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
+                        .widthIn(max = 380.dp)
                         .padding(16.dp)
-                        .navigationBarsPadding(),
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                        .navigationBarsPadding()
+                        .shadow(16.dp, RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
-                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = com.veritas.reader.ui.OnboardingStep.SETTINGS_SPOTLIGHT.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = com.veritas.reader.ui.OnboardingStep.SETTINGS_SPOTLIGHT.body,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                    Column(
+                        modifier = Modifier
+                            .padding(20.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            TextButton(onClick = { com.veritas.reader.ui.OnboardingController.activeStep = com.veritas.reader.ui.OnboardingStep.STUDY_TAB_SPOTLIGHT }) {
-                                Text("Back")
+                            Text(
+                                text = OnboardingStep.SETTINGS_SPOTLIGHT.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            IconButton(
+                                onClick = {
+                                    OnboardingController.activeStep = null
+                                    onDismiss()
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss Tour",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                            Button(onClick = { com.veritas.reader.ui.OnboardingController.activeStep = com.veritas.reader.ui.OnboardingStep.DOCUMENT_SPOTLIGHT }) {
-                                Text("Next")
+                        }
+
+                        Text(
+                            text = OnboardingStep.SETTINGS_SPOTLIGHT.body,
+                            style = MaterialTheme.typography.bodyMedium,
+                            lineHeight = 20.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = {
+                                onDismiss()
+                                OnboardingController.activeStep = OnboardingStep.STUDY_TAB_SPOTLIGHT
+                            }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Back", style = MaterialTheme.typography.labelMedium)
+                            }
+
+                            Button(
+                                onClick = {
+                                    onDismiss()
+                                    OnboardingController.activeStep = OnboardingStep.DOCUMENT_SPOTLIGHT
+                                },
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Text("Next", style = MaterialTheme.typography.labelMedium)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Next",
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
                     }

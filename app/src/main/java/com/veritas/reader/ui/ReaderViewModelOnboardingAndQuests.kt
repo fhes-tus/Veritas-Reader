@@ -196,7 +196,11 @@ fun ReaderViewModel.completeQuestBookmark() {
 internal fun ReaderViewModel.checkOnboardingOverallCompletion() {
     val state = uiState.value
     if (state.questTourDone && state.questImportDone && state.questSpeedDone && state.questBookmarkDone) {
-        _uiState.update { it.copy(showConfetti = true) }
+        if (!repository.hasCelebratedQuests()) {
+            repository.markQuestsCelebrated()
+            repository.setQuestChecklistDismissed(true)
+            _uiState.update { it.copy(showConfetti = true, questChecklistDismissed = true) }
+        }
     }
 }
 

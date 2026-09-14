@@ -302,7 +302,8 @@ internal fun ReaderTopAppBar(
     coroutineScope: CoroutineScope,
     progress: Float,
     onSearchQueryChange: (String) -> Unit,
-    onPaperToneModeChange: (PaperToneMode) -> Unit = {}
+    onPaperToneModeChange: (PaperToneMode) -> Unit = {},
+    onSentenceClick: (Int) -> Unit = {}
 ) {
     var internalShowTools by remember(showTools) { mutableStateOf(showTools) }
 
@@ -448,6 +449,10 @@ onOpenAskAi = onOpenAskAi,
                         onPageSelected = { targetPage ->
                             coroutineScope.launch {
                                 pagerState.animateScrollToPage(targetPage)
+                                val pageItem = pageItems.getOrNull(targetPage)
+                                if (pageItem != null && pageItem.sentenceRanges.isNotEmpty()) {
+                                    onSentenceClick(pageItem.sentenceStartIndex)
+                                }
                             }
                         },
                         modifier = Modifier

@@ -16,8 +16,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -26,6 +30,8 @@ import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -560,33 +566,87 @@ internal fun ReadingStatsDashboardDialog(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
+                        .widthIn(max = 380.dp)
                         .padding(16.dp)
-                        .navigationBarsPadding(),
-                    shape = VeritasPackStyle.cardShape(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+                        .navigationBarsPadding()
+                        .shadow(16.dp, RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
-                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                    Column(
+                        modifier = Modifier
+                            .padding(20.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            IconButton(
+                                onClick = {
+                                    OnboardingController.activeStep = null
+                                    onDismiss()
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss Tour",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
                         Text(
                             text = OnboardingStep.INSIGHTS_PAGE_SPOTLIGHT.body,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            lineHeight = 20.sp,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            TextButton(onClick = { OnboardingController.activeStep = OnboardingStep.INSIGHTS_SPOTLIGHT }) {
-                                Text("Back")
+                            TextButton(onClick = {
+                                onDismiss()
+                                OnboardingController.activeStep = OnboardingStep.INSIGHTS_SPOTLIGHT
+                            }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Back", style = MaterialTheme.typography.labelMedium)
                             }
-                            Button(onClick = { OnboardingController.activeStep = OnboardingStep.NOTES_TAB_SPOTLIGHT }) {
-                                Text("Next")
+
+                            Button(
+                                onClick = {
+                                    onDismiss()
+                                    OnboardingController.activeStep = OnboardingStep.NOTES_TAB_SPOTLIGHT
+                                },
+                                shape = RoundedCornerShape(50)
+                            ) {
+                                Text("Next", style = MaterialTheme.typography.labelMedium)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Next",
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
                     }

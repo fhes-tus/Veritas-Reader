@@ -217,17 +217,7 @@ fun GeneralNotesEditor(
         com.veritas.reader.copyTextToClipboard(context, "Attachment", path)
     }
 
-    LaunchedEffect(reminderAt) {
-        if (reminderAt != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            val alarmManager = context.getSystemService(android.app.AlarmManager::class.java)
-            if (alarmManager != null && !alarmManager.canScheduleExactAlarms()) {
-                showExactAlarmPrompt = true
-            }
-        }
-    }
-    if (showExactAlarmPrompt) {
-        ExactAlarmPermissionDialog(onDismiss = { showExactAlarmPrompt = false })
-    }
+    // Note reminders use standard setAndAllowWhileIdle without requiring special system settings permission
     if (confirmDeleteNote && note != null) {
         DeleteNoteConfirmDialog(
             onConfirmDelete = {

@@ -751,7 +751,11 @@ class DocumentRepository(context: Context) {
     }
 
     fun resetOnboardingState() {
-        prefs.edit { putBoolean(KEY_ONBOARDING_TUTORIAL_SEEN, false) }
+        prefs.edit {
+            putBoolean(KEY_ONBOARDING_TUTORIAL_SEEN, false)
+            putBoolean(KEY_QUEST_CELEBRATED, false)
+            putBoolean(KEY_QUEST_CHECKLIST_DISMISSED, false)
+        }
     }
 
     fun loadUserName(): String {
@@ -801,6 +805,14 @@ class DocumentRepository(context: Context) {
 
     fun setQuestChecklistDismissed(dismissed: Boolean) {
         prefs.edit { putBoolean(KEY_QUEST_CHECKLIST_DISMISSED, dismissed) }
+    }
+
+    fun hasCelebratedQuests(): Boolean {
+        return prefs.getBoolean(KEY_QUEST_CELEBRATED, false)
+    }
+
+    fun markQuestsCelebrated() {
+        prefs.edit { putBoolean(KEY_QUEST_CELEBRATED, true) }
     }
 
     fun hasImportedOrOpenedDocument(): Boolean {
@@ -1138,6 +1150,7 @@ class DocumentRepository(context: Context) {
         internal const val KEY_QUEST_SPEED_DONE = "quest_speed_done"
         internal const val KEY_QUEST_BOOKMARK_DONE = "quest_bookmark_done"
         internal const val KEY_QUEST_CHECKLIST_DISMISSED = "quest_checklist_dismissed"
+        internal const val KEY_QUEST_CELEBRATED = "quest_celebrated"
         internal const val KEY_TRACKER_DAYS = "reader_tracker_days"
         internal const val KEY_TRACKER_COMPLETIONS = "reader_tracker_completions"
         internal const val MAX_TRACKER_DAYS = 370

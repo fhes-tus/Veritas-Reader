@@ -492,59 +492,38 @@ fun ReaderScreen(
     val latestCurrentIndex = rememberUpdatedState(currentIndex)
     val latestPageItems = rememberUpdatedState(pageItems)
     val latestSentences = rememberUpdatedState(readerModel.sentences)
-    var lastSettledPage by remember { mutableIntStateOf(pagerState.currentPage) }
-    var userBrowsingAway by remember { mutableStateOf(false) }
-
-    // When play/pause toggles or is stopped, reset browsing state
-    LaunchedEffect(isPlaying) {
-        if (!isPlaying) {
-            userBrowsingAway = false
-        }
-    }
-
     val handleSentenceClick: (Int) -> Unit = remember(onSentenceClick) {
         { idx ->
-            userBrowsingAway = false
             onSentenceClick(idx)
         }
     }
     val handleSentenceDoubleTap: (Int) -> Unit = remember(onSentenceDoubleTap) {
         { idx ->
-            userBrowsingAway = false
             feedbackSentenceIndex = idx
             onSentenceDoubleTap(idx)
         }
     }
 
     // Page sync: whether playing TTS or user jumps to a section/sentence via outline/bookmarks/slider
-    LaunchedEffect(currentPageNumber) {
+    LaunchedEffect(currentPageNumber, pageItems.size) {
         val targetPage = (pageItems.indexOfFirst { it.pageNumber == currentPageNumber }.takeIf { it >= 0 } ?: (currentPageNumber - 1))
             .coerceIn(0, (pageItems.size - 1).coerceAtLeast(0))
-
-        if (latestIsPlaying.value) {
-            // If audio has reached the page the user browsed to, re-enable following mode
-            if (pagerState.currentPage == targetPage) {
-                userBrowsingAway = false
-            }
-            // While audio is reading:
-            // 1. If user is actively swiping/dragging, NEVER interrupt or block them!
-            // 2. If user has swiped away to browse other pages, DO NOT snap them back!
-            // 3. Only auto-flip the page if the user is following along on the narration page.
-            if (!pagerState.isScrollInProgress && !userBrowsingAway) {
-                if (pagerState.currentPage != targetPage) {
-                    lastSettledPage = targetPage
-                    pagerState.animateScrollToPage(
-                        page = targetPage,
-                        animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)
-                    )
-                }
-            }
-        } else {
-            // When paused: only scroll if the page change was initiated EXTERNALLY
-            // (e.g., outline jump, search match, bookmark jump, slider drag)
-            // and the user is NOT currently dragging/swiping.
-            if (!pagerState.isScrollInProgress && pagerState.currentPage != targetPage && lastSettledPage != targetPage) {
-                lastSettledPage = targetPage
+        // A sync landing mid-scroll used to be dropped outright, and because this effect only
+        // re-runs when the page number changes it never caught up — narration would carry on
+        // reading a page the pager was no longer showing. Wait the scroll out instead: at 380ms
+        // per page animation, consecutive short sentences cross boundaries faster than the
+        // previous flip settles.
+        if (pagerState.isScrollInProgress) {
+            androidx.compose.runtime.snapshotFlow { pagerState.isScrollInProgress }
+                .first { !it }
+        }
+        if (pagerState.currentPage != targetPage) {
+            if (latestIsPlaying.value) {
+                pagerState.animateScrollToPage(
+                    page = targetPage,
+                    animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing)
+                )
+            } else {
                 pagerState.scrollToPage(targetPage)
             }
         }
@@ -569,32 +548,19 @@ fun ReaderScreen(
         }
     }
 
-    // Manual page swipe -> update playback sentence when paused, or track browsing mode when reading
+    // Manual page swipe -> update playback sentence so it stays on the flipped page smoothly
     LaunchedEffect(pagerState) {
-        androidx.compose.runtime.snapshotFlow {
-            Pair(pagerState.currentPage, pagerState.isScrollInProgress)
-        }.collect { (pageIdx, isScrolling) ->
-            if (isScrolling) {
-                // If reading: mark browsing away immediately when a swipe starts
-                // so an advancing sentence mid-drag can never snap the page away!
-                if (latestIsPlaying.value) {
-                    userBrowsingAway = true
-                }
-            } else {
-                lastSettledPage = pageIdx
-                if (latestIsPlaying.value) {
-                    // While reading: check if user is on the active audio page or browsing elsewhere
-                    val currentSentencePage =
-                        latestSentences.value.getOrNull(latestCurrentIndex.value)?.pageNumber ?: 1
-                    val currentAudioPage = (latestPageItems.value.indexOfFirst { it.pageNumber == currentSentencePage }
-                        .takeIf { it >= 0 } ?: (currentSentencePage - 1))
-                        .coerceIn(0, (latestPageItems.value.size - 1).coerceAtLeast(0))
-                    userBrowsingAway = (pageIdx != currentAudioPage)
-                } else {
-                    userBrowsingAway = false
+        androidx.compose.runtime.snapshotFlow { pagerState.settledPage }
+            .collect { pageIdx ->
+                if (!pagerState.isScrollInProgress) {
                     val targetPageItem = latestPageItems.value.getOrNull(pageIdx)
+                    // Pages with no sentences of their own (image-only or genuinely blank) still
+                    // get a pager entry so they stay swipeable, but their sentence range is
+                    // zero-width and holds the *next* page's first index. Moving the reader there
+                    // would land it on a different page, and the sync effect above would then
+                    // immediately flip away from the blank page the user just swiped to.
                     val hasOwnSentences = targetPageItem != null && targetPageItem.sentenceRanges.isNotEmpty()
-                    if (targetPageItem != null && hasOwnSentences) {
+                    if (targetPageItem != null && hasOwnSentences && !latestIsPlaying.value) {
                         val currentSentencePage =
                             latestSentences.value.getOrNull(latestCurrentIndex.value)?.pageNumber ?: 1
                         if (currentSentencePage != targetPageItem.pageNumber) {
@@ -603,7 +569,6 @@ fun ReaderScreen(
                     }
                 }
             }
-        }
     }
 
     val currentPart = readerModel.partForSentence(currentIndex)
@@ -820,7 +785,8 @@ fun ReaderScreen(
             coroutineScope = coroutineScope,
             progress = progress,
             onSearchQueryChange = onSearchQueryChange,
-            onPaperToneModeChange = onPaperToneModeChange
+            onPaperToneModeChange = onPaperToneModeChange,
+            onSentenceClick = handleSentenceClick
         )
         // 3. Floating Bottom Player Panel (Collapsible)
         Box(

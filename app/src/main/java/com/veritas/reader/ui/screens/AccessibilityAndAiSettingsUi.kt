@@ -32,10 +32,7 @@ fun AccessibilitySettingsDialog(
     onToggleBionicReading: () -> Unit = {},
     onToggleShakeToExtend: () -> Unit = {},
     onToggleCollapsibleBars: () -> Unit = {},
-    onToggleNavLabels: () -> Unit = {},
-    onToggleAmoledMode: () -> Unit = {},
-    questChecklistDismissed: Boolean = false,
-    onToggleQuestChecklist: () -> Unit = {}
+    onToggleNavLabels: () -> Unit = {}
 ) {
     FullScreenSettingsScaffold(title = "Accessibility", onBack = onDismiss) {
         // Reading focus & comprehension
@@ -230,22 +227,6 @@ fun AccessibilitySettingsDialog(
                         Text("Display text labels beneath floating navigation bar icons. Toggle off for minimalist icon-only navigation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     VeritasSwitch(checked = settings.showNavLabels, onCheckedChange = { onToggleNavLabels() })
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("AMOLED Mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Pure black background for dark themes and battery saving", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    VeritasSwitch(checked = settings.amoledMode, onCheckedChange = { onToggleAmoledMode() })
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Show onboarding guide", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Show getting started quest checklist on the home screen", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    VeritasSwitch(checked = !questChecklistDismissed, onCheckedChange = { onToggleQuestChecklist() })
                 }
             }
         }

@@ -2,15 +2,7 @@ package com.veritas.reader.ui.screens
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -20,26 +12,14 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.veritas.reader.VeritasPackStyle
@@ -48,6 +28,7 @@ import com.veritas.reader.ui.rememberVeritasHaptics
 
 /**
  * Onboarding Quest Checklist Card to guide new users through essential features.
+ * Restored to the exact theme-adaptive pre-refactor implementation.
  */
 @Composable
 fun OnboardingQuestChecklist(
@@ -100,67 +81,81 @@ fun OnboardingQuestChecklist(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.EmojiEvents,
                         contentDescription = "Quests",
-                        tint = Color(0xFFE5A93C),
-                        modifier = Modifier.size(26.dp)
+                        tint = if (progress == 1f) Color(0xFFFFD700) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
                     )
                     Column {
                         Text(
-                            text = "Onboarding Quests",
-                            style = MaterialTheme.typography.titleMedium,
+                            text = if (progress == 1f) "All Quests Complete! 🎉" else "Onboarding Quests",
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "$completedCount of 4 missions completed",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (onDismissQuests != null) {
                         IconButton(
-                            onClick = onDismissQuests,
+                            onClick = {
+                                haptic.success()
+                                onDismissQuests()
+                            },
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss Quests",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
+                                contentDescription = "Cancel Quests",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        Spacer(modifier = Modifier.width(4.dp))
                     }
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (isExpanded) "Collapse" else "Expand",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
+
+                    IconButton(
+                        onClick = {
+                            haptic.toggle(!isExpanded)
+                            isExpanded = isExpanded == false
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                            contentDescription = if (isExpanded) "Collapse" else "Expand",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
             // Progress bar
+            Spacer(modifier = Modifier.height(10.dp))
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(6.dp),
-                color = Color(0xFFE5A93C),
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                strokeCap = StrokeCap.Round
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(50)),
+                color = if (progress == 1f) Color(0xFF2196F3) else MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
 
-            // Expanded Quest checklist items
+            // Checklist contents
             if (isExpanded) {
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Spacer(modifier = Modifier.height(12.dp))
+
                 QuestItemRow(
                     title = "Take the guided tour",
                     desc = "Learn the layout of the app with our quick guide.",
@@ -182,7 +177,7 @@ fun OnboardingQuestChecklist(
                     done = questBookmarkDone
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Button(
                     onClick = {
@@ -190,10 +185,6 @@ fun OnboardingQuestChecklist(
                         onStartTour()
                     },
                     shape = RoundedCornerShape(50),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFE5A93C),
-                        contentColor = Color(0xFF1E1B18)
-                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(
@@ -201,35 +192,17 @@ fun OnboardingQuestChecklist(
                         contentDescription = "Guided Tour",
                         modifier = Modifier.size(18.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (questTourDone) "Restart Guided Tour" else "Start Guided Tour",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.labelMedium
                     )
-                }
-
-                if (onDismissQuests != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    TextButton(
-                        onClick = onDismissQuests,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "Dismiss onboarding quests",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
             }
         }
     }
 }
 
-/**
- * Individual checklist row within OnboardingQuestChecklist.
- */
 @Composable
 fun QuestItemRow(
     title: String,

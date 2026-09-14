@@ -650,19 +650,6 @@ internal fun MainSettingsDialogsHost(
                     viewModel.saveReaderSettings(
                         uiState.readerSettings.copy(showNavLabels = !uiState.readerSettings.showNavLabels)
                     )
-                },
-                onToggleAmoledMode = {
-                    viewModel.saveReaderSettings(
-                        uiState.readerSettings.copy(amoledMode = !uiState.readerSettings.amoledMode)
-                    )
-                },
-                questChecklistDismissed = uiState.questChecklistDismissed,
-                onToggleQuestChecklist = {
-                    if (uiState.questChecklistDismissed) {
-                        viewModel.reopenQuestChecklist()
-                    } else {
-                        viewModel.dismissQuestChecklist()
-                    }
                 }
             )
         }
