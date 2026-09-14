@@ -14,6 +14,7 @@ import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
+import android.text.style.LineBackgroundSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.ReplacementSpan
 import android.text.style.StrikethroughSpan
@@ -301,7 +302,8 @@ internal fun buildReaderPartSpannable(
     context: Context? = null,
     pageBitmaps: List<android.graphics.Bitmap> = emptyList(),
     sectionSpacingDp: Int = 10,
-    searchQuery: String = ""
+    searchQuery: String = "",
+    textColor: Int = 0
 ): Spannable {
     val spannable = SpannableString(part.text)
     // Render inline markdown (bold/italic/headings/etc.) and inline images that text carries,
@@ -309,14 +311,29 @@ internal fun buildReaderPartSpannable(
     // delimiter characters are kept in the text and only drawn zero-width, so every
     // downstream character offset (TTS word highlight, selection→sentence mapping, search)
     // still lines up with part.text.
-    applyMarkdownFormatting(spannable, part.text, context, pageBitmaps)
+    applyMarkdownFormatting(
+        spannable = spannable,
+        text = part.text,
+        context = context,
+        pageBitmaps = pageBitmaps,
+        textColor = textColor,
+        activeSentenceColor = activeSentenceColor,
+        activeSearchMatchColor = activeSearchMatchColor
+    )
 
     // Apply custom paragraph spacing over double newlines
     val spacingScale = (sectionSpacingDp.toFloat() / 10f).coerceIn(0.5f, 2.5f)
     var pIdx = part.text.indexOf("\n\n")
     while (pIdx >= 0 && pIdx + 2 <= part.text.length) {
+        val prevLineStart = part.text.lastIndexOf('\n', pIdx - 1).let { if (it == -1) 0 else it + 1 }
+        val prevTrimmed = part.text.substring(prevLineStart, pIdx).trim()
+        val nextNewline = part.text.indexOf('\n', pIdx + 2).let { if (it == -1) part.text.length else it }
+        val nextTrimmed = part.text.substring(pIdx + 2, nextNewline).trim()
+        val isBetweenTableRows = isTableLine(prevTrimmed) && isTableLine(nextTrimmed)
+
+        val scale = if (isBetweenTableRows) 0.35f else spacingScale
         spannable.setSpan(
-            RelativeSizeSpan(spacingScale),
+            RelativeSizeSpan(scale),
             pIdx + 1,
             pIdx + 2,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
@@ -479,13 +496,229 @@ internal fun SpannableString.styleRange(span: Any, start: Int, end: Int) {
  * are styled; anything ambiguous (a lone asterisk, a bullet "* item", "2 * 3") is left as plain
  * text so ordinary prose is never mangled.
  */
+internal class TableCardBackgroundSpan(
+    private val backgroundColor: Int,
+    private val borderColor: Int,
+    private val dividerColor: Int,
+    private val isFirstRow: Boolean,
+    private val isLastRow: Boolean,
+    private val isHeaderRow: Boolean,
+    private val headerBgColor: Int
+) : LineBackgroundSpan {
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+    }
+    private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f
+    }
+
+    override fun drawBackground(
+        canvas: Canvas,
+        paint: Paint,
+        left: Int,
+        right: Int,
+        top: Int,
+        baseline: Int,
+        bottom: Int,
+        text: CharSequence,
+        start: Int,
+        end: Int,
+        lineNumber: Int
+    ) {
+        val l = left.toFloat() + 2f
+        val r = right.toFloat() - 2f
+        val t = top.toFloat()
+        val b = bottom.toFloat()
+
+        bgPaint.color = if (isHeaderRow) headerBgColor else backgroundColor
+        borderPaint.color = borderColor
+        dividerPaint.color = dividerColor
+
+        canvas.drawRect(l, t, r, b, bgPaint)
+        canvas.drawLine(l, t, l, b, borderPaint)
+        canvas.drawLine(r, t, r, b, borderPaint)
+
+        if (isFirstRow) {
+            canvas.drawLine(l, t, r, t, borderPaint)
+        }
+        if (isLastRow) {
+            canvas.drawLine(l, b, r, b, borderPaint)
+        } else {
+            canvas.drawLine(l, b, r, b, dividerPaint)
+        }
+    }
+}
+
+private data class TableLineSpan(
+    val lineStart: Int,
+    val lineEnd: Int,
+    val trimmed: String,
+    val isSeparator: Boolean
+)
+
+internal fun isTableLine(trimmed: String): Boolean {
+    if (trimmed.isEmpty()) return false
+    if (trimmed.startsWith("|") && (trimmed.endsWith("|") || trimmed.count { it == '|' } >= 2)) return true
+    if (trimmed.count { it == '|' } >= 3) return true
+    return false
+}
+
+internal fun isTableSeparator(trimmed: String): Boolean {
+    return trimmed.startsWith("|") && trimmed.replace(Regex("""[\|\-\:\s]"""), "").isEmpty()
+}
+
+internal fun applyTableFormatting(
+    spannable: SpannableString,
+    text: String,
+    textColor: Int = 0,
+    activeSentenceColor: Int = 0,
+    activeSearchMatchColor: Int = 0
+) {
+    if (text.isEmpty()) return
+
+    val allLines = mutableListOf<TableLineSpan>()
+    var lineStart = 0
+    while (lineStart <= text.length) {
+        val newline = text.indexOf('\n', lineStart)
+        val lineEnd = if (newline == -1) text.length else newline
+        val trimmed = text.substring(lineStart, lineEnd).trim()
+        if (isTableLine(trimmed)) {
+            allLines.add(TableLineSpan(lineStart, lineEnd, trimmed, isTableSeparator(trimmed)))
+        } else if (trimmed.isNotEmpty()) {
+            allLines.add(TableLineSpan(lineStart, lineEnd, "", false))
+        }
+        if (newline == -1) break
+        lineStart = newline + 1
+    }
+
+    val tableGroups = mutableListOf<List<TableLineSpan>>()
+    var currentGroup = mutableListOf<TableLineSpan>()
+    for (line in allLines) {
+        if (line.trimmed.isNotEmpty()) {
+            currentGroup.add(line)
+        } else {
+            if (currentGroup.isNotEmpty()) {
+                tableGroups.add(currentGroup)
+                currentGroup = mutableListOf()
+            }
+        }
+    }
+    if (currentGroup.isNotEmpty()) {
+        tableGroups.add(currentGroup)
+    }
+
+    if (tableGroups.isEmpty()) return
+
+    val isDarkText = if (textColor != 0) {
+        val r = (textColor shr 16) and 0xFF
+        val g = (textColor shr 8) and 0xFF
+        val b = textColor and 0xFF
+        (r * 299 + g * 587 + b * 114) / 1000 < 128
+    } else {
+        false
+    }
+
+    val tableBgColor = if (isDarkText) 0x0A000000 else 0x16FFFFFF
+    val tableHeaderBgColor = if (isDarkText) 0x16000000 else 0x2AFFFFFF
+    val tableBorderColor = if (isDarkText) 0x2A000000 else 0x36FFFFFF
+    val tableDividerColor = if (isDarkText) 0x14000000 else 0x1EFFFFFF
+    val headerTextColor = if (isDarkText) {
+        if (activeSentenceColor != 0) (activeSentenceColor or 0xFF000000.toInt()) else 0xFF1976D2.toInt()
+    } else {
+        if (activeSearchMatchColor != 0) activeSearchMatchColor else 0xFFFFD54F.toInt()
+    }
+    val cellDividerColor = if (isDarkText) 0x38000000 else 0x48FFFFFF
+
+    for (group in tableGroups) {
+        val contentRows = group.filter { !it.isSeparator }
+        if (contentRows.isEmpty()) continue
+
+        val headerRow = contentRows.first()
+
+        for (row in group) {
+            if (row.isSeparator) {
+                spannable.hideMarkup(row.lineStart, row.lineEnd)
+                continue
+            }
+
+            val isFirst = (row == contentRows.first())
+            val isLast = (row == contentRows.last())
+            val isHeader = (row == headerRow)
+
+            if (isHeader) {
+                spannable.styleRange(StyleSpan(Typeface.BOLD), row.lineStart, row.lineEnd)
+                spannable.styleRange(ForegroundColorSpan(headerTextColor), row.lineStart, row.lineEnd)
+            }
+
+            val firstPipe = text.indexOf('|', row.lineStart)
+            if (firstPipe != -1 && firstPipe < row.lineEnd) {
+                spannable.hideMarkup(firstPipe, firstPipe + 1)
+            }
+
+            val lastPipe = text.lastIndexOf('|', row.lineEnd - 1)
+            if (lastPipe != -1 && lastPipe > firstPipe && lastPipe >= row.lineStart) {
+                spannable.hideMarkup(lastPipe, lastPipe + 1)
+            }
+
+            if (firstPipe != -1 && lastPipe != -1 && lastPipe > firstPipe) {
+                var p = text.indexOf('|', firstPipe + 1)
+                while (p != -1 && p < lastPipe) {
+                    spannable.setSpan(
+                        ForegroundColorSpan(cellDividerColor),
+                        p,
+                        p + 1,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    p = text.indexOf('|', p + 1)
+                }
+            }
+
+            spannable.setSpan(
+                TableCardBackgroundSpan(
+                    backgroundColor = tableBgColor,
+                    borderColor = tableBorderColor,
+                    dividerColor = tableDividerColor,
+                    isFirstRow = isFirst,
+                    isLastRow = isLast,
+                    isHeaderRow = isHeader,
+                    headerBgColor = tableHeaderBgColor
+                ),
+                row.lineStart,
+                row.lineEnd,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+    }
+}
+
+/**
+ * Applies a conservative subset of markdown (ATX headings, **bold**, *italic*, `code`,
+ * ~~strikethrough~~) and table cards as visual spans over [text]. Only well-formed, clearly-delimited markers
+ * are styled; anything ambiguous (a lone asterisk, a bullet "* item", "2 * 3") is left as plain
+ * text so ordinary prose is never mangled.
+ */
 internal fun applyMarkdownFormatting(
     spannable: SpannableString,
     text: String,
     context: Context? = null,
-    pageBitmaps: List<android.graphics.Bitmap> = emptyList()
+    pageBitmaps: List<android.graphics.Bitmap> = emptyList(),
+    textColor: Int = 0,
+    activeSentenceColor: Int = 0,
+    activeSearchMatchColor: Int = 0
 ) {
     if (text.isEmpty()) return
+
+    applyTableFormatting(
+        spannable = spannable,
+        text = text,
+        textColor = textColor,
+        activeSentenceColor = activeSentenceColor,
+        activeSearchMatchColor = activeSearchMatchColor
+    )
+
     var lineStart = 0
     while (lineStart <= text.length) {
         val newline = text.indexOf('\n', lineStart)
@@ -582,9 +815,9 @@ internal fun applyMarkdownLine(
         return
     }
 
-    // Tabular formatting with monospace for pipe-delimited tables
-    if (trimmedLine.startsWith("|") && trimmedLine.endsWith("|") && trimmedLine.length > 2) {
-        spannable.styleRange(TypefaceSpan("monospace"), lineStart, lineEnd)
+    // Tabular formatting: card background, headers, and column dividers are handled by applyTableFormatting
+    if (isTableLine(trimmedLine)) {
+        applyInlineMarkdown(spannable, text, lineStart, lineEnd)
         return
     }
 
@@ -815,6 +1048,8 @@ internal fun readerSelectionActionModeCallback(
 
         override fun onDestroyActionMode(mode: ActionMode) {
             onSelectionChanged(null)
+            clearNativeTextSelection(textView)
+            textView.clearFocus()
         }
     }
 }

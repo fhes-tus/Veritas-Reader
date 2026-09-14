@@ -507,7 +507,8 @@ internal fun ReaderPageItemView(
                                                 context = context,
                                                 pageBitmaps = pageBitmaps,
                                                 sectionSpacingDp = readerSettings.sectionSpacingDp,
-                                                searchQuery = state.searchQuery
+                                                searchQuery = state.searchQuery,
+                                                textColor = textColor
                                             )
                                         }
 
@@ -590,11 +591,18 @@ internal fun ReaderPageItemView(
                                                                     }
                                                                 }
                                                                 MotionEvent.ACTION_MOVE -> {
+                                                                    val dx = kotlin.math.abs(event.x - downX)
+                                                                    val dy = kotlin.math.abs(event.y - downY)
                                                                     if (this.hasSelection()) {
-                                                                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                                                                        if (dx > touchSlop * 2 && dx > dy * 1.5f) {
+                                                                            clearNativeTextSelection(this)
+                                                                            this.clearFocus()
+                                                                            onSelectionChanged(null)
+                                                                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                                                                        } else {
+                                                                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                                                                        }
                                                                     } else {
-                                                                        val dx = kotlin.math.abs(event.x - downX)
-                                                                        val dy = kotlin.math.abs(event.y - downY)
                                                                         if (dx > touchSlop || dy > touchSlop) {
                                                                             v.parent?.requestDisallowInterceptTouchEvent(false)
                                                                         }
@@ -628,6 +636,11 @@ internal fun ReaderPageItemView(
 
                                                     if (currentPageNumber == pageNumber) {
                                                         onTextViewBound(textView)
+                                                    } else {
+                                                        if (textView.hasSelection() || textView.isFocused) {
+                                                            clearNativeTextSelection(textView)
+                                                            textView.clearFocus()
+                                                        }
                                                     }
                                                     holder.onToggleBars = onToggleBars
                                                     holder.onSentenceDoubleTap = onSentenceDoubleTap

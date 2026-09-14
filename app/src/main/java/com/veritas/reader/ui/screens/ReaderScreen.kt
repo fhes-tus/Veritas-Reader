@@ -571,6 +571,28 @@ fun ReaderScreen(
             }
     }
 
+    // Dismiss active text selection and drop view focus whenever the page changes or swiping begins
+    LaunchedEffect(pagerState) {
+        androidx.compose.runtime.snapshotFlow { pagerState.currentPage }
+            .collect {
+                if (selectedTextSelection != null) {
+                    clearNativeTextSelection(selectedTextView)
+                    selectedTextView?.clearFocus()
+                    selectedTextSelection = null
+                }
+            }
+    }
+    LaunchedEffect(pagerState) {
+        androidx.compose.runtime.snapshotFlow { pagerState.isScrollInProgress }
+            .collect { inProgress ->
+                if (inProgress && selectedTextSelection != null) {
+                    clearNativeTextSelection(selectedTextView)
+                    selectedTextView?.clearFocus()
+                    selectedTextSelection = null
+                }
+            }
+    }
+
     val currentPart = readerModel.partForSentence(currentIndex)
     val currentPartIndex = currentPart?.index ?: 0
     val progress =
@@ -657,7 +679,7 @@ fun ReaderScreen(
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = (selectedTextSelection == null),
+                        userScrollEnabled = true,
                         pageSpacing = 16.dp,
                         beyondViewportPageCount = 1,
                         key = { pageItems.getOrNull(it)?.pageNumber ?: it }
