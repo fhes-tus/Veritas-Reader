@@ -53,15 +53,12 @@
 
 ---
 
-### 📦 Release Binaries & Checksums
+### 📦 Downloads & Recommended Architectures
 
-| Filename | Type | Size | Target / Architecture | SHA-256 Checksum |
-| :--- | :--- | :--- | :--- | :--- |
-| **`Veritas-Reader-v2.4.0-release.aab`** | Google Play Bundle | 59.5 MB | Google Play Store (versionCode 37) | `97CD7210CEDE73BCB48F7F9159ECC9B2FB75AEF93DBC0D447CC03D817DBFD5F0` |
-| **`Veritas-Reader-v2.4.0-arm64-v8a-release.apk`** | Release APK | 55.1 MB | 64-bit ARM (`arm64-v8a`) | `16CD16E8C487D093E8CB1019E5FF2A049CBDA15E2F36B42C3BE83E88217B413B` |
-| **`Veritas-Reader-v2.4.0-armeabi-v7a-release.apk`** | Release APK | 45.7 MB | 32-bit ARM (`armeabi-v7a`) | `782CAECCB438E38588FF772017F68E4F3FEF9710F55543C1B4E8D583A52C24DC` |
-| **`Veritas-Reader-v2.4.0-universal-release.apk`** | Release APK | 77.0 MB | Universal (All Architectures) | `CB460F8A73DC5B4D1DBB8484E6BF021EA13863B5D595EEA9E43792162B4ADA0F` |
-| **`Veritas-Reader-v2.4.0-release.apk`** | Release APK | 77.0 MB | Universal Standard Alias | `CB460F8A73DC5B4D1DBB8484E6BF021EA13863B5D595EEA9E43792162B4ADA0F` |
+* **64-bit ARM (`arm64-v8a`) Release APK:** `Veritas-Reader-v2.4.0-arm64-v8a-release.apk` (55.1 MB) — *Recommended for 99% of modern Android phones & tablets.*
+* **Universal Release APK:** `Veritas-Reader-v2.4.0-universal-release.apk` (77.0 MB) — *Compatible with all supported Android devices.*
+* **32-bit ARM (`armeabi-v7a`) Release APK:** `Veritas-Reader-v2.4.0-armeabi-v7a-release.apk` (45.7 MB) — *For legacy 32-bit devices.*
+* **Google Play Bundle:** `Veritas-Reader-v2.4.0-release.aab` (59.5 MB, versionCode 37) — *For Google Play Console submission.*
 
 ---
 
