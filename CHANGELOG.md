@@ -4,7 +4,7 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ---
 
-## [2.4.0] - 2026-09-13
+## [2.4.0] - 2026-09-14
 
 ### Added
 *   **Universal Classic Books Bookstore & Catalogue:** Completely redesigned into a universal digital bookstore with 36 curated public domain masterpieces spanning 7 categories (*Family & Youth*, *Mystery*, *Adventure*, *Romance*, *Life & Habits*, *Quick Reads*, and *Epic Classics*).
@@ -13,10 +13,17 @@ All notable changes to the Veritas Reader application will be documented in this
 *   **Classic Books Catalog Guided Tour Integration:** Seamlessly integrated into the in-app interactive walkthrough with spotlight cutouts, auto-scrolling viewport, and voice narration.
 *   **Zero-Bloat Expected Read Time Indicators:** Added calculated reading duration pills (e.g. `~15m`, `~1h 20m`) to subtitle metadata across all Library cards (`DocumentCard`, `DocumentTileCard`, `HomeRecentBookGridItem`, `RecentImportItem`) with zero card height increase.
 *   **Dual Google Play & GitHub In-App Updater:** Added source-aware update routing detecting installer origin (`com.android.vending`), prioritizing compliant Google Play store updates for Play Store installations while preserving direct in-app APK download & installation for GitHub/sideload users.
+*   **Visual Table Card Formatting in Extracted Text Reader:** Added theme-adaptive table cards (`TableCardBackgroundSpan`) with rounded container borders, horizontal row dividers, and bold accent headers across dark, sepia, and light themes while preserving 100% natural TTS narration without audio delimiter artifacts.
 
 ### Changed
-*   **Reader Gestures & Animation Polish:** Smoother text selection, intuitive tap-to-toggle bars with deceleration curves, natural aspect-ratio image sizing, and prevention of native Android text selection popup on double tap.
+*   **Reader Gestures & Paging Polish:** Restored pre-refactor extracted text paging synchronicity; decoupled selection focus from pager layout to allow natural horizontal swipe dismissal.
+*   **AMOLED Display Settings Placement:** Relocated AMOLED Mode toggle into the Reader Display Preferences menu alongside paper tones.
+*   **Google Play Exact Alarm Compliance:** Replaced `USE_EXACT_ALARM` with standard, inexact notification scheduling in compliance with Google Play Store policy.
 *   **Dynamic Bundle Build Optimization:** Configured automatic ABI split suppression during Android App Bundle creation for Google Play Console compatibility.
+
+### Fixed
+*   **Text Selection Page Snapping Bug:** Resolved Android View focus trap where selecting text on a page caused the reader to jump or snap back when swiping or jumping to another page; off-screen views now reliably drop focus and clear selection handles.
+*   **Onboarding Quests Missions UI:** Restored theme-adaptive mission card layout and celebration persistence.
 
 ---
 
