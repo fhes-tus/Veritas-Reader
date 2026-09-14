@@ -53,7 +53,7 @@ android {
         applicationId = "com.veritas.reader"
         minSdk = 28
         targetSdk = 36
-        versionCode = 36
+        versionCode = 37
         versionName = "2.4.0"
 
         ndk {
