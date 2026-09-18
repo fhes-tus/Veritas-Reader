@@ -4,6 +4,8 @@ import com.veritas.reader.*
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewModelScope
 import com.veritas.reader.BuildConfig
@@ -171,6 +173,7 @@ fun ReaderViewModel.startUpdateDownload(apkUrl: String) {
                     }
                 }
             }
+            _uiState.update { it.copy(updateDownloadProgress = 1f) }
             success = true
         } catch (e: Exception) {
             if (e is CancellationException) {
@@ -193,7 +196,7 @@ fun ReaderViewModel.startUpdateDownload(apkUrl: String) {
                     )
                 }
                 withContext(Dispatchers.Main) {
-                    triggerApkInstallation(apkFile)
+                    triggerApkInstallation(apkFile, fallbackUrl = apkUrl)
                 }
             }
         }
@@ -212,9 +215,18 @@ fun ReaderViewModel.cancelUpdateDownload() {
     }
 }
 
-internal fun ReaderViewModel.triggerApkInstallation(apkFile: File) {
+internal fun ReaderViewModel.triggerApkInstallation(apkFile: File, fallbackUrl: String = "") {
     val context = getApplication<Application>()
     try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(settingsIntent)
+            }
+        }
         val authority = "${context.packageName}.fileprovider"
         val apkUri = FileProvider.getUriForFile(context, authority, apkFile)
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -224,6 +236,13 @@ internal fun ReaderViewModel.triggerApkInstallation(apkFile: File) {
         context.startActivity(intent)
     } catch (e: Exception) {
         android.util.Log.e("ReaderViewModel", "Error launching APK installation", e)
+        val targetUrl = fallbackUrl.ifBlank { uiState.value.updateUrl.ifBlank { "https://github.com/fhes-tus/Veritas-Reader/releases/latest" } }
+        runCatching {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(browserIntent)
+        }
     }
 }
 
