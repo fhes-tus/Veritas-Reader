@@ -54,7 +54,7 @@ object TranslationLauncher {
 
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Veritas translation: $title")
+            putExtra(Intent.EXTRA_SUBJECT, "Vern translation: $title")
             if (!targetPackage.isNullOrBlank()) {
                 setPackage(targetPackage)
             }
@@ -66,12 +66,12 @@ object TranslationLauncher {
                     file.writeText(prompt, Charsets.UTF_8)
                     val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    clipData = ClipData.newRawUri("Veritas Translation", uri)
+                    clipData = ClipData.newRawUri("Vern Translation", uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    putExtra(Intent.EXTRA_TEXT, prompt.take(MAX_SHARE_CHARS) + "\n\n[Veritas note: Text truncated in body. Full text attached as file.]")
+                    putExtra(Intent.EXTRA_TEXT, prompt.take(MAX_SHARE_CHARS) + "\n\n[Vern note: Text truncated in body. Full text attached as file.]")
                 } catch (e: Exception) {
                     android.util.Log.w("TranslationLauncher", "Could not create translation file: ${e.message}", e)
-                    putExtra(Intent.EXTRA_TEXT, prompt.take(MAX_SHARE_CHARS) + "\n\n[Veritas note: Document shortened because share targets reject very long text.]")
+                    putExtra(Intent.EXTRA_TEXT, prompt.take(MAX_SHARE_CHARS) + "\n\n[Vern note: Document shortened because share targets reject very long text.]")
                 }
             } else {
                 putExtra(Intent.EXTRA_TEXT, prompt)
@@ -89,13 +89,13 @@ object TranslationLauncher {
             try {
                 val chooserIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Veritas translation: $title")
+                    putExtra(Intent.EXTRA_SUBJECT, "Vern translation: $title")
                     putExtra(Intent.EXTRA_TEXT, prompt.take(MAX_SHARE_CHARS))
                 }
                 context.startActivity(Intent.createChooser(chooserIntent, "Send to Translate or AI app"))
             } catch (fallbackEx: Exception) {
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Veritas translation prompt", prompt))
+                clipboard.setPrimaryClip(ClipData.newPlainText("Vern translation prompt", prompt))
                 Toast.makeText(context, "Translation prompt copied to clipboard.", Toast.LENGTH_LONG).show()
             }
         }

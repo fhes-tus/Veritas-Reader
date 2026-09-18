@@ -73,6 +73,21 @@ fun UserManualDialog(
                 description = "4-tab navigation, daily goals, activity charts, and quick quests",
                 chapters = listOf(
                     ManualChapter(
+                        title = "About Vern",
+                        icon = Icons.Outlined.Info,
+                        subtitle = "Origin, philosophy, and privacy-first reading",
+                        content = "Vern (root word Vernehmen — German: to hear/perceive) is a privacy-focused reading engine designed to help you absorb knowledge effortlessly. Combining synchronized audio narration, custom voice controls, smart study cards, and comprehensive reading insights, Vern runs 100% on-device with zero tracking.",
+                        ctaText = "Go to Settings",
+                        ctaAction = "settings_hub",
+                        flowSteps = listOf(
+                            "Learn with synchronized text and audio",
+                            "Enjoy 100% on-device privacy with zero data collection",
+                            "Personalize voices, appearance, and study workflows"
+                        ),
+                        imageResId = R.drawable.manual_home_dashboard,
+                        tags = listOf("vern", "about", "origin", "philosophy", "privacy", "vernehmen", "vernemen")
+                    ),
+                    ManualChapter(
                         title = "Home Dashboard & Quests",
                         icon = Icons.Outlined.Dashboard,
                         subtitle = "Daily targets, reading streak, and instant resume",
@@ -91,7 +106,7 @@ fun UserManualDialog(
                         title = "Four Main Workspaces",
                         icon = Icons.Outlined.ViewStream,
                         subtitle = "Home, Library, Study, and Settings Hub",
-                        content = "Veritas is organized into 4 primary tabs: 'Home' for daily reading momentum, 'Library' for your document catalog and imports, 'Study' for flashcards and reading insights, and 'Settings' for complete audio, visual, and backup configuration.",
+                        content = "Vern is organized into 4 primary tabs: 'Home' for daily reading momentum, 'Library' for your document catalog and imports, 'Study' for flashcards and reading insights, and 'Settings' for complete audio, visual, and backup configuration.",
                         ctaText = "Explore Settings",
                         ctaAction = "settings_hub",
                         flowSteps = listOf(
@@ -158,7 +173,7 @@ fun UserManualDialog(
                         title = "Adding Content & Formats",
                         icon = Icons.Outlined.AddCircleOutline,
                         subtitle = "Import EPUB, PDF, DOCX, PPTX, TXT, and Web links",
-                        content = "Tap the floating '+' action button to import content. Veritas supports universal document parsing for EPUB eBooks, PDF papers, Word DOCX files, PowerPoint PPTX presentations, plain text TXT files, and instant web article scraping.",
+                        content = "Tap the floating '+' action button to import content. Vern supports universal document parsing for EPUB eBooks, PDF papers, Word DOCX files, PowerPoint PPTX presentations, plain text TXT files, and instant web article scraping.",
                         ctaText = "Open File Browser",
                         ctaAction = "file_browser",
                         flowSteps = listOf(
@@ -269,7 +284,7 @@ fun UserManualDialog(
                         title = "Theme Packs & Paired Colours",
                         icon = Icons.Outlined.Palette,
                         subtitle = "Liquid Glass, One UI, Material You, and Dark palettes",
-                        content = "Personalize the entire app interface. Choose between 4 distinct Theme Packs (Veritas Media, Liquid Glass, One UI, Material You) and comprehensive color schemes (Light, Dark, Midnight Dark, GitHub Dark/Light, Dracula, One Dark Pro, Neon, and Blue High Contrast).",
+                        content = "Personalize the entire app interface. Choose between 4 distinct Theme Packs (Vern Media, Liquid Glass, One UI, Material You) and comprehensive color schemes (Light, Dark, Midnight Dark, GitHub Dark/Light, Dracula, One Dark Pro, Neon, and Blue High Contrast).",
                         ctaText = "Configure Appearance",
                         ctaAction = "reader_settings",
                         flowSteps = listOf(
@@ -300,7 +315,7 @@ fun UserManualDialog(
             ManualSection(
                 title = "Audio & Narration",
                 icon = Icons.Outlined.RecordVoiceOver,
-                description = "Veritas Studio & Lite offline neural voices, narration studio, and sleep timer",
+                description = "Vern Studio & Lite offline neural voices, narration studio, and sleep timer",
                 chapters = listOf(
                     ManualChapter(
                         title = "Audio Player & Playback Control",
@@ -320,17 +335,17 @@ fun UserManualDialog(
                     ManualChapter(
                         title = "Voice Studio & Offline Neural Voices",
                         icon = Icons.Outlined.RecordVoiceOver,
-                        subtitle = "Veritas Studio (Kokoro) & Veritas Lite (Piper)",
-                        content = "Enjoy ultra-high-quality offline speech synthesis with zero cloud dependency. Download Veritas Studio (Kokoro neural voices) for studio-grade narration or Veritas Lite (Piper) for ultra-fast, lightweight playback.",
+                        subtitle = "Vern Studio (Kokoro) & Vern Lite (Piper)",
+                        content = "Enjoy ultra-high-quality offline speech synthesis with zero cloud dependency. Download Vern Studio (Kokoro neural voices) for studio-grade narration or Vern Lite (Piper) for ultra-fast, lightweight playback.",
                         ctaText = "Manage Voice Settings",
                         ctaAction = "voice_studio",
                         flowSteps = listOf(
                             "Open Settings -> Voice Studio",
-                            "Select Veritas Studio or Veritas Lite",
+                            "Select Vern Studio or Vern Lite",
                             "Download voice models and audition voice presets"
                         ),
                         imageResId = R.drawable.manual_voice_language,
-                        tags = listOf("voice", "engine", "tts", "veritas studio", "kokoro", "veritas lite", "piper", "offline", "neural voice")
+                        tags = listOf("voice", "engine", "tts", "vern studio", "kokoro", "vern lite", "piper", "offline", "neural voice")
                     ),
                     ManualChapter(
                         title = "Full-Cast Narration Studio",
@@ -403,7 +418,7 @@ fun UserManualDialog(
                         title = "Reading History Tracking",
                         icon = Icons.Outlined.History,
                         subtitle = "Trace past reading sessions",
-                        content = "View detailed reading logs in the History tab. Veritas tracks when you open books, progress percentages, and active reading times. Select any entry in the log to instantly jump back and resume reading.",
+                        content = "View detailed reading logs in the History tab. Vern tracks when you open books, progress percentages, and active reading times. Select any entry in the log to instantly jump back and resume reading.",
                         ctaText = "View Reading History",
                         ctaAction = "history",
                         flowSteps = listOf(
@@ -529,7 +544,7 @@ fun UserManualDialog(
                         title = "Backup & Recovery",
                         icon = Icons.Outlined.Backup,
                         subtitle = "Create backup database archives",
-                        content = "Export settings and reading database to a backup archive to protect against data loss. These `.veritas` archives can be stored on external cloud accounts or local drives, and restored at any time.",
+                        content = "Export settings and reading database to a backup archive to protect against data loss. These `.vern` / `.veritas` archives can be stored on external cloud accounts or local drives, and restored at any time.",
                         ctaText = "Configure Backups",
                         ctaAction = "backup_tools",
                         flowSteps = listOf(
@@ -538,13 +553,13 @@ fun UserManualDialog(
                             "Use 'Import Backup' to restore data on a new device"
                         ),
                         imageResId = R.drawable.manual_backup_restore,
-                        tags = listOf("backup", "export database", "restore", "veritas archive", "recovery", "data loss")
+                        tags = listOf("backup", "export database", "restore", "vern archive", "veritas archive", "recovery", "data loss")
                     ),
                     ManualChapter(
-                        title = "About Veritas Reader & Community",
+                        title = "About Vern & Community",
                         icon = Icons.Outlined.Info,
                         subtitle = "Version, developer contact, GitHub & social channels",
-                        content = "Learn more about Veritas Reader, check for the latest releases, submit feedback or bug reports on GitHub, and join community channels on Telegram, WhatsApp, and X.",
+                        content = "Learn more about Vern, check for the latest releases, submit feedback or bug reports on GitHub, and join community channels on Telegram, WhatsApp, and X.",
                         ctaText = "Open About",
                         ctaAction = "about",
                         flowSteps = listOf(

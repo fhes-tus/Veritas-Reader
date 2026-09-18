@@ -271,7 +271,7 @@ fun OnboardingReadyCelebrationScreen(
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                OnboardingSummaryRow(label = "Reader Name", value = userName.ifBlank { "Veritas Reader" })
+                OnboardingSummaryRow(label = "Reader Name", value = userName.ifBlank { "Vern" })
                 OnboardingSummaryRow(label = "Reader Persona", value = personaTitle)
                 OnboardingSummaryRow(label = "Primary Focus", value = interest)
                 OnboardingSummaryRow(label = "Voice Preset", value = voiceTitle)

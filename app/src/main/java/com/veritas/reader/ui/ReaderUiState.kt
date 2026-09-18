@@ -162,5 +162,9 @@ data class ReaderUiState(
     val bookBrowserUrl: String = "",
     val bookBrowserTitle: String = "",
     val bookBrowserQuery: String = "",
-    val targetHomeTab: VeritasHomeTab? = null
+    val targetHomeTab: VeritasHomeTab? = null,
+    val showExitConfirmationDialog: Boolean = false,
+    val isBatchImporting: Boolean = false,
+    val batchImportTotal: Int = 0,
+    val batchImportCurrent: Int = 0
 )

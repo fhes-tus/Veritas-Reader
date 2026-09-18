@@ -220,7 +220,7 @@ fun SettingsHubDialog(
                         Icons.AutoMirrored.Filled.List, onOpenReadingLists
                     ),
                     SettingsRowSpec(
-                        "Storage", "See what Veritas is using & free up space",
+                        "Storage", "See what Vern is using & free up space",
                         Icons.Outlined.Storage, onOpenStorage
                     )
                 ))
@@ -229,16 +229,16 @@ fun SettingsHubDialog(
                 SettingsHubGroup(listOf(
                     SettingsRowSpec(
                         "Check for updates",
-                        uiState.updateStatusMessage ?: "Check for the latest Veritas Reader version",
+                        uiState.updateStatusMessage ?: "Check for the latest Vern version",
                         Icons.Filled.Sync,
                         onCheckForUpdates
                     ),
                     SettingsRowSpec(
-                        "User manual", "Interactive guide to Veritas Reader features",
+                        "User manual", "Interactive guide to Vern features",
                         Icons.AutoMirrored.Outlined.HelpOutline, onOpenUserManual
                     ),
                     SettingsRowSpec(
-                        "Tutorial", "Learn Veritas through guided actions",
+                        "Tutorial", "Learn about Vern through guided actions",
                         Icons.Outlined.School, onOpenTutorial
                     ),
                     SettingsRowSpec(
@@ -388,7 +388,7 @@ fun StorageDialog(
                     Text("Measuring…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text(
-                        "Veritas is using ${formatVeritasBytes(breakdown.totalBytes)} across ${breakdown.documentCount} document${if (breakdown.documentCount == 1) "" else "s"}",
+                        "Vern is using ${formatVeritasBytes(breakdown.totalBytes)} across ${breakdown.documentCount} document${if (breakdown.documentCount == 1) "" else "s"}",
                         fontWeight = FontWeight.Bold
                     )
                     Text("Original books & files: ${formatVeritasBytes(breakdown.originalsBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant)

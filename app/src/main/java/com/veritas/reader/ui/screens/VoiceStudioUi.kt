@@ -301,8 +301,8 @@ fun VoiceStudioDialog(
         )
 
         val currentEngineLabel = when {
-            settings.enginePackage == VoiceManager.VERITAS_STUDIO -> "Veritas Studio"
-            settings.enginePackage == VoiceManager.VERITAS_LITE -> "Veritas Lite"
+            settings.enginePackage == VoiceManager.VERITAS_STUDIO -> "Vern Studio"
+            settings.enginePackage == VoiceManager.VERITAS_LITE -> "Vern Lite"
             settings.engineLabel.isNotBlank() && settings.engineLabel != "System default" -> settings.engineLabel
             settings.enginePackage.isNotBlank() -> settings.enginePackage
             else -> "System Default"
@@ -379,7 +379,7 @@ fun VoiceStudioDialog(
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Use Veritas Studio", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                Text("Use Vern Studio", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                 if (settings.enginePackage == VoiceManager.VERITAS_STUDIO) {
                                     Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                                 }
@@ -387,14 +387,14 @@ fun VoiceStudioDialog(
                         },
                         onClick = {
                             managerMenuExpanded = false
-                            onEngineSelected(TtsEngineOption(VoiceManager.VERITAS_STUDIO, "Veritas Studio"))
+                            onEngineSelected(TtsEngineOption(VoiceManager.VERITAS_STUDIO, "Vern Studio"))
                             onLoadVoices()
                         }
                     )
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Use Veritas Lite", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                Text("Use Vern Lite", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                 if (settings.enginePackage == VoiceManager.VERITAS_LITE) {
                                     Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                                 }
@@ -402,7 +402,7 @@ fun VoiceStudioDialog(
                         },
                         onClick = {
                             managerMenuExpanded = false
-                            onEngineSelected(TtsEngineOption(VoiceManager.VERITAS_LITE, "Veritas Lite"))
+                            onEngineSelected(TtsEngineOption(VoiceManager.VERITAS_LITE, "Vern Lite"))
                             onLoadVoices()
                         }
                     )
@@ -536,7 +536,7 @@ fun VoiceStudioDialog(
             )
         }
 
-        SettingsHubSectionTitle("Veritas voice models")
+        SettingsHubSectionTitle("Vern voice models")
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = VeritasPackStyle.cardShape(),

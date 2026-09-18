@@ -4,6 +4,28 @@ All notable changes to the Veritas Reader application will be documented in this
 
 ---
 
+## [2.5.0] - 2026-09-18
+
+### Added
+*   **Vern TTS Rebrand & Identity:** Formally established the "Vern TTS" identity across app titles, onboarding, drawer footers, and about sections, honoring the root word *Vernehmen* (German: to hear/perceive).
+*   **Authentic Published Book Covers:** Bundled authentic published book cover artwork for all 35 curated classic volumes from Project Gutenberg, rendering crisp cover art in library cards, Book of the Day, hero cards, and reader page 1.
+*   **Synchronous Cover Caching Pipeline:** Decodes catalog covers synchronously during download, entirely eliminating initial placeholder flashes.
+*   **Intelligent Heuristic Book Synopsis:** Implemented smart narrative synopsis extraction for storage-imported documents (PDF, EPUB, TXT, DOCX), skipping Gutenberg headers, publisher licenses, copyright boilerplate, and tables of contents to capture the first substantive prose paragraph.
+*   **Bidirectional 3-Way Paper Tone Sync:** Real-time synchronization of paper tone choices across Extracted Text, Actual Document, and PDF viewers via lifecycle-aware preference reloading.
+*   **Reorganized PDF Playback Bar:** Restored the missing `Next` button and aligned controls in intuitive reading order: Previous → Play/Pause → Next → Rotate → Expand.
+*   **Universal Hero Card Split Actions:** Cover tap on the Continue Hero Card now opens the comprehensive Book Details sheet for any document, while tapping the card body resumes reading.
+
+### Changed
+*   **Universal Drag-and-Drop Elevation & Reordering:** Elevated dragged cards with smooth floating depth (`zIndex = 100f`, `shadowElevation = 36f`, `scale = 1.06f`) and non-blocking glide animations for non-dragged items in Grid view; calibrated List view swap threshold to 90dp for stable reordering.
+*   **Distinct Hold-to-Select Gesture:** Isolated hold-to-select from drag gestures so holding without movement enters selection mode without accidental reordering.
+*   **Reader Tools Menu Streamlining:** Removed redundant "Add General Note" and "Add Sentence Note" items, keeping navigation fast and focused.
+*   **Subtle Info Button:** Sized the (i) info button in list cards to a discreet 24dp container / 15dp icon to match grid view.
+
+### Fixed
+*   **Dynamic Rotate Icon Lag:** Replaced slow sensor requests with explicit portrait/landscape configurations in PDF and Document viewers, eliminating rotation latency.
+
+---
+
 ## [2.4.0] - 2026-09-14
 
 ### Added

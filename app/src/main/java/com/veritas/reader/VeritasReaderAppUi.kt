@@ -384,6 +384,7 @@ internal fun VeritasReaderApp(
                     onAdvancedPdfImport = { viewModel.updateState { it.copy(showPdfImportTools = true) } },
                     onOpenFileBrowser = { viewModel.openFileBrowser() },
                     onOpenClassicsCatalog = { viewModel.updateState { it.copy(showClassicsCatalog = true) } },
+                    onDownloadClassicBook = { viewModel.downloadClassicBook(it) },
                     onOpenReadingLists = { viewModel.updateState { it.copy(showReadingLists = true) } },
                     onCreateReadingList = { title, docId -> viewModel.createReadingList(title, docId) },
                     onAddDocumentToReadingList = viewModel::addDocumentToReadingList,
@@ -425,6 +426,7 @@ internal fun VeritasReaderApp(
                     onMoveQueueBy = { document, offset -> viewModel.moveQueueItem(document, offset) },
                     onRemoveFromQueue = { viewModel.toggleQueue(it) },
                     onClearQueue = { viewModel.clearQueue() },
+                    onReorderDocuments = { viewModel.reorderDocuments(it) },
                     onOpenSyncCenter = { viewModel.updateState { it.copy(showSyncCenter = true) } },
                     onOpenSettingsHub = { viewModel.updateState { it.copy(showSettingsHub = true) } },
                     onRefreshMainPage = { viewModel.refreshAll() },
@@ -598,8 +600,8 @@ internal fun VeritasReaderApp(
                                 uiState.voiceSettings.enginePackage
                             }
                             val targetEngineLabel = when (targetEngine) {
-                                VoiceManager.VERITAS_LITE -> "Veritas Lite"
-                                VoiceManager.VERITAS_STUDIO -> "Veritas Studio"
+                                VoiceManager.VERITAS_LITE -> "Vern Lite"
+                                VoiceManager.VERITAS_STUDIO -> "Vern Studio"
                                 "" -> "System default"
                                 else -> uiState.voiceSettings.engineLabel
                             }
@@ -636,6 +638,12 @@ internal fun VeritasReaderApp(
                                     viewModel.moveTo(targetIndex, autoPlay = true, forcePlaybackStart = true)
                                 }
                             }
+                        },
+                        initialPaperToneMode = PaperToneMode.fromString(uiState.readerSettings.paperToneMode),
+                        onPaperToneModeChange = { newMode ->
+                            viewModel.saveReaderSettings(
+                                uiState.readerSettings.copy(paperToneMode = newMode.name.lowercase())
+                            )
                         },
                         onClose = { viewModel.updateState { it.copy(showCanvasView = false) } }
                     )
@@ -822,8 +830,8 @@ internal fun VeritasReaderApp(
                         onOpenTextEditor = { viewModel.openCurrentPartTextEditor() },
                         onStartRecord = { viewModel.startRecordSoundFile() },
                         onExportAudio = { viewModel.exportActiveDocumentToAudio() },
-                        onCopySelection = { copyTextToClipboard(context, "Veritas selection", it) },
-                        onShareSelection = { sharePlainText(context, "Veritas selection", it) },
+                        onCopySelection = { copyTextToClipboard(context, "Vern selection", it) },
+                        onShareSelection = { sharePlainText(context, "Vern selection", it) },
                         onGoogleSelection = {
                             viewModel.appendVocabularyWord(it, "Looked up definition / web references.")
                             openGoogleSearch(context, it)
@@ -867,8 +875,8 @@ internal fun VeritasReaderApp(
                                 uiState.voiceSettings.enginePackage
                             }
                             val targetEngineLabel = when (targetEngine) {
-                                VoiceManager.VERITAS_LITE -> "Veritas Lite"
-                                VoiceManager.VERITAS_STUDIO -> "Veritas Studio"
+                                VoiceManager.VERITAS_LITE -> "Vern Lite"
+                                VoiceManager.VERITAS_STUDIO -> "Vern Studio"
                                 "" -> "System default"
                                 else -> uiState.voiceSettings.engineLabel
                             }
@@ -910,6 +918,9 @@ internal fun VeritasReaderApp(
                                     paperToneMode = newTone.name.lowercase()
                                 )
                             )
+                        },
+                        onAddGeneralNote = {
+                            viewModel.updateState { it.copy(showGeneralNotesEditor = true, generalNoteEditorTarget = null) }
                         }
                     )
                 }

@@ -155,7 +155,7 @@ object VeritasFeatureRegistry {
         VeritasFeatureDefinition(
             id = VeritasFeatureId.FILE_BROWSER,
             title = "File browser",
-            description = "Browse approved folders and import supported local files from inside Veritas.",
+            description = "Browse approved folders and import supported local files from inside Vern.",
             category = VeritasFeatureCategory.IMPORT,
             stage = VeritasFeatureStage.NEW_LOCAL,
             surfaces = setOf(VeritasFeatureSurface.SETTINGS_HUB, VeritasFeatureSurface.FILE_BROWSER_OVERFLOW),

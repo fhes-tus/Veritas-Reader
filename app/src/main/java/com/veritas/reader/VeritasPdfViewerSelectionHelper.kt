@@ -104,7 +104,7 @@ import kotlinx.coroutines.withContext
         copyItem.isEnabled = true
         copyItem.setOnMenuItemClickListener {
             performActionOnCopiedSelection(menu, mode) { text ->
-                copyTextToClipboard(activity, "Veritas selection", text)
+                copyTextToClipboard(activity, "Vern selection", text)
             }
             true
         }
@@ -115,7 +115,7 @@ import kotlinx.coroutines.withContext
         shareItem.isEnabled = true
         shareItem.setOnMenuItemClickListener {
             performActionOnCopiedSelection(menu, mode) { text ->
-                sharePlainText(activity, "Veritas selection", text)
+                sharePlainText(activity, "Vern selection", text)
             }
             true
         }
@@ -130,8 +130,8 @@ import kotlinx.coroutines.withContext
     ) {
         val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val oldClip = clipboard.primaryClip
-        val sentinel = "veritas-pdf-selection-${System.nanoTime()}"
-        clipboard.setPrimaryClip(ClipData.newPlainText("Veritas selection marker", sentinel))
+        val sentinel = "vern-pdf-selection-${System.nanoTime()}"
+        clipboard.setPrimaryClip(ClipData.newPlainText("Vern selection marker", sentinel))
 
         val copyItem = findCopyMenuItem(menu)
         if (copyItem != null) {

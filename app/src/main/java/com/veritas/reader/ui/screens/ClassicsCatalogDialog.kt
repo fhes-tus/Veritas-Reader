@@ -57,6 +57,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -457,7 +466,7 @@ val CURATED_CLASSICS = listOf(
         genre = "Quick Reads",
         category = "Quick Reads",
         description = "A heartwarming Christmas masterpiece about love, selfless sacrifice, and the true meaning of giving.",
-        downloadUrl = "https://www.gutenberg.org/cache/epub/48212/pg48212.txt",
+        downloadUrl = "https://www.gutenberg.org/cache/epub/7256/pg7256.txt",
         estimatedMinutes = 25,
         coverGradient = listOf(Color(0xFF5C2D1F), Color(0xFF7A3E2B)),
         accentColor = Color(0xFFFBD38D),
@@ -596,8 +605,16 @@ val CATALOG_CATEGORIES = listOf(
 )
 
 /**
- * Renders an authentic vintage cloth/leather-bound book cover with embossed border,
- * tactile spine crease, and foil typography at any requested dimensions.
+ * Returns the deterministic Book of the Day shared across the entire app.
+ */
+fun getBookOfTheDay(): ClassicBookEntry {
+    val dayIndex = (System.currentTimeMillis() / (1000 * 60 * 60 * 24)).toInt()
+    return CURATED_CLASSICS[dayIndex.mod(CURATED_CLASSICS.size)]
+}
+
+/**
+ * Renders an authentic published book cover if bundled in assets,
+ * or gracefully falls back to a curated vintage cloth/leather-bound cover.
  */
 @Composable
 fun ClassicBookCover(
@@ -607,104 +624,138 @@ fun ClassicBookCover(
     height: Dp = 114.dp,
     large: Boolean = false
 ) {
-    Box(
-        modifier = modifier
-            .width(width)
-            .height(height)
-            .shadow(
-                elevation = if (large) 12.dp else 6.dp,
-                shape = RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp, topStart = 2.dp, bottomStart = 2.dp)
-            )
-            .clip(RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp, topStart = 2.dp, bottomStart = 2.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        book.coverGradient.first().copy(alpha = 0.95f),
-                        book.coverGradient.first(),
-                        book.coverGradient.last()
-                    )
-                )
-            )
-    ) {
-        // Book Spine Crease Effect
+    val context = LocalContext.current
+    var coverBmp by remember(book.id) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(book.id) {
+        coverBmp = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("covers/${book.id}.jpg").use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            }.getOrNull()
+        }
+    }
+
+    val shape = RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp, topStart = 2.dp, bottomStart = 2.dp)
+    if (coverBmp != null) {
         Box(
-            modifier = Modifier
-                .width(if (large) 8.dp else 5.dp)
-                .fillMaxHeight()
+            modifier = modifier
+                .width(width)
+                .height(height)
+                .shadow(
+                    elevation = if (large) 12.dp else 6.dp,
+                    shape = shape
+                )
+                .clip(shape)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f), shape)
+        ) {
+            Image(
+                bitmap = coverBmp!!.asImageBitmap(),
+                contentDescription = book.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    } else {
+        Box(
+            modifier = modifier
+                .width(width)
+                .height(height)
+                .shadow(
+                    elevation = if (large) 12.dp else 6.dp,
+                    shape = shape
+                )
+                .clip(shape)
                 .background(
                     Brush.horizontalGradient(
                         listOf(
-                            Color.Black.copy(alpha = 0.5f),
-                            Color.White.copy(alpha = 0.15f),
-                            Color.Transparent
+                            book.coverGradient.first().copy(alpha = 0.95f),
+                            book.coverGradient.first(),
+                            book.coverGradient.last()
                         )
                     )
                 )
-        )
-
-        // Embossed gold/accent border inside cover
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = if (large) 14.dp else 9.dp,
-                    end = if (large) 8.dp else 5.dp,
-                    top = if (large) 8.dp else 5.dp,
-                    bottom = if (large) 8.dp else 5.dp
-                )
-                .border(
-                    BorderStroke(if (large) 1.5.dp else 1.dp, book.accentColor.copy(alpha = 0.5f)),
-                    RoundedCornerShape(if (large) 5.dp else 3.dp)
-                )
-                .padding(if (large) 8.dp else 4.dp)
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.SpaceBetween,
-                horizontalAlignment = Alignment.CenterHorizontally
+            // Book Spine Crease Effect
+            Box(
+                modifier = Modifier
+                    .width(if (large) 8.dp else 5.dp)
+                    .fillMaxHeight()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.Black.copy(alpha = 0.5f),
+                                Color.White.copy(alpha = 0.15f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+
+            // Embossed gold/accent border inside cover
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = if (large) 14.dp else 9.dp,
+                        end = if (large) 8.dp else 5.dp,
+                        top = if (large) 8.dp else 5.dp,
+                        bottom = if (large) 8.dp else 5.dp
+                    )
+                    .border(
+                        BorderStroke(if (large) 1.5.dp else 1.dp, book.accentColor.copy(alpha = 0.5f)),
+                        RoundedCornerShape(if (large) 5.dp else 3.dp)
+                    )
+                    .padding(if (large) 8.dp else 4.dp)
             ) {
-                Text(
-                    text = book.author.uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = book.accentColor,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Serif,
-                    fontSize = if (large) 9.sp else 7.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "✦",
-                        color = book.accentColor.copy(alpha = 0.8f),
-                        fontSize = if (large) 10.sp else 6.sp
-                    )
-                    Spacer(modifier = Modifier.height(if (large) 4.dp else 2.dp))
-                    Text(
-                        text = book.title,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
+                        text = book.author,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = book.accentColor,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Serif,
-                        fontSize = if (large) 13.sp else 9.sp,
-                        lineHeight = if (large) 16.sp else 11.5.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = if (large) 4 else 3,
-                        overflow = TextOverflow.Ellipsis
+                        fontSize = if (large) 9.sp else 7.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "✦",
+                            color = book.accentColor.copy(alpha = 0.8f),
+                            fontSize = if (large) 10.sp else 6.sp
+                        )
+                        Spacer(modifier = Modifier.height(if (large) 4.dp else 2.dp))
+                        Text(
+                            text = book.title,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Serif,
+                            fontSize = if (large) 13.sp else 9.sp,
+                            lineHeight = if (large) 16.sp else 11.5.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = if (large) 4 else 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        text = "Vern Classic",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = book.accentColor.copy(alpha = 0.85f),
+                        fontSize = if (large) 7.sp else 5.5.sp,
+                        letterSpacing = 0.8.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
-                Text(
-                    text = "VERITAS CLASSIC",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = book.accentColor.copy(alpha = 0.85f),
-                    fontSize = if (large) 7.sp else 5.5.sp,
-                    letterSpacing = 0.8.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
             }
         }
     }
@@ -756,10 +807,7 @@ fun ClassicsCatalogDialog(
     }
 
     // Pick a featured book of the day
-    val spotlightBook = remember {
-        val dayIndex = (System.currentTimeMillis() / (1000 * 60 * 60 * 24)).toInt()
-        CURATED_CLASSICS[dayIndex.mod(CURATED_CLASSICS.size)]
-    }
+    val spotlightBook = remember { getBookOfTheDay() }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1132,154 +1180,175 @@ fun ClassicsCatalogDialog(
 
         // Interactive Book Details Bottom Sheet
         previewBook?.let { book ->
-            val installedDoc = existingDocuments.firstOrNull {
-                it.title.contains(book.title, ignoreCase = true) ||
-                it.originalFileName.contains(book.id, ignoreCase = true)
+            ClassicBookDetailSheet(
+                book = book,
+                existingDocuments = existingDocuments,
+                isDownloading = downloadingId == book.id,
+                onDismiss = { previewBook = null },
+                onDownloadBook = { onDownloadBook(it) },
+                onOpenBook = { onOpenBook(it) }
+            )
+        }
             }
-            val isDownloading = downloadingId == book.id
+        }
 
-            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-            ModalBottomSheet(
-                onDismissRequest = { previewBook = null },
-                sheetState = sheetState,
-                containerColor = MaterialTheme.colorScheme.surface
+/**
+ * Universal Classic Book Detail Bottom Sheet showing full synopsis, quote, and direct 1-tap download/open.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClassicBookDetailSheet(
+    book: ClassicBookEntry,
+    existingDocuments: List<SavedDocument>,
+    isDownloading: Boolean = false,
+    onDismiss: () -> Unit,
+    onDownloadBook: (ClassicBookEntry) -> Unit,
+    onOpenBook: (SavedDocument) -> Unit
+) {
+    val installedDoc = existingDocuments.firstOrNull {
+        it.title.contains(book.title, ignoreCase = true) ||
+        it.originalFileName.contains(book.id, ignoreCase = true)
+    }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 36.dp)
+                .navigationBarsPadding(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Large Book Cover
+            ClassicBookCover(
+                book = book,
+                width = 110.dp,
+                height = 160.dp,
+                large = true
+            )
+
+            // Title & Author
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = book.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "by ${book.author}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            // Metadata Badges (Genre & Reading Time)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .padding(bottom = 36.dp)
-                        .navigationBarsPadding(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer
                 ) {
-                    // Large Book Cover
-                    ClassicBookCover(
-                        book = book,
-                        width = 110.dp,
-                        height = 160.dp,
-                        large = true
-                    )
-
-                    // Title & Author
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = book.title,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "by ${book.author}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    // Metadata Badges (Genre & Reading Time)
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.secondaryContainer
-                        ) {
-                            Text(
-                                text = book.genre,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = "⏱️ ~${book.estimatedMinutes} min read",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    // Quote Highlight Card
-                    if (book.quote.isNotBlank()) {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "“${book.quote}”",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontStyle = FontStyle.Italic,
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp)
-                            )
-                        }
-                    }
-
-                    // Full Synopsis
                     Text(
-                        text = book.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth()
+                        text = book.genre,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = "⏱️ ~${book.estimatedMinutes} min read",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+            // Quote Highlight Card
+            if (book.quote.isNotBlank()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "“${book.quote}”",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontStyle = FontStyle.Italic,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    )
+                }
+            }
 
-                    // Primary Action Button
-                    if (installedDoc != null) {
-                        Button(
-                            onClick = {
-                                previewBook = null
-                                onOpenBook(installedDoc)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Open in Library", fontWeight = FontWeight.Bold)
-                        }
+            // Full Synopsis
+            Text(
+                text = book.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Primary Action Button
+            if (installedDoc != null) {
+                Button(
+                    onClick = {
+                        onDismiss()
+                        onOpenBook(installedDoc)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Open in Library", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Button(
+                    onClick = {
+                        onDownloadBook(book)
+                    },
+                    enabled = !isDownloading,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    if (isDownloading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Downloading to Library…")
                     } else {
-                        Button(
-                            onClick = {
-                                downloadingId = book.id
-                                onDownloadBook(book)
-                            },
-                            enabled = !isDownloading,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            if (isDownloading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onPrimary
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Downloading to Library…")
-                            } else {
-                                Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Download & Read Aloud", fontWeight = FontWeight.Bold)
-                            }
-                        }
+                        Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Download & Read Aloud", fontWeight = FontWeight.Bold)
                     }
                 }
             }

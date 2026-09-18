@@ -473,8 +473,8 @@ internal fun MainSettingsDialogsHost(
                         uiState.voiceSettings.enginePackage
                     }
                     val targetEngineLabel = when (targetEngine) {
-                        VoiceManager.VERITAS_LITE -> "Veritas Lite"
-                        VoiceManager.VERITAS_STUDIO -> "Veritas Studio"
+                        VoiceManager.VERITAS_LITE -> "Vern Lite"
+                        VoiceManager.VERITAS_STUDIO -> "Vern Studio"
                         "" -> "System default"
                         else -> uiState.voiceSettings.engineLabel
                     }
@@ -522,9 +522,27 @@ internal fun MainSettingsDialogsHost(
         }
 
         if (uiState.showReaderSettings) {
+            val activeDoc = uiState.activeDocument
+            val totalSentences = activeDoc?.chunks?.size ?: 1
+            val totalPages = (activeDoc?.pageCount?.takeIf { it > 0 } ?: ((totalSentences + 19) / 20)).coerceAtLeast(1)
+            val currentSentence = PlaybackStateStore.currentIndex
+            val currentPage = if (activeDoc?.pageCount != null && activeDoc.pageCount > 0) {
+                (((currentSentence.toFloat() / totalSentences.coerceAtLeast(1).toFloat()) * totalPages).toInt() + 1).coerceIn(1, totalPages)
+            } else {
+                ((currentSentence / 20) + 1).coerceIn(1, totalPages)
+            }
+
             ReaderSettingsDialog(
                 settings = uiState.readerSettings,
                 onDismiss = { viewModel.updateState { it.copy(showReaderSettings = false) } },
+                currentPage = currentPage,
+                totalPages = totalPages,
+                onJumpToPage = if (activeDoc != null) {
+                    { pageNo ->
+                        val targetSentence = ((pageNo - 1).toFloat() / totalPages.toFloat() * totalSentences).toInt().coerceIn(0, totalSentences - 1)
+                        viewModel.moveTo(targetSentence, false)
+                    }
+                } else null,
                 onFontSizeChange = { size ->
                     viewModel.saveReaderSettings(
                         uiState.readerSettings.copy(

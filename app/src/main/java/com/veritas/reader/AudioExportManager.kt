@@ -76,14 +76,14 @@ class AudioExportManager(private val context: Context) {
                 tts.setPitch(NarrationAnalyzer.effectivePitch(pitch, narrationSettings, text))
                 val partFile = File(tempDir, "part_${index.toString().padStart(5, '0')}.wav")
                 withTimeout(30_000L) {
-                    synthesizePart(tts, text, partFile, "veritas_export_$index")
+                    synthesizePart(tts, text, partFile, "vern_export_$index")
                 }
                 if (partFile.exists() && partFile.length() > 44L) partFiles.add(partFile)
             }
 
             require(partFiles.isNotEmpty()) { "The TTS engine did not create audio. Try another installed voice/engine." }
 
-            val exportDir = File(context.cacheDir, "VeritasExports").apply { mkdirs() }
+            val exportDir = File(context.cacheDir, "VernExports").apply { mkdirs() }
             val displayName = "${safeFileName(title)}_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())}.wav"
             val finalFile = File(exportDir, displayName)
 
@@ -115,7 +115,7 @@ class AudioExportManager(private val context: Context) {
         } catch (e: CancellationException) {
             Log.i(TAG, "WAV export cancelled for $title, synthesized ${partFiles.size} parts")
             if (partFiles.isNotEmpty()) {
-                val exportDir = File(context.cacheDir, "VeritasExports").apply { mkdirs() }
+                val exportDir = File(context.cacheDir, "VernExports").apply { mkdirs() }
                 val displayName = "${safeFileName(title)}_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())}.wav"
                 val finalFile = File(exportDir, displayName)
                 runCatching {
@@ -241,7 +241,7 @@ class AudioExportManager(private val context: Context) {
             .replace(Regex("[^A-Za-z0-9 _.-]"), " ")
             .replace(Regex("\\s+"), "_")
             .trim('_', '.', ' ')
-            .ifBlank { "veritas_audio" }
+            .ifBlank { "vern_audio" }
             .take(50)
     }
 

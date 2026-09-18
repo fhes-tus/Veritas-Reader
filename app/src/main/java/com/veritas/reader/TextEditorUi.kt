@@ -77,7 +77,7 @@ internal fun textEditorDownloadName(
         .replace(Regex("\\s+"), " ")
         .trim()
         .take(48)
-        .ifBlank { "veritas_text" }
+        .ifBlank { "vern_text" }
     val safeScope = scope
         .replace(Regex("[^A-Za-z0-9._ -]"), " ")
         .replace(Regex("\\s+"), "_")

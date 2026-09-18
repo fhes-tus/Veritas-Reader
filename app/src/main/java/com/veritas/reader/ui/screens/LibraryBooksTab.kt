@@ -60,6 +60,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -220,6 +227,7 @@ internal fun LibraryBooksTab(
     onSearchLibraryContent: (String) -> Unit,
     onRefreshMainPage: () -> Unit,
     isQueued: (SavedDocument) -> Boolean,
+    onReorderDocuments: (List<SavedDocument>) -> Unit = {},
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
@@ -292,9 +300,22 @@ internal fun LibraryBooksTab(
                         "Progress" -> list.sortedByDescending { progressFraction(it) }
                         "Type" -> list.sortedWith(compareBy<SavedDocument> { it.sourceLabel }.thenBy { it.title.lowercase(Locale.getDefault()) })
                         "Newest" -> list.sortedByDescending { it.createdAt }
-                        else -> list.sortedByDescending { it.updatedAt }
+                        "Custom" -> list
+                        else -> list
                     }
                 }
+        }
+    }
+
+    val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
+    var draggingDocId by remember { mutableStateOf<String?>(null) }
+    var dragAccumulatedOffset by remember { mutableStateOf(Offset.Zero) }
+    var localDocuments by remember(visibleDocuments) { mutableStateOf(visibleDocuments) }
+
+    LaunchedEffect(visibleDocuments) {
+        if (draggingDocId == null) {
+            localDocuments = visibleDocuments
         }
     }
 
@@ -563,14 +584,24 @@ internal fun LibraryBooksTab(
             }
         } else {
             if (libraryViewMode == LibraryViewMode.TILES) {
-                itemsIndexed(visibleDocuments.chunked(columnCount), key = { index, row -> row.joinToString("-") { it.id }.ifBlank { "row-$index" } }) { _, rowDocs ->
+                itemsIndexed(localDocuments.chunked(columnCount), key = { index, _ -> "grid-row-$index" }) { _, rowDocs ->
                     Row(
                         modifier = Modifier
                             .animateItem()
-                            .fillMaxWidth(),
+                            .fillMaxWidth()
+                            .zIndex(if (rowDocs.any { it.id == draggingDocId }) 100f else 1f),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         rowDocs.forEach { doc ->
+                            val isDragging = doc.id == draggingDocId
+                            val dragScale by animateFloatAsState(
+                                targetValue = if (isDragging) 1.06f else 1f,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                                label = "gridDragScale"
+                            )
+                            val gridColThresholdPx = with(density) { 130.dp.toPx() }
+                            val gridRowThresholdPx = with(density) { 200.dp.toPx() }
+
                             DocumentTileCard(
                                 document = doc,
                                 isQueued = isQueued(doc),
@@ -583,16 +614,106 @@ internal fun LibraryBooksTab(
                                 },
                                 onDelete = { onDeleteDocument(doc) },
                                 onToggleQueue = { onToggleQueue(doc) },
-                                                            onMoveQueueUp = { onMoveQueueUp(doc) },
-                                                            onMoveQueueDown = { onMoveQueueDown(doc) },
+                                onMoveQueueUp = { onMoveQueueUp(doc) },
+                                onMoveQueueDown = { onMoveQueueDown(doc) },
                                 onToggleFavorite = { onToggleFavorite(doc) },
                                 onRename = { onRenameDocument(doc) },
                                 onSetCollection = { onSetCollection(doc) },
                                 onShowDetails = { onShowDetails(doc) },
                                 modifier = Modifier
                                     .weight(1f)
+                                    .animateItem()
+                                    .zIndex(if (isDragging) 100f else 1f)
+                                    .graphicsLayer {
+                                        scaleX = dragScale
+                                        scaleY = dragScale
+                                        if (isDragging) {
+                                            translationX = dragAccumulatedOffset.x
+                                            translationY = dragAccumulatedOffset.y
+                                            shadowElevation = 36f
+                                        }
+                                    }
+                                    .pointerInput(doc.id, selectionMode) {
+                                        if (!selectionMode) {
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                var dragStarted = false
+                                                var totalPan = Offset.Zero
+                                                val longPress = awaitLongPressOrCancellation(down.id)
+                                                if (longPress != null) {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    var released = false
+                                                    while (!released) {
+                                                        val event = awaitPointerEvent()
+                                                        val change = event.changes.firstOrNull { it.id == down.id }
+                                                        if (change == null || !change.pressed) {
+                                                            released = true
+                                                            if (!dragStarted) {
+                                                                onSelectedDocumentIdsChange(selectedDocumentIds + doc.id)
+                                                            } else {
+                                                                if (draggingDocId != null) {
+                                                                    onReorderDocuments(localDocuments)
+                                                                    draggingDocId = null
+                                                                    dragAccumulatedOffset = Offset.Zero
+                                                                }
+                                                            }
+                                                        } else {
+                                                            val dragAmount = change.positionChange()
+                                                            totalPan += dragAmount
+                                                            if (!dragStarted && totalPan.getDistance() > viewConfiguration.touchSlop) {
+                                                                dragStarted = true
+                                                                draggingDocId = doc.id
+                                                                dragAccumulatedOffset = Offset.Zero
+                                                            }
+                                                            if (dragStarted) {
+                                                                change.consume()
+                                                                dragAccumulatedOffset += dragAmount
+                                                                val currentIdx = localDocuments.indexOfFirst { it.id == draggingDocId }
+                                                                if (currentIdx != -1) {
+                                                                    val col = currentIdx % columnCount
+                                                                    if (col < columnCount - 1 && dragAccumulatedOffset.x > gridColThresholdPx && currentIdx + 1 < localDocuments.size) {
+                                                                        val updated = localDocuments.toMutableList()
+                                                                        val targetIdx = currentIdx + 1
+                                                                        val item = updated.removeAt(currentIdx)
+                                                                        updated.add(targetIdx, item)
+                                                                        localDocuments = updated
+                                                                        dragAccumulatedOffset = Offset(dragAccumulatedOffset.x - gridColThresholdPx, dragAccumulatedOffset.y)
+                                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                    } else if (col > 0 && dragAccumulatedOffset.x < -gridColThresholdPx && currentIdx - 1 >= 0) {
+                                                                        val updated = localDocuments.toMutableList()
+                                                                        val targetIdx = currentIdx - 1
+                                                                        val item = updated.removeAt(currentIdx)
+                                                                        updated.add(targetIdx, item)
+                                                                        localDocuments = updated
+                                                                        dragAccumulatedOffset = Offset(dragAccumulatedOffset.x + gridColThresholdPx, dragAccumulatedOffset.y)
+                                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                    } else if (dragAccumulatedOffset.y > gridRowThresholdPx && currentIdx + columnCount < localDocuments.size) {
+                                                                        val updated = localDocuments.toMutableList()
+                                                                        val targetIdx = currentIdx + columnCount
+                                                                        val item = updated.removeAt(currentIdx)
+                                                                        updated.add(targetIdx, item)
+                                                                        localDocuments = updated
+                                                                        dragAccumulatedOffset = Offset(dragAccumulatedOffset.x, dragAccumulatedOffset.y - gridRowThresholdPx)
+                                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                    } else if (dragAccumulatedOffset.y < -gridRowThresholdPx && currentIdx - columnCount >= 0) {
+                                                                        val updated = localDocuments.toMutableList()
+                                                                        val targetIdx = currentIdx - columnCount
+                                                                        val item = updated.removeAt(currentIdx)
+                                                                        updated.add(targetIdx, item)
+                                                                        localDocuments = updated
+                                                                        dragAccumulatedOffset = Offset(dragAccumulatedOffset.x, dragAccumulatedOffset.y + gridRowThresholdPx)
+                                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                     .then(
-                                        if (doc == visibleDocuments.firstOrNull()) {
+                                        if (doc == localDocuments.firstOrNull()) {
                                             Modifier.onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
                                         } else {
                                             Modifier
@@ -610,7 +731,15 @@ internal fun LibraryBooksTab(
                     }
                 }
             } else {
-                itemsIndexed(visibleDocuments, key = { _, doc -> doc.id }) { _, doc ->
+                itemsIndexed(localDocuments, key = { _, doc -> doc.id }) { _, doc ->
+                    val isDragging = doc.id == draggingDocId
+                    val dragScale by animateFloatAsState(
+                        targetValue = if (isDragging) 1.04f else 1f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                        label = "listDragScale"
+                    )
+                    val listThresholdPx = with(density) { 90.dp.toPx() }
+
                     DocumentCard(
                         document = doc,
                         isQueued = isQueued(doc),
@@ -624,18 +753,93 @@ internal fun LibraryBooksTab(
                         },
                         onDelete = { onDeleteDocument(doc) },
                         onToggleQueue = { onToggleQueue(doc) },
-                                                            onMoveQueueUp = { onMoveQueueUp(doc) },
-                                                            onMoveQueueDown = { onMoveQueueDown(doc) },
+                        onMoveQueueUp = { onMoveQueueUp(doc) },
+                        onMoveQueueDown = { onMoveQueueDown(doc) },
                         onToggleFavorite = { onToggleFavorite(doc) },
                         onRename = { onRenameDocument(doc) },
                         onSetCollection = { onSetCollection(doc) },
                         onShowDetails = { onShowDetails(doc) },
                         onManageLists = { onManageLists(doc) },
-                        modifier = if (doc == visibleDocuments.firstOrNull()) {
-                            Modifier.animateItem().onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
-                        } else {
-                            Modifier.animateItem()
-                        },
+                        modifier = Modifier
+                            .animateItem()
+                            .zIndex(if (isDragging) 100f else 1f)
+                            .graphicsLayer {
+                                scaleX = dragScale
+                                scaleY = dragScale
+                                if (isDragging) {
+                                    translationY = dragAccumulatedOffset.y
+                                    shadowElevation = 32f
+                                }
+                            }
+                            .pointerInput(doc.id, selectionMode) {
+                                if (!selectionMode) {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        var dragStarted = false
+                                        var totalPan = Offset.Zero
+                                        val longPress = awaitLongPressOrCancellation(down.id)
+                                        if (longPress != null) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            var released = false
+                                            while (!released) {
+                                                val event = awaitPointerEvent()
+                                                val change = event.changes.firstOrNull { it.id == down.id }
+                                                if (change == null || !change.pressed) {
+                                                    released = true
+                                                    if (!dragStarted) {
+                                                        onSelectedDocumentIdsChange(selectedDocumentIds + doc.id)
+                                                    } else {
+                                                        if (draggingDocId != null) {
+                                                            onReorderDocuments(localDocuments)
+                                                            draggingDocId = null
+                                                            dragAccumulatedOffset = Offset.Zero
+                                                        }
+                                                    }
+                                                } else {
+                                                    val dragAmount = change.positionChange()
+                                                    totalPan += dragAmount
+                                                    if (!dragStarted && totalPan.getDistance() > viewConfiguration.touchSlop) {
+                                                        dragStarted = true
+                                                        draggingDocId = doc.id
+                                                        dragAccumulatedOffset = Offset.Zero
+                                                    }
+                                                    if (dragStarted) {
+                                                        change.consume()
+                                                        dragAccumulatedOffset += dragAmount
+                                                        val currentIdx = localDocuments.indexOfFirst { it.id == draggingDocId }
+                                                        if (currentIdx != -1) {
+                                                            if (dragAccumulatedOffset.y > listThresholdPx && currentIdx < localDocuments.lastIndex) {
+                                                                val updated = localDocuments.toMutableList()
+                                                                val targetIdx = currentIdx + 1
+                                                                val item = updated.removeAt(currentIdx)
+                                                                updated.add(targetIdx, item)
+                                                                localDocuments = updated
+                                                                dragAccumulatedOffset = Offset(dragAccumulatedOffset.x, dragAccumulatedOffset.y - listThresholdPx)
+                                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            } else if (dragAccumulatedOffset.y < -listThresholdPx && currentIdx > 0) {
+                                                                val updated = localDocuments.toMutableList()
+                                                                val targetIdx = currentIdx - 1
+                                                                val item = updated.removeAt(currentIdx)
+                                                                updated.add(targetIdx, item)
+                                                                localDocuments = updated
+                                                                dragAccumulatedOffset = Offset(dragAccumulatedOffset.x, dragAccumulatedOffset.y + listThresholdPx)
+                                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            .then(
+                                if (doc == localDocuments.firstOrNull()) {
+                                    Modifier.onGloballyPositioned { OnboardingController.updateBounds("document_card_0", it) }
+                                } else {
+                                    Modifier
+                                }
+                            ),
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope
                     )

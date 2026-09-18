@@ -119,8 +119,8 @@ internal fun HomeSidebarDialog(
                             ) {
                                 BrandMark(compact = false)
                                 Column {
-                                    val displayName = if (name.isNotBlank() && name != "Reader") name else "Veritas Reader"
-                                    val subtitle = if (name.isNotBlank() && name != "Reader") "Veritas Reader" else "Personal Library"
+                                    val displayName = if (name.isNotBlank() && name != "Reader") name else "Vern"
+                                    val subtitle = if (name.isNotBlank() && name != "Reader") "Vern" else "Personal Library"
                                     Text(
                                         displayName,
                                         style = MaterialTheme.typography.titleMedium,
@@ -264,7 +264,7 @@ internal fun HomeSidebarDialog(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    "100% On-Device Privacy • Veritas Reader",
+                                    "100% On-Device Privacy • Vern TTS",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

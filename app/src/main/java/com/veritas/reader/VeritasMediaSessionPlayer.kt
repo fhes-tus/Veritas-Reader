@@ -78,7 +78,7 @@ internal class VeritasMediaSessionPlayer(
 
         val durationMs = current.durationMs.takeIf { it > 0L } ?: C.TIME_UNSET
         val metadataBuilder = MediaMetadata.Builder()
-            .setTitle(current.title.ifBlank { "Veritas Reader" })
+            .setTitle(current.title.ifBlank { "Vern" })
             .setArtist(current.sourceLabel.ifBlank { "Text-to-speech reader" })
             .setAlbumTitle(current.sectionLabel)
         current.artworkData?.let { bytes ->
@@ -86,10 +86,10 @@ internal class VeritasMediaSessionPlayer(
         }
         val metadata = metadataBuilder.build()
         val mediaItem = MediaItem.Builder()
-            .setMediaId(current.documentId.ifBlank { "veritas-reader" })
+            .setMediaId(current.documentId.ifBlank { "vern-reader" })
             .setMediaMetadata(metadata)
             .build()
-        val itemData = MediaItemData.Builder(current.documentId.ifBlank { "veritas-reader" })
+        val itemData = MediaItemData.Builder(current.documentId.ifBlank { "vern-reader" })
             .setMediaItem(mediaItem)
             .setMediaMetadata(metadata)
             .setDurationUs(if (durationMs == C.TIME_UNSET) C.TIME_UNSET else durationMs * 1000L)

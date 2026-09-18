@@ -276,7 +276,7 @@ internal fun AppHealthDialog(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            "Veritas Reader",
+                            "Vern",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Black
                         )

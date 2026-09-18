@@ -240,10 +240,10 @@ fun ReaderViewModel.createWelcomeDocumentSilently() {
                 }
             }
 
-            // 2. Seed interactive Veritas Welcome Guide
+            // 2. Seed interactive Vern Welcome Guide
             repository.createDocument(
-                title = "Veritas Welcome Guide",
-                text = "Welcome to Veritas Reader! This is a sample document designed to help you explore the reading environment. Veritas lets you convert research papers, textbooks, EPUBs, docx files, web articles, and images into high-quality spoken audio. Long-press any sentence in this guide to try highlighting, bookmarking, adding study notes, or asking the AI Assistant a question. Adjust the voice speed or select premium voices in the expandable player panel below. Toggle different layout modes like TEXT for clean reading or LISTEN to follow along sentence-by-sentence. Enjoy your reading journey!",
+                title = "Vern Welcome Guide",
+                text = "Welcome to Vern! This is a sample document designed to help you explore the reading environment. Vern lets you convert research papers, textbooks, EPUBs, docx files, web articles, and images into high-quality spoken audio. Long-press any sentence in this guide to try highlighting, bookmarking, adding study notes, or asking the AI Assistant a question. Adjust the voice speed or select premium voices in the expandable player panel below. Toggle different layout modes like TEXT for clean reading or LISTEN to follow along sentence-by-sentence. Enjoy your reading journey!",
                 sourceLabel = "System"
             )
             withContext(Dispatchers.Main) {

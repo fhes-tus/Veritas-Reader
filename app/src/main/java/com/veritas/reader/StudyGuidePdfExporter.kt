@@ -97,7 +97,7 @@ object StudyGuidePdfExporter {
 
             fun checkNewPage(neededHeight: Float) {
                 if (y + neededHeight > PAGE_HEIGHT - MARGIN) {
-                    val footerText = "Veritas Study Guide • Page $pageNumber"
+                    val footerText = "Vern Study Guide • Page $pageNumber"
                     canvas.drawText(footerText, MARGIN, PAGE_HEIGHT - 20f, tagPaint)
                     pdfDocument.finishPage(currentPage)
 
@@ -110,7 +110,7 @@ object StudyGuidePdfExporter {
             }
 
             // --- Header ---
-            canvas.drawText("VERITAS STUDY GUIDE", MARGIN, y + 10f, tagPaint)
+            canvas.drawText("VERN STUDY GUIDE", MARGIN, y + 10f, tagPaint)
             y += 24f
             canvas.drawText(documentTitle, MARGIN, y + 10f, titlePaint)
             y += 26f
@@ -247,7 +247,7 @@ object StudyGuidePdfExporter {
             }
 
             // Draw final footer
-            canvas.drawText("Veritas Study Guide • Page $pageNumber", MARGIN, PAGE_HEIGHT - 20f, tagPaint)
+            canvas.drawText("Vern Study Guide • Page $pageNumber", MARGIN, PAGE_HEIGHT - 20f, tagPaint)
             pdfDocument.finishPage(currentPage)
 
             val dir = File(context.cacheDir, "study_guides").apply { if (!exists()) mkdirs() }
@@ -349,7 +349,7 @@ object StudyGuidePdfExporter {
 
             fun checkNewPage(neededHeight: Float) {
                 if (y + neededHeight > PAGE_HEIGHT - MARGIN) {
-                    val footerText = "Veritas Vocabulary Guide • Page $pageNumber"
+                    val footerText = "Vern Vocabulary Guide • Page $pageNumber"
                     canvas.drawText(footerText, MARGIN, PAGE_HEIGHT - 20f, tagPaint)
                     pdfDocument.finishPage(currentPage)
 
@@ -362,7 +362,7 @@ object StudyGuidePdfExporter {
             }
 
             // Header
-            canvas.drawText("VERITAS VOCABULARY GUIDE", MARGIN, y + 10f, tagPaint)
+            canvas.drawText("VERN VOCABULARY GUIDE", MARGIN, y + 10f, tagPaint)
             y += 24f
             canvas.drawText(documentTitle, MARGIN, y + 10f, titlePaint)
             y += 26f
@@ -420,7 +420,7 @@ object StudyGuidePdfExporter {
                 y = curY + 12f
             }
 
-            canvas.drawText("Veritas Vocabulary Guide • Page $pageNumber", MARGIN, PAGE_HEIGHT - 20f, tagPaint)
+            canvas.drawText("Vern Vocabulary Guide • Page $pageNumber", MARGIN, PAGE_HEIGHT - 20f, tagPaint)
             pdfDocument.finishPage(currentPage)
 
             val dir = File(context.cacheDir, "study_guides").apply { if (!exists()) mkdirs() }
@@ -503,7 +503,7 @@ object StudyGuidePdfExporter {
 
             fun checkNewPage(neededHeight: Float) {
                 if (y + neededHeight > PAGE_HEIGHT - MARGIN) {
-                    val footerText = "Veritas Bookmarks • Page $pageNumber"
+                    val footerText = "Vern Bookmarks • Page $pageNumber"
                     canvas.drawText(footerText, MARGIN, PAGE_HEIGHT - 20f, tagPaint)
                     pdfDocument.finishPage(currentPage)
 
@@ -516,7 +516,7 @@ object StudyGuidePdfExporter {
             }
 
             // Header
-            canvas.drawText("VERITAS BOOKMARKS", MARGIN, y + 10f, tagPaint)
+            canvas.drawText("VERN BOOKMARKS", MARGIN, y + 10f, tagPaint)
             y += 24f
             canvas.drawText(documentTitle, MARGIN, y + 10f, titlePaint)
             y += 26f
@@ -555,7 +555,7 @@ object StudyGuidePdfExporter {
                 y = textY + 12f
             }
 
-            canvas.drawText("Veritas Bookmarks • Page $pageNumber", MARGIN, PAGE_HEIGHT - 20f, tagPaint)
+            canvas.drawText("Vern Bookmarks • Page $pageNumber", MARGIN, PAGE_HEIGHT - 20f, tagPaint)
             pdfDocument.finishPage(currentPage)
 
             val dir = File(context.cacheDir, "study_guides").apply { if (!exists()) mkdirs() }
@@ -641,7 +641,7 @@ object StudyGuidePdfExporter {
 
             fun checkNewPage(neededHeight: Float) {
                 if (y + neededHeight > PAGE_HEIGHT - MARGIN) {
-                    val footerText = "Veritas Study Notes • Page $pageNumber"
+                    val footerText = "Vern Study Notes • Page $pageNumber"
                     canvas.drawText(footerText, MARGIN, PAGE_HEIGHT - 20f, tagPaint)
                     pdfDocument.finishPage(currentPage)
 
@@ -654,7 +654,7 @@ object StudyGuidePdfExporter {
             }
 
             // Header
-            canvas.drawText("VERITAS STUDY NOTES", MARGIN, y + 10f, tagPaint)
+            canvas.drawText("VERN STUDY NOTES", MARGIN, y + 10f, tagPaint)
             y += 24f
             canvas.drawText(documentTitle, MARGIN, y + 10f, titlePaint)
             y += 26f
@@ -716,7 +716,7 @@ object StudyGuidePdfExporter {
                 }
             }
 
-            canvas.drawText("Veritas Study Notes • Page $pageNumber", MARGIN, PAGE_HEIGHT - 20f, tagPaint)
+            canvas.drawText("Vern Study Notes • Page $pageNumber", MARGIN, PAGE_HEIGHT - 20f, tagPaint)
             pdfDocument.finishPage(currentPage)
 
             val dir = File(context.cacheDir, "study_guides").apply { if (!exists()) mkdirs() }

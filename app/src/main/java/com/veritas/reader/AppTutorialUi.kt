@@ -76,7 +76,7 @@ internal fun TutorialDialog(
         listOf(
             TutorialFrame(
                 "1",
-                "Welcome to Veritas Reader",
+                "Welcome to Vern",
                 "Transform your research, documents, and reading materials into focused audio experiences.",
                 "📖",
                 null
@@ -153,7 +153,7 @@ internal fun TutorialDialog(
             val greeting = nameDraft.trim().ifBlank { "reader" }
             val frame = steps[stepIndex]
             val spoken = if (stepIndex == 0) {
-                "Welcome to Veritas Reader. Transform your research, documents, and reading materials into focused audio experiences."
+                "Welcome to Vern. Transform your research, documents, and reading materials into focused audio experiences."
             } else if (stepIndex == 1) {
                 "What should we call you? This name will appear on your dashboard."
             } else if (stepIndex == steps.lastIndex) {
@@ -161,7 +161,7 @@ internal fun TutorialDialog(
             } else {
                 "${frame.title}. ${frame.body}"
             }
-            tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "veritas-onboarding-$stepIndex")
+            tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "vern-onboarding-$stepIndex")
         }
     }
     Dialog(
@@ -185,7 +185,7 @@ internal fun TutorialDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "Veritas setup",
+                        "Vern setup",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
                         modifier = Modifier.weight(1f)
@@ -218,7 +218,7 @@ internal fun TutorialDialog(
                             }
                         }
                         Text(
-                            "Welcome to Veritas Reader",
+                            "Welcome to Vern",
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Black,
                             textAlign = TextAlign.Center,

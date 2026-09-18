@@ -316,7 +316,7 @@ fun ReaderViewModel.saveGeneralNote(
         val reminderBody = title.ifBlank { content.take(80) }.ifBlank { "Note reminder" }
         if (reminderAt != null && reminderAt > System.currentTimeMillis()) {
             NoteReminderScheduler.ensureChannel(app)
-            NoteReminderScheduler.schedule(app, savedNote.id, title.ifBlank { "Veritas note" }, reminderBody, reminderAt)
+            NoteReminderScheduler.schedule(app, savedNote.id, title.ifBlank { "Vern note" }, reminderBody, reminderAt)
         } else {
             NoteReminderScheduler.cancel(app, savedNote.id)
         }

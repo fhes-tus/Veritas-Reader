@@ -162,6 +162,8 @@ internal fun ActualDocumentView(
     onVoiceSelected: (TtsVoiceOption) -> Unit,
     /** Selected text plus the 1-based page it was selected on, so the match can be scoped. */
     onReadFromSentence: ((String, Int) -> Unit)? = null,
+    initialPaperToneMode: PaperToneMode = PaperToneMode.fromString(repository.loadReaderSettings().paperToneMode),
+    onPaperToneModeChange: ((PaperToneMode) -> Unit)? = null,
     onClose: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -183,7 +185,9 @@ internal fun ActualDocumentView(
     var pageTurnDirection by remember(document.id) { mutableIntStateOf(0) }
     var topBarVisible by remember { mutableStateOf(!isLandscape) }
     var bottomBarVisible by remember { mutableStateOf(!isLandscape) }
-    var paperToneMode by remember { mutableStateOf(PaperToneMode.ACTIVE_THEME) }
+    var paperToneMode by remember(initialPaperToneMode) {
+        mutableStateOf(initialPaperToneMode)
+    }
     var selectedCanvasText by remember { mutableStateOf<String?>(null) }
     var showJumpToPageDialog by remember { mutableStateOf(false) }
     var showDocInfoDialog by remember { mutableStateOf(false) }
@@ -283,7 +287,7 @@ internal fun ActualDocumentView(
                 message = "Could not parse Word document: ${e.message ?: "unknown error"}"
             }
         } else if (!isPdf && !isImage) {
-            message = "This file type is preserved as an original document, but Veritas cannot render it in-app yet. Use Open original from the menu."
+            message = "This file type is preserved as an original document, but Vern cannot render it in-app yet. Use Open original from the menu."
         }
     }
 
@@ -394,45 +398,55 @@ internal fun ActualDocumentView(
         when (paperToneMode) {
             PaperToneMode.ACTIVE_THEME -> {
                 if (isThemeDark) {
-                    val bgR = activeSurface.red
-                    val bgG = activeSurface.green
-                    val bgB = activeSurface.blue
-                    val fgR = activeOnSurface.red
-                    val fgG = activeOnSurface.green
-                    val fgB = activeOnSurface.blue
+                    val bgR = activeSurface.red * 255f
+                    val bgG = activeSurface.green * 255f
+                    val bgB = activeSurface.blue * 255f
+                    val fgR = activeOnSurface.red * 255f
+                    val fgG = activeOnSurface.green * 255f
+                    val fgB = activeOnSurface.blue * 255f
 
-                    val deltaR = bgR - fgR
-                    val deltaG = bgG - fgG
-                    val deltaB = bgB - fgB
+                    val scaleR = (bgR - fgR) / 255f
+                    val scaleG = (bgG - fgG) / 255f
+                    val scaleB = (bgB - fgB) / 255f
 
                     ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
-                        0.299f * deltaR, 0.587f * deltaR, 0.114f * deltaR, 0.0f, fgR * 255.0f,
-                        0.299f * deltaG, 0.587f * deltaG, 0.114f * deltaG, 0.0f, fgG * 255.0f,
-                        0.299f * deltaB, 0.587f * deltaB, 0.114f * deltaB, 0.0f, fgB * 255.0f,
-                        0.0f,            0.0f,            0.0f,            1.0f, 0.0f
+                        scaleR, 0f,     0f,     0f, fgR,
+                        0f,     scaleG, 0f,     0f, fgG,
+                        0f,     0f,     scaleB, 0f, fgB,
+                        0f,     0f,     0f,     1f, 0f
                     )))
-                } else null
+                } else {
+                    val rScale = activeSurface.red
+                    val gScale = activeSurface.green
+                    val bScale = activeSurface.blue
+                    ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+                        rScale, 0f,     0f,     0f, 0f,
+                        0f,     gScale, 0f,     0f, 0f,
+                        0f,     0f,     bScale, 0f, 0f,
+                        0f,     0f,     0f,     1f, 0f
+                    )))
+                }
             }
             PaperToneMode.DARK -> {
                 // Kindle Dark Slate: #141414 background (20), #E4E4E4 text (228)
-                val delta = (20f - 228f) / 255f
+                val scale = (20f - 228f) / 255f
                 ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
-                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
-                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
-                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
-                    0.0f,           0.0f,           0.0f,           1.0f, 0.0f
+                    scale, 0f,    0f,    0f, 228f,
+                    0f,    scale, 0f,    0f, 228f,
+                    0f,    0f,    scale, 0f, 228f,
+                    0f,    0f,    0f,    1f, 0f
                 )))
             }
             PaperToneMode.WARM_SEPIA -> {
-                // Warm Sepia: #FBF0D9 background (251, 240, 217), #3C2F2F ink (60, 47, 47)
-                val deltaR = (251f - 60f) / 255f
-                val deltaG = (240f - 47f) / 255f
-                val deltaB = (217f - 47f) / 255f
+                // Multiplicative Tint: #FBF0D9 background (251, 240, 217). Preserves 100% natural colors in photos!
+                val rScale = 251f / 255f
+                val gScale = 240f / 255f
+                val bScale = 217f / 255f
                 ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
-                    0.299f * deltaR, 0.587f * deltaR, 0.114f * deltaR, 0.0f, 60f,
-                    0.299f * deltaG, 0.587f * deltaG, 0.114f * deltaG, 0.0f, 47f,
-                    0.299f * deltaB, 0.587f * deltaB, 0.114f * deltaB, 0.0f, 47f,
-                    0.0f,            0.0f,            0.0f,            1.0f, 0.0f
+                    rScale, 0f,     0f,     0f, 0f,
+                    0f,     gScale, 0f,     0f, 0f,
+                    0f,     0f,     bScale, 0f, 0f,
+                    0f,     0f,     0f,     1f, 0f
                 )))
             }
             PaperToneMode.NATURAL_WHITE -> null
@@ -759,9 +773,9 @@ internal fun ActualDocumentView(
                 val activity = context as? android.app.Activity
                 activity?.let { act ->
                     act.requestedOrientation = if (isLandscape) {
-                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                     } else {
-                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                     }
                 }
                 zoomScale = 1f
@@ -777,7 +791,12 @@ internal fun ActualDocumentView(
                 zoomOffset = Offset.Zero
             },
             paperToneMode = paperToneMode,
-            onPaperToneModeChange = { paperToneMode = it },
+            onPaperToneModeChange = { newMode ->
+                paperToneMode = newMode
+                val curSettings = repository.loadReaderSettings()
+                repository.saveReaderSettings(curSettings.copy(paperToneMode = newMode.name.lowercase()))
+                onPaperToneModeChange?.invoke(newMode)
+            },
             showMenu = showMenu,
             onMenuVisibilityChange = { showMenu = it },
             onOpenJumpToPageDialog = { showJumpToPageDialog = true },

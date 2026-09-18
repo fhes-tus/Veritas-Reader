@@ -31,6 +31,9 @@ import com.veritas.reader.aiAssistantIcon
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -157,6 +160,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -249,6 +253,7 @@ private class TextViewHolder(
     var renderedPage: Any? = null,
     var fontSizeSp: Int = -1,
     var extraSpacingPx: Float = -1f,
+    var lineMultiplier: Float = -1f,
     var textColor: Int = 0,
     var onToggleBars: () -> Unit = {},
     var onSentenceDoubleTap: (Int) -> Unit = {},
@@ -297,7 +302,8 @@ internal fun ReaderPageItemView(
     onSelectionChanged: (ReaderTextSelection?) -> Unit,
     onTextViewBound: (TextView?) -> Unit,
     onOpenColorPalette: (List<Int>) -> Unit,
-    onOpenShareToAi: (ReaderTextSelection?, Boolean) -> Unit
+    onOpenShareToAi: (ReaderTextSelection?, Boolean) -> Unit,
+    onFontSizeChange: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -361,10 +367,41 @@ internal fun ReaderPageItemView(
                             }
                         }
 
+                        var accumulatedPinchZoom by remember { mutableFloatStateOf(1f) }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(horizontal = 4.dp, vertical = 4.dp)
+                                .pointerInput(readerSettings.fontSizeSp) {
+                                    awaitEachGesture {
+                                        do {
+                                            val event = awaitPointerEvent()
+                                            val pressedPointers = event.changes.filter { it.pressed }
+                                            if (pressedPointers.size >= 2) {
+                                                val zoomChange = event.calculateZoom()
+                                                if (zoomChange != 1f) {
+                                                    accumulatedPinchZoom *= zoomChange
+                                                    if (accumulatedPinchZoom > 1.15f) {
+                                                        val next = (readerSettings.fontSizeSp + 1).coerceAtMost(28)
+                                                        if (next != readerSettings.fontSizeSp) {
+                                                            onFontSizeChange(next)
+                                                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                                        }
+                                                        accumulatedPinchZoom = 1f
+                                                    } else if (accumulatedPinchZoom < 0.85f) {
+                                                        val next = (readerSettings.fontSizeSp - 1).coerceAtLeast(10)
+                                                        if (next != readerSettings.fontSizeSp) {
+                                                            onFontSizeChange(next)
+                                                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                                        }
+                                                        accumulatedPinchZoom = 1f
+                                                    }
+                                                    pressedPointers.forEach { it.consume() }
+                                                }
+                                            }
+                                        } while (event.changes.any { it.pressed })
+                                    }
+                                }
                         ) {
                             Surface(
                                 modifier = Modifier.fillMaxSize(),
@@ -444,9 +481,27 @@ internal fun ReaderPageItemView(
                                         if (pageNumber == 1) {
                                             val context = LocalContext.current
                                             val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id.orEmpty()) }
-                                            val coverBitmap = remember(coverFile) {
+                                            val coverBitmap = remember(coverFile, document.id, document.title) {
                                                 coverFile?.takeIf { it.exists() }?.let { file ->
                                                     runCatching { android.graphics.BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+                                                } ?: run {
+                                                    val classic = CURATED_CLASSICS.firstOrNull { c ->
+                                                        document.title.contains(c.title, ignoreCase = true) ||
+                                                        (document.id?.contains(c.id, ignoreCase = true) == true)
+                                                    }
+                                                    if (classic != null) {
+                                                        runCatching {
+                                                            context.assets.open("covers/${classic.id}.jpg").use { stream ->
+                                                                android.graphics.BitmapFactory.decodeStream(stream)
+                                                            }
+                                                        }.getOrNull()
+                                                    } else if (document.title.contains("Who Moved My Cheese", ignoreCase = true)) {
+                                                        runCatching {
+                                                            context.assets.open("covers/who_moved_my_cheese.jpg").use { stream ->
+                                                                android.graphics.BitmapFactory.decodeStream(stream)
+                                                            }
+                                                        }.getOrNull()
+                                                    } else null
                                                 }
                                             }
                                             if (coverBitmap != null) {
@@ -473,9 +528,11 @@ internal fun ReaderPageItemView(
                                             }
                                         }
 
+                                        val isCurrentOnThisPage = currentIndex in part.sentenceStartIndex until part.sentenceEndIndexExclusive
+                                        val activeSentenceOnThisPage = if (isCurrentOnThisPage) currentIndex else -1
                                         val renderedPage = remember(
                                             part.text,
-                                            currentIndex,
+                                            activeSentenceOnThisPage,
                                             isPlaying,
                                             feedbackSentenceIndex,
                                             bookmarkedSentences,
@@ -493,7 +550,7 @@ internal fun ReaderPageItemView(
                                         ) {
                                             buildReaderPartSpannable(
                                                 part = part,
-                                                activeSentenceIndex = currentIndex,
+                                                activeSentenceIndex = activeSentenceOnThisPage,
                                                 feedbackSentenceIndex = feedbackSentenceIndex,
                                                 highlightedSentences = bookmarkedSentences,
                                                 searchMatches = searchMatches,
@@ -665,12 +722,14 @@ internal fun ReaderPageItemView(
                                                         holder.fontSizeSp = readerSettings.fontSizeSp
                                                         textView.textSize = readerSettings.fontSizeSp.toFloat()
                                                     }
-                                                    val extraSpacingPx = 2f * textView.context.resources.displayMetrics.density
-                                                    if (holder.extraSpacingPx != extraSpacingPx) {
+                                                    val extraSpacingPx = 0f
+                                                    val lineMult = 1.0f + ((readerSettings.sectionSpacingDp - 6).coerceAtLeast(0) * (0.6f / 18f))
+                                                    if (holder.lineMultiplier != lineMult || holder.extraSpacingPx != extraSpacingPx) {
+                                                        holder.lineMultiplier = lineMult
                                                         holder.extraSpacingPx = extraSpacingPx
                                                         textView.setLineSpacing(
                                                             extraSpacingPx,
-                                                            1.15f
+                                                            lineMult
                                                         )
                                                     }
                                                     val actionModeCb = readerSelectionActionModeCallback(
@@ -767,7 +826,7 @@ internal fun ReaderPageItemView(
                                         Spacer(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .heightIn(min = 80.dp)
+                                                .heightIn(min = 450.dp)
                                                 .clickable(
                                                     interactionSource = remember { MutableInteractionSource() },
                                                     indication = null

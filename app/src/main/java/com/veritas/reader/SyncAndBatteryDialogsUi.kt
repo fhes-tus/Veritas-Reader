@@ -320,7 +320,7 @@ internal fun SyncAndBackupCenterDialog(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                text = "Veritas Sync & Backup creates portable backup files containing your entire library, reading progress, flashcards, notes, bookmarks, and custom voice rules. Import safely merges data without deleting local readings.",
+                                text = "Vern Sync & Backup creates portable backup files containing your entire library, reading progress, flashcards, notes, bookmarks, and custom voice rules. Import safely merges data without deleting local readings.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
                                 lineHeight = 20.sp
@@ -573,7 +573,7 @@ fun UnrestrictedBatteryDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Android battery optimizations will pause or kill Veritas speech playback shortly after your screen locks or turns off.",
+                    text = "Android battery optimizations will pause or kill Vern speech playback shortly after your screen locks or turns off.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

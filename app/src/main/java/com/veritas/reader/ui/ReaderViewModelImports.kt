@@ -3,6 +3,7 @@ package com.veritas.reader.ui
 import com.veritas.reader.*
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.viewModelScope
@@ -32,7 +33,8 @@ fun ReaderViewModel.createAndOpenDocument(
     originalUri: Uri? = null,
     originalMimeType: String = "",
     pageCount: Int = 0,
-    partial: Boolean = false
+    partial: Boolean = false,
+    initialCoverBitmap: Bitmap? = null
 ) {
     if (text.isBlank()) return
     viewModelScope.launch(Dispatchers.IO) {
@@ -46,6 +48,11 @@ fun ReaderViewModel.createAndOpenDocument(
             pageCount = pageCount,
             partial = partial
         )
+        if (initialCoverBitmap != null) {
+            runCatching {
+                CoverExtractor.saveCoverBitmap(getApplication(), saved.id, initialCoverBitmap)
+            }
+        }
         // Extract cover image in background for compatible documents
         if (originalUri != null) {
             runCatching {
@@ -80,7 +87,7 @@ fun ReaderViewModel.continuePdfExtractionInBackground(
 ) {
     viewModelScope.launch(Dispatchers.IO) {
         withContext(Dispatchers.Main) {
-            _uiState.update { it.copy(importMessage = "Opened the ready pages. Veritas is finishing the rest of this PDF in the background.") }
+            _uiState.update { it.copy(importMessage = "Opened the ready pages. Vern is finishing the rest of this PDF in the background.") }
         }
         val full = runCatching {
             DocumentExtractor.extract(
@@ -355,13 +362,41 @@ fun ReaderViewModel.importDocumentFromUri(
 fun ReaderViewModel.importMultipleDocuments(uris: List<Uri>, queue: Boolean) {
     if (uris.isEmpty()) return
     val count = uris.size
-    _uiState.update { it.copy(importMessage = "Importing $count files in background...") }
-    uris.forEach { uri ->
-        importDocumentFromUri(
-            uri = uri,
-            queueAfterImport = queue,
-            openAfterImport = false
+    _uiState.update {
+        it.copy(
+            isBatchImporting = true,
+            batchImportTotal = count,
+            batchImportCurrent = 0,
+            importMessage = "Importing 1 of $count files…"
         )
+    }
+    viewModelScope.launch(Dispatchers.IO) {
+        uris.forEachIndexed { index, uri ->
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        batchImportCurrent = index + 1,
+                        importMessage = "Importing ${index + 1} of $count files…"
+                    )
+                }
+            }
+            importDocumentFromUri(
+                uri = uri,
+                queueAfterImport = queue,
+                openAfterImport = false
+            )
+        }
+        withContext(Dispatchers.Main) {
+            kotlinx.coroutines.delay(1200)
+            _uiState.update {
+                it.copy(
+                    isBatchImporting = false,
+                    batchImportTotal = 0,
+                    batchImportCurrent = 0,
+                    importMessage = "Successfully queued $count files for import into Vern."
+                )
+            }
+        }
     }
 }
 
@@ -388,7 +423,7 @@ fun ReaderViewModel.importWebArticle(url: String) {
                     text = "${article.text}\n\nSource: ${article.url}",
                     sourceLabel = "Web"
                 )
-                _uiState.update { it.copy(importMessage = "Web article imported into Veritas.") }
+                _uiState.update { it.copy(importMessage = "Web article imported into Vern.") }
             }
         }
     }
@@ -422,10 +457,17 @@ fun ReaderViewModel.downloadClassicBook(book: com.veritas.reader.ui.screens.Clas
             _uiState.update { it.copy(importInProgress = false, importSourceName = "") }
             if (text != null && text.isNotBlank()) {
                 val cleaned = cleanAndUnwrapClassicBookText(text)
+                val docTitle = "${book.title} - ${book.author}"
+                val coverBmp = runCatching {
+                    getApplication<Application>().assets.open("covers/${book.id}.jpg").use { stream ->
+                        android.graphics.BitmapFactory.decodeStream(stream)
+                    }
+                }.getOrNull()
                 createAndOpenDocument(
-                    title = "${book.title} - ${book.author}",
+                    title = docTitle,
                     text = cleaned,
-                    sourceLabel = "Classic Book"
+                    sourceLabel = "Classic Book",
+                    initialCoverBitmap = coverBmp
                 )
                 _uiState.update {
                     it.copy(

@@ -187,13 +187,13 @@ object VoiceManager {
 
         val studio = TtsEngineOption(
             packageName = VERITAS_STUDIO,
-            label = if (installed(com.veritas.reader.tts.OfflineEngineType.KOKORO)) "Veritas Studio"
-            else "Veritas Studio (tap to download)"
+            label = if (installed(com.veritas.reader.tts.OfflineEngineType.KOKORO)) "Vern Studio"
+            else "Vern Studio (tap to download)"
         )
         val lite = TtsEngineOption(
             packageName = VERITAS_LITE,
-            label = if (installed(com.veritas.reader.tts.OfflineEngineType.PIPER)) "Veritas Lite"
-            else "Veritas Lite (tap to download)"
+            label = if (installed(com.veritas.reader.tts.OfflineEngineType.PIPER)) "Vern Lite"
+            else "Vern Lite (tap to download)"
         )
         return listOf(studio, lite) + systemEngines
     }

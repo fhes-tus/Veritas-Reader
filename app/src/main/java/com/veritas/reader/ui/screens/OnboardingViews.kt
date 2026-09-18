@@ -581,7 +581,7 @@ fun OnboardingNameInputScreen(
         )
 
         Text(
-            text = "Enter your name so Veritas can welcome you every time you open your library and personalize your study decks.",
+            text = "Enter your name so Vern can welcome you every time you open your library and personalize your study decks.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

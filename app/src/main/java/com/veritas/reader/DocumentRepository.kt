@@ -660,7 +660,7 @@ class DocumentRepository(context: Context) {
         val sanitizedTitle = document.title
             .replace(Regex("[\\\\/:*?\"<>|]"), "_")
             .trim()
-            .ifBlank { "Veritas_Document" }
+            .ifBlank { "Vern_Document" }
             .take(64)
 
         val original = originalFile(document)
@@ -994,7 +994,7 @@ class DocumentRepository(context: Context) {
         return if (detectedEngine != null && !VoiceManager.isVeritasEngine(loaded.enginePackage)) {
             loaded.copy(
                 enginePackage = detectedEngine,
-                engineLabel = if (detectedEngine == VoiceManager.VERITAS_LITE) "Veritas Lite" else "Veritas Studio"
+                engineLabel = if (detectedEngine == VoiceManager.VERITAS_LITE) "Vern Lite" else "Vern Studio"
             )
         } else {
             loaded
@@ -1009,7 +1009,7 @@ class DocumentRepository(context: Context) {
             settings.enginePackage
         }
         val resolvedEngineLabel = if (detectedEngine != null && !VoiceManager.isVeritasEngine(settings.enginePackage)) {
-            if (detectedEngine == VoiceManager.VERITAS_LITE) "Veritas Lite" else "Veritas Studio"
+            if (detectedEngine == VoiceManager.VERITAS_LITE) "Vern Lite" else "Vern Studio"
         } else {
             settings.engineLabel.ifBlank { "System default" }
         }
@@ -1050,7 +1050,7 @@ class DocumentRepository(context: Context) {
         val normalized = settings.copy(
             assistantId = settings.assistantId.ifBlank { "chooser" },
             assistantLabel = settings.assistantLabel.ifBlank { "Choose each time" },
-            promptTemplate = settings.promptTemplate.ifBlank { "Answer clearly using this selected Veritas text:\n\n{selection}" }
+            promptTemplate = settings.promptTemplate.ifBlank { "Answer clearly using this selected Vern text:\n\n{selection}" }
         )
         prefs.edit { putString(KEY_ASK_AI_SETTINGS, normalized.toJson().toString()) }
         return normalized

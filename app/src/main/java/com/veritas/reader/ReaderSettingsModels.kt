@@ -232,7 +232,7 @@ data class AskAiSettings(
     val assistantId: String = "chooser",
     val assistantLabel: String = "Choose each time",
     val packageName: String = "",
-    val promptTemplate: String = "Answer clearly using this selected Veritas text:\n\n{selection}"
+    val promptTemplate: String = "Answer clearly using this selected Vern text:\n\n{selection}"
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("assistantId", assistantId)
@@ -247,7 +247,7 @@ data class AskAiSettings(
             packageName = obj.optString("packageName"),
             promptTemplate = obj.optString(
                 "promptTemplate",
-                "Answer clearly using this selected Veritas text:\n\n{selection}"
+                "Answer clearly using this selected Vern text:\n\n{selection}"
             )
         )
     }

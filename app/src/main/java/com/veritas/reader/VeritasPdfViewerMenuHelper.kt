@@ -86,12 +86,7 @@ import kotlinx.coroutines.launch
 
         // Display
         items.add(OverflowMenuItem(title = "Display", isHeader = true))
-        items.add(OverflowMenuItem(
-            title = if (chromeVisible) "Full Screen Mode" else "Exit Full Screen",
-            subtitle = if (chromeVisible) "Hide toolbar & player bars" else "Show toolbar & player bars",
-            iconRes = R.drawable.ic_m3_fullscreen,
-            action = { toggleFullScreen() }
-        ))
+
         items.add(OverflowMenuItem(
             title = "Fit to Screen",
             subtitle = "Reset zoom and fit page width",

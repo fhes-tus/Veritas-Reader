@@ -312,7 +312,7 @@ fun OpenSourceLicensesDialog(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    "Veritas Reader is built using the following open source libraries and tools:",
+                    "Vern is built using the following open source libraries and tools:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -371,7 +371,7 @@ fun AboutDialog(
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.veritas_reader_icon),
-                        contentDescription = "Veritas Reader Logo",
+                        contentDescription = "Vern Logo",
                         modifier = Modifier
                             .size(68.dp)
                             .clip(CircleShape),
@@ -396,7 +396,7 @@ fun AboutDialog(
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = "Veritas Reader",
+                        text = "Vern TTS",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onSurface
@@ -446,7 +446,7 @@ fun AboutDialog(
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Button(
-                    onClick = { openEmail(context, "myreader.veritas@gmail.com", "Donate to Veritas Reader") },
+                    onClick = { openEmail(context, "myreader.veritas@gmail.com", "Donate to Vern") },
                     shape = VeritasPackStyle.chipShape(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -470,7 +470,7 @@ fun AboutDialog(
                 }
 
                 Button(
-                    onClick = { openEmail(context, "myreader.veritas@gmail.com", "Veritas Reader Feedback & Support") },
+                    onClick = { openEmail(context, "myreader.veritas@gmail.com", "Vern Feedback & Support") },
                     shape = VeritasPackStyle.chipShape(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -536,13 +536,13 @@ fun AboutDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "About Veritas Reader",
+                        text = "About Vern",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Veritas Reader is a modern, privacy-focused reading engine and document studio for Android. Built for readers, researchers, and students, Veritas brings together intelligent text-to-speech narration, custom voice controls, smart study cards, and reading insights — all with zero tracking.",
+                        text = "Vern (root word Vernehmen — German: to hear/perceive) is a privacy-focused reading engine and document studio for Android. Combining intelligent text-to-speech narration, custom voice controls, smart study cards, and reading insights, Vern brings you an effortless learning experience with zero tracking.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 20.sp
@@ -563,7 +563,7 @@ fun AboutDialog(
                 )
                 AboutOptionRow(
                     title = "Open source licenses",
-                    subtitle = "View all the libraries used to build Veritas Reader",
+                    subtitle = "View all the libraries used to build Vern",
                     icon = Icons.Outlined.Info,
                     onClick = { showLicensesDialog = true }
                 )

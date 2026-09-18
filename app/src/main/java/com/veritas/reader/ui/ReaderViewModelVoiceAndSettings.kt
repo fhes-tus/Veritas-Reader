@@ -37,6 +37,15 @@ fun ReaderViewModel.saveReaderSettings(update: ReaderSettings) {
     }
 }
 
+fun ReaderViewModel.reloadReaderSettings() {
+    viewModelScope.launch(Dispatchers.IO) {
+        val loaded = repository.loadReaderSettings()
+        withContext(Dispatchers.Main) {
+            _uiState.update { it.copy(readerSettings = loaded) }
+        }
+    }
+}
+
 fun ReaderViewModel.refreshPronunciationRules() {
     viewModelScope.launch(Dispatchers.IO) {
         val rules = repository.loadPronunciationRules()

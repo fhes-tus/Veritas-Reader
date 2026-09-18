@@ -254,6 +254,24 @@ object CoverExtractor {
     }
 
     /**
+     * Saves a pre-existing Bitmap as the document's cover image.
+     */
+    fun saveCoverBitmap(context: Context, documentId: String, bitmap: Bitmap): File? {
+        return runCatching {
+            val file = File(coversDir(context), "$documentId.cover.webp")
+            file.outputStream().use { out ->
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 85, out)
+                } else {
+                    @Suppress("DEPRECATION")
+                    bitmap.compress(Bitmap.CompressFormat.WEBP, 85, out)
+                }
+            }
+            file
+        }.getOrNull()
+    }
+
+    /**
      * Deletes the cover file for a document.
      */
     fun deleteCover(context: Context, documentId: String) {

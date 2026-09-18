@@ -136,12 +136,28 @@ fun ReaderToolsSheet(
                     .padding(bottom = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Reader Tools",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 24.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Reader Tools",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(
+                        onClick = { choose(onOpenDocumentDetails) },
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = "Document Info"
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.size(16.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -185,6 +201,13 @@ fun ReaderToolsSheet(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
+                    Spacer(modifier = Modifier.weight(1f))
+                    IconButton(onClick = { choose(onOpenDocumentDetails) }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = "Document Info"
+                        )
+                    }
                 }
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
@@ -196,12 +219,6 @@ fun ReaderToolsSheet(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
-                )
-
-                SettingsItem(
-                    title = if (showSearch) "Hide search" else "Search document",
-                    leadingIcon = Icons.Outlined.Search,
-                    onClick = { choose(onToggleSearch) }
                 )
 
                 SettingsItem(

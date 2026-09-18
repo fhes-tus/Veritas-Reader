@@ -144,6 +144,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import com.veritas.reader.ui.screens.VeritasHomeTab
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -183,7 +185,6 @@ import com.veritas.reader.ui.screens.ReleaseNotesDialog
 import com.veritas.reader.ui.screens.ClassicsCatalogDialog
 import com.veritas.reader.ui.screens.OceanOfPdfBrowserDialog
 import com.veritas.reader.ui.screens.BookCatalogBrowserDialog
-import com.veritas.reader.ui.screens.VeritasHomeTab
 import com.veritas.reader.ui.screens.VoiceStudioDialog
 import com.veritas.reader.ReaderMode
 import kotlinx.coroutines.delay
@@ -362,14 +363,59 @@ internal fun MainIntentAndRoutingEffects(
 
     BackHandler(enabled = true) {
         when {
+            uiState.showExitConfirmationDialog -> viewModel.updateState { it.copy(showExitConfirmationDialog = false) }
+            uiState.detailsTarget != null -> viewModel.updateState { it.copy(detailsTarget = null) }
+            uiState.renameTarget != null -> viewModel.updateState { it.copy(renameTarget = null) }
+            uiState.collectionTarget != null -> viewModel.updateState { it.copy(collectionTarget = null) }
+            uiState.showClassicsCatalog -> viewModel.updateState { it.copy(showClassicsCatalog = false) }
+            uiState.showOceanOfPdfBrowser -> viewModel.updateState { it.copy(showOceanOfPdfBrowser = false) }
+            uiState.showBookBrowser -> viewModel.updateState { it.copy(showBookBrowser = false) }
             uiState.showUserManual -> viewModel.updateState { it.copy(showUserManual = false) }
             uiState.showAccessibilitySettings -> viewModel.updateState { it.copy(showAccessibilitySettings = false) }
             uiState.showTextEditor -> viewModel.dismissTextEditor()
+            uiState.showReadingHistory -> viewModel.updateState { it.copy(showReadingHistory = false) }
+            uiState.showDocumentNotes -> viewModel.updateState { it.copy(showDocumentNotes = false) }
+            uiState.showAiStudyTools -> viewModel.updateState { it.copy(showAiStudyTools = false) }
+            uiState.showReadingLists -> viewModel.updateState { it.copy(showReadingLists = false) }
+            uiState.showReaderSettings -> viewModel.updateState { it.copy(showReaderSettings = false) }
+            uiState.showVoiceStudio -> viewModel.updateState { it.copy(showVoiceStudio = false) }
+            uiState.showNarrationStudio -> viewModel.updateState { it.copy(showNarrationStudio = false) }
+            uiState.showPronunciationRules -> viewModel.updateState { it.copy(showPronunciationRules = false) }
+            uiState.showSleepTimerDialog -> viewModel.updateState { it.copy(showSleepTimerDialog = false) }
+            uiState.showGeneralNotesEditor -> viewModel.updateState { it.copy(showGeneralNotesEditor = false, generalNoteEditorTarget = null) }
+            uiState.noteTargetIndexes.isNotEmpty() || uiState.noteTargetIndex != null -> viewModel.dismissSentenceNote()
+            uiState.showCanvasView -> viewModel.updateState { it.copy(showCanvasView = false) }
             uiState.showFileBrowser && uiState.fileBrowserBackStack.isNotEmpty() -> viewModel.goUpFileBrowserDirectory()
+            uiState.showFileBrowser -> viewModel.updateState { it.copy(showFileBrowser = false) }
             uiState.navStack.isNotEmpty() -> viewModel.navigateBack()
             uiState.activeDocument != null -> viewModel.returnToLibrary()
-            else -> (context as? ComponentActivity)?.finish()
+            else -> viewModel.updateState { it.copy(showExitConfirmationDialog = true) }
         }
+    }
+
+    if (uiState.showExitConfirmationDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.updateState { it.copy(showExitConfirmationDialog = false) } },
+            title = { Text("Exit Vern?") },
+            text = { Text("Are you sure you want to close Vern?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateState { it.copy(showExitConfirmationDialog = false) }
+                        (context as? ComponentActivity)?.finish()
+                    }
+                ) {
+                    Text("Exit")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.updateState { it.copy(showExitConfirmationDialog = false) } }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
 

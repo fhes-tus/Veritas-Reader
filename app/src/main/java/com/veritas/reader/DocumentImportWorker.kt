@@ -45,7 +45,7 @@ class DocumentImportWorker(
         // Show foreground notification while running
         val notification = NotificationCompat.Builder(applicationContext, "import_channel")
             .setContentTitle("Importing $title")
-            .setContentText("Veritas is extracting text in the background...")
+            .setContentText("Vern is extracting text in the background...")
             .setSmallIcon(R.drawable.ic_stat_veritas)
             .setOngoing(true)
             .build()

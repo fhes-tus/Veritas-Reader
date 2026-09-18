@@ -1,18 +1,18 @@
 <resources>
-    <string name="app_name">Veritas Reader</string>
-    <string name="widget_player_description">Veritas playback controls</string>
-    <string name="widget_cover_description">Veritas current reading cover</string>
-    <string name="widget_quick_note_description">Veritas quick note list</string>
-    <string name="widget_flashcard_description">Veritas daily flashcard review</string>
-    <string name="widget_quick_capture_description">Veritas quick capture actions</string>
-    <string name="widget_reading_progress_description">Veritas reading progress status</string>
-    <string name="widget_study_dashboard_description">Veritas study stats dashboard</string>
+    <string name="app_name">Vern TTS</string>
+    <string name="widget_player_description">Vern playback controls</string>
+    <string name="widget_cover_description">Vern current reading cover</string>
+    <string name="widget_quick_note_description">Vern quick note list</string>
+    <string name="widget_flashcard_description">Vern daily flashcard review</string>
+    <string name="widget_quick_capture_description">Vern quick capture actions</string>
+    <string name="widget_reading_progress_description">Vern reading progress status</string>
+    <string name="widget_study_dashboard_description">Vern study stats dashboard</string>
     <string name="widget_ready">Ready</string>
     <string name="widget_previous">‹</string>
     <string name="widget_play">▶</string>
     <string name="widget_next">›</string>
     <string name="widget_favorite">♡</string>
-    <string name="crash_dialog_title">Veritas closed unexpectedly</string>
+    <string name="crash_dialog_title">Vern closed unexpectedly</string>
     <string name="crash_dialog_message">Last time, the app hit an error and had to close. You can send the crash details to the developer to help fix it — nothing is sent without your say-so.</string>
     <string name="crash_dialog_send">Send report</string>
     <string name="crash_dialog_dismiss">Dismiss</string>
@@ -21,7 +21,7 @@
     <string name="tts_hint_get">Get Google TTS</string>
     <string name="tts_hint_dismiss">Keep current</string>
     <string name="reminder_exact_title">Allow exact reminders</string>
-    <string name="reminder_exact_message">To ring at the exact time you set, Veritas needs the "Alarms &amp; reminders" permission. Without it, reminders may arrive a little late.</string>
+    <string name="reminder_exact_message">To ring at the exact time you set, Vern needs the "Alarms &amp; reminders" permission. Without it, reminders may arrive a little late.</string>
     <string name="reminder_exact_allow">Open settings</string>
     <string name="reminder_exact_later">Not now</string>
     <string name="delete_note_title">Delete this note?</string>
@@ -31,6 +31,9 @@
     <string name="action_delete">Delete</string>
     <string name="action_clear">Clear</string>
     <string name="action_cancel">Cancel</string>
-    <string name="share_to_notes">Add to Veritas Notes</string>
-    <string name="share_to_import">Import to Veritas Reader</string>
+    <string name="share_to_notes">Add to Vern Notes</string>
+    <string name="share_to_import">Import to Vern</string>
+    <string name="exit_dialog_title">Exit Vern?</string>
+    <string name="exit_dialog_message">Are you sure you want to close the application?</string>
+    <string name="action_exit">Exit</string>
 </resources>

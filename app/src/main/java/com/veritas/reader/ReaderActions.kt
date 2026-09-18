@@ -137,7 +137,7 @@ fun sharePlainText(context: Context, title: String, text: String) {
         putExtra(Intent.EXTRA_TEXT, text)
     }
     try {
-        context.startActivity(Intent.createChooser(intent, "Share from Veritas"))
+        context.startActivity(Intent.createChooser(intent, "Share from Vern"))
     } catch (e: ActivityNotFoundException) {
         android.util.Log.w("ReaderActions", "No share apps found: ${e.message}")
         copyTextToClipboard(context, title, text)
@@ -153,7 +153,7 @@ fun openGoogleSearch(context: Context, text: String) {
         context.startActivity(intent)
     } catch (e: ActivityNotFoundException) {
         android.util.Log.w("ReaderActions", "Could not open web lookup: ${e.message}")
-        copyTextToClipboard(context, "Veritas lookup", cleanText)
+        copyTextToClipboard(context, "Vern lookup", cleanText)
     }
 }
 
@@ -203,7 +203,7 @@ fun sendPromptToAi(context: Context, settings: AskAiSettings, subject: String, p
     }
     if (selectedPackage.isBlank()) {
         android.util.Log.w("ReaderActions", "No installed AI assistant found")
-        copyTextToClipboard(context, "Veritas AI prompt", prompt)
+        copyTextToClipboard(context, "Vern AI prompt", prompt)
         Toast.makeText(context, "No installed AI assistant found. Prompt copied.", Toast.LENGTH_LONG).show()
         return
     }
@@ -223,7 +223,7 @@ fun sendPromptToAi(context: Context, settings: AskAiSettings, subject: String, p
         context.startActivity(intent)
     } catch (e: ActivityNotFoundException) {
         android.util.Log.w("ReaderActions", "Could not launch AI app $selectedPackage: ${e.message}")
-        copyTextToClipboard(context, "Veritas AI prompt", prompt)
+        copyTextToClipboard(context, "Vern AI prompt", prompt)
     }
 }
 
@@ -243,7 +243,7 @@ fun buildDocumentNotesExport(
     val cleanDocumentNote = documentNote.trim()
     val exportedAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
     return buildString {
-        appendLine("Veritas Reader Notes")
+        appendLine("Vern Notes")
         appendLine("Document: ${document.title}")
         appendLine("Source: ${document.sourceLabel}")
         appendLine("Exported: $exportedAt")
@@ -428,14 +428,14 @@ fun shareBookmarkAsImage(
     }
     
     val bookTitleClean = if (bookTitle.length > 50) bookTitle.take(47) + "..." else bookTitle
-    val hasAuthor = authorName.isNotBlank() && authorName != "Veritas Reader"
+    val hasAuthor = authorName.isNotBlank() && authorName != "Vern" && authorName != "Veritas Reader"
     if (hasAuthor) {
         canvas.drawText(bookTitleClean, 100f, 1120f, bookTitlePaint)
         canvas.drawText("by $authorName", 100f, 1170f, authorPaint)
     } else {
         canvas.drawText(bookTitleClean, 100f, 1150f, bookTitlePaint)
     }
-    canvas.drawText("Shared via Veritas Reader", width - 100f, 1220f, brandingPaint)
+    canvas.drawText("Shared via Vern", width - 100f, 1220f, brandingPaint)
     
     val dotPaint = Paint().apply {
         color = quoteColor
@@ -449,7 +449,7 @@ fun shareBookmarkAsImage(
     }
     
     val shareDir = File(context.cacheDir, "shares").apply { mkdirs() }
-    val shareFile = File(shareDir, "Veritas_Highlight_${System.currentTimeMillis()}.png")
+    val shareFile = File(shareDir, "Vern_Highlight_${System.currentTimeMillis()}.png")
     try {
         FileOutputStream(shareFile).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
@@ -559,7 +559,7 @@ fun shareVocabularyAsImage(
     }
 
     var y = 140f
-    canvas.drawText("VERITAS VOCABULARY", 100f, y, tagPaint)
+    canvas.drawText("VERN VOCABULARY", 100f, y, tagPaint)
     y += 70f
     canvas.drawText(entry.word, 100f, y, wordPaint)
     if (!entry.pronunciation.isNullOrBlank()) {
@@ -647,17 +647,17 @@ fun shareVocabularyAsImage(
     }
 
     val bookTitleClean = if (bookTitle.length > 50) bookTitle.take(47) + "..." else bookTitle
-    val hasAuthor = authorName.isNotBlank() && authorName != "Veritas Reader"
+    val hasAuthor = authorName.isNotBlank() && authorName != "Vern" && authorName != "Veritas Reader"
     if (hasAuthor) {
         canvas.drawText(bookTitleClean, 100f, 1180f, bookTitlePaint)
         canvas.drawText("by $authorName", 100f, 1225f, authorPaint)
     } else {
         canvas.drawText(bookTitleClean, 100f, 1200f, bookTitlePaint)
     }
-    canvas.drawText("Shared via Veritas Reader", width - 100f, 1270f, brandingPaint)
+    canvas.drawText("Shared via Vern", width - 100f, 1270f, brandingPaint)
 
     val shareDir = File(context.cacheDir, "shares").apply { mkdirs() }
-    val shareFile = File(shareDir, "Veritas_Vocab_${System.currentTimeMillis()}.png")
+    val shareFile = File(shareDir, "Vern_Vocab_${System.currentTimeMillis()}.png")
     try {
         FileOutputStream(shareFile).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
@@ -767,17 +767,17 @@ fun shareToAi(
     } ?: installedAiOptions(context).firstOrNull()?.second.orEmpty()
 
     val fileNameMd = when (scope) {
-        ShareScope.SELECTED_TEXT -> "Veritas - $sanitizedTitle - Selection.md"
-        ShareScope.CURRENT_SENTENCE -> "Veritas - $sanitizedTitle - Sentence ${PlaybackStateStore.currentIndex + 1}.md"
+        ShareScope.SELECTED_TEXT -> "Vern - $sanitizedTitle - Selection.md"
+        ShareScope.CURRENT_SENTENCE -> "Vern - $sanitizedTitle - Sentence ${PlaybackStateStore.currentIndex + 1}.md"
         ShareScope.CURRENT_SECTION -> {
-            if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
-            else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
+            if (minPage == maxPage) "Vern - $sanitizedTitle - Page $minPage.md"
+            else "Vern - $sanitizedTitle - Pages $minPage-$maxPage.md"
         }
         ShareScope.CUSTOM_PAGE_RANGE -> {
-            if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
-            else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
+            if (minPage == maxPage) "Vern - $sanitizedTitle - Page $minPage.md"
+            else "Vern - $sanitizedTitle - Pages $minPage-$maxPage.md"
         }
-        ShareScope.ENTIRE_DOCUMENT -> "Veritas - $sanitizedTitle - Entire Document.md"
+        ShareScope.ENTIRE_DOCUMENT -> "Vern - $sanitizedTitle - Entire Document.md"
     }
     
     val prompt = "Attached is the document text from '$bookTitle'. Please analyze the contents."
@@ -785,7 +785,7 @@ fun shareToAi(
     
     if (!noPrompt) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Veritas Prompt", prompt))
+        clipboard.setPrimaryClip(ClipData.newPlainText("Vern Prompt", prompt))
         Toast.makeText(context, "Prompt copied to clipboard", Toast.LENGTH_SHORT).show()
     }
 
@@ -801,7 +801,7 @@ fun shareToAi(
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFileMd)
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            clipData = ClipData.newRawUri("Veritas Share", uri)
+            clipData = ClipData.newRawUri("Vern Share", uri)
             val truncatedText = if (textBody.length <= 60000) {
                 textBody
             } else {
@@ -829,7 +829,7 @@ fun shareToAi(
                     val uriTxt = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFileTxt)
                     val txtIntent = Intent(shareIntent).apply {
                         putExtra(Intent.EXTRA_STREAM, uriTxt)
-                        clipData = ClipData.newRawUri("Veritas Share", uriTxt)
+                        clipData = ClipData.newRawUri("Vern Share", uriTxt)
                     }
                     context.startActivity(txtIntent)
                 } catch (e2: Exception) {

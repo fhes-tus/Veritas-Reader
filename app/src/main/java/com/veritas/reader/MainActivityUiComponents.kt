@@ -71,7 +71,7 @@ object VeritasThemeState {
 fun BrandMark(modifier: Modifier = Modifier, compact: Boolean = false) {
     Image(
         painter = painterResource(id = R.drawable.veritas_reader_icon),
-        contentDescription = "Veritas",
+        contentDescription = "Vern",
         modifier = modifier
             .size(if (compact) 24.dp else 58.dp)
             .clip(if (compact) MaterialTheme.shapes.extraSmall else MaterialTheme.shapes.small),
@@ -170,7 +170,7 @@ fun VeritasWordmark(modifier: Modifier = Modifier) {
     ) {
         BrandMark(compact = true)
         Text(
-            "eritas",
+            "ern",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Black,
             maxLines = 1
@@ -269,7 +269,7 @@ internal fun ShareTargetChooserDialog(
             ) {
                 BrandMark(compact = true)
                 Text(
-                    text = "Share to Veritas",
+                    text = "Share to Vern",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -281,7 +281,7 @@ internal fun ShareTargetChooserDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "Choose how to save or open this content in Veritas:",
+                    text = "Choose how to save or open this content in Vern:",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

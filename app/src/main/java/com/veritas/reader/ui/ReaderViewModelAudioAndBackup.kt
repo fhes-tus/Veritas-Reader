@@ -295,7 +295,7 @@ fun ReaderViewModel.exportLibraryBackup(uri: Uri) {
                 state.copy(
                     backupInProgress = false,
                     backupMessage = result.fold(
-                        onSuccess = { "Veritas backup/sync file exported successfully." },
+                        onSuccess = { "Vern backup/sync file exported successfully." },
                         onFailure = { if (it is CancellationException) "Backup export cancelled." else "Backup export failed: ${it.message ?: "unknown error"}" }
                     )
                 )
@@ -338,9 +338,9 @@ fun ReaderViewModel.shareLibrarySyncPack() {
     backupJob = viewModelScope.launch(Dispatchers.IO) {
         val result = runCatching {
             val json = repository.buildBackupJson()
-            val syncDir = File(getApplication<Application>().cacheDir, "veritas_sync").apply { mkdirs() }
+            val syncDir = File(getApplication<Application>().cacheDir, "vern_sync").apply { mkdirs() }
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val file = File(syncDir, "veritas_sync_pack_$timestamp.json")
+            val file = File(syncDir, "vern_sync_pack_$timestamp.json")
             file.writeText(json, Charsets.UTF_8)
             file
         }
@@ -351,9 +351,9 @@ fun ReaderViewModel.shareLibrarySyncPack() {
                 val uri = FileProvider.getUriForFile(getApplication(), "${getApplication<Application>().packageName}.fileprovider", file)
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "application/json"
-                    putExtra(Intent.EXTRA_SUBJECT, "Veritas Reader sync pack")
+                    putExtra(Intent.EXTRA_SUBJECT, "Vern sync pack")
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_TEXT, "Veritas Reader sync pack. Import this file on another device to merge safely.")
+                    putExtra(Intent.EXTRA_TEXT, "Vern sync pack. Import this file on another device to merge safely.")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }

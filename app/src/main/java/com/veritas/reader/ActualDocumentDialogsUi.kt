@@ -251,7 +251,7 @@ internal fun SelectedTextActionCard(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val safeText = if (selectedText.length > 200_000) selectedText.take(200_000) else selectedText
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Veritas Text", safeText))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Vern Text", safeText))
                         Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                         onDismiss()
                     },

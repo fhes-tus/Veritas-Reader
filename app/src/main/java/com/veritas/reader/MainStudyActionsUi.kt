@@ -444,7 +444,7 @@ internal fun AiStudyCoreToolsCards(
                                 type = AiPromptType.FLASHCARDS,
                                 scope = selectedScope
                             )
-                            onCopyText("Veritas Flashcard Prompt", prompt)
+                            onCopyText("Vern Flashcard Prompt", prompt)
                         },
                         onExternalLaunch = { onExternalHandoff(AiPromptType.FLASHCARDS) }
                     )
@@ -507,7 +507,7 @@ internal fun AiStudyCoreToolsCards(
                                 type = AiPromptType.QUIZ,
                                 scope = selectedScope
                             )
-                            onCopyText("Veritas Quiz Prompt", prompt)
+                            onCopyText("Vern Quiz Prompt", prompt)
                         },
                         onExternalLaunch = { onExternalHandoff(AiPromptType.QUIZ) }
                     )
@@ -568,7 +568,7 @@ internal fun AiStudyCoreToolsCards(
                                 type = AiPromptType.SUMMARY,
                                 scope = selectedScope
                             )
-                            onCopyText("Veritas Summary Prompt", prompt)
+                            onCopyText("Vern Summary Prompt", prompt)
                         },
                         onExternalLaunch = { onExternalHandoff(AiPromptType.SUMMARY) }
                     )
@@ -631,7 +631,7 @@ internal fun AiStudyCoreToolsCards(
                                 type = AiPromptType.EXPLAIN_SECTION,
                                 scope = selectedScope
                             )
-                            onCopyText("Veritas Explainer Prompt", prompt)
+                            onCopyText("Vern Explainer Prompt", prompt)
                         },
                         onExternalLaunch = { onExternalHandoff(AiPromptType.EXPLAIN_SECTION) }
                     )
@@ -692,7 +692,7 @@ internal fun AiStudyCoreToolsCards(
                                 type = AiPromptType.STUDY_NOTES,
                                 scope = selectedScope
                             )
-                            onCopyText("Veritas Study Guide Prompt", prompt)
+                            onCopyText("Vern Study Guide Prompt", prompt)
                         },
                         onExternalLaunch = { onExternalHandoff(AiPromptType.STUDY_NOTES) }
                     )

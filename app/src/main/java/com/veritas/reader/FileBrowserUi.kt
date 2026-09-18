@@ -302,7 +302,7 @@ internal fun FileBrowserDialog(
         if (canGoUp && query.isBlank()) {
             listOf(
                 VeritasBrowserFile(
-                    uri = Uri.parse("veritas://parent_directory"),
+                    uri = Uri.parse("vern://parent_directory"),
                     name = ".. (Go up)",
                     mimeType = "",
                     sizeBytes = 0L,

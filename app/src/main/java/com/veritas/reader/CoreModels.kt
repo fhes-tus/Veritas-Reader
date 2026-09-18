@@ -6,7 +6,133 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal fun previewText(text: String): String {
-    return ReaderTextIndex.stripInternalMarkers(text).replace(Regex("\\s+"), " ").trim().take(180)
+    return extractSynopsisHeuristic(text, maxChars = 360)
+}
+
+internal fun extractSynopsisHeuristic(rawText: String, maxChars: Int = 360): String {
+    if (rawText.isBlank()) return ""
+    val cleaned = ReaderTextIndex.stripInternalMarkers(rawText)
+    // Sample up to first 40,000 characters to process front matter without excessive memory
+    val sample = if (cleaned.length > 40000) cleaned.substring(0, 40000) else cleaned
+
+    // If a Gutenberg start marker exists, skip past it to the actual text body
+    val gutenbergMarker = "*** START OF"
+    val gutenbergIdx = sample.indexOf(gutenbergMarker, ignoreCase = true)
+    val searchBody = if (gutenbergIdx >= 0) {
+        val afterMarker = sample.substring(gutenbergIdx)
+        val endLineIdx = afterMarker.indexOf('\n')
+        if (endLineIdx >= 0) afterMarker.substring(endLineIdx + 1) else afterMarker
+    } else {
+        sample
+    }
+
+    // Normalize newlines and split into candidate paragraphs
+    val rawParagraphs = searchBody.split(Regex("(?:\r?\n){2,}"))
+        .map { it.replace(Regex("\\s+"), " ").trim() }
+        .filter { it.isNotBlank() }
+
+    val skipKeywords = listOf(
+        "project gutenberg",
+        "all rights reserved",
+        "copyright",
+        "isbn",
+        "library of congress",
+        "table of contents",
+        "printed in",
+        "published by",
+        "first edition",
+        "public domain",
+        "redistributing",
+        "electronic work",
+        "foundation",
+        "license",
+        "cover design",
+        "cover art",
+        "typeset",
+        "typesetting",
+        "cataloging-in-publication",
+        "cataloguing in publication",
+        "reproduced in any form",
+        "permissions department",
+        "without written permission",
+        "start of the project gutenberg",
+        "end of the project gutenberg"
+    )
+
+    fun isHeaderOrTOC(p: String): Boolean {
+        val lower = p.lowercase()
+        // Strong boilerplate trigger
+        if (skipKeywords.any { lower.contains(it) }) return true
+
+        // Chapter / heading markers
+        if (lower.startsWith("chapter ") || lower.startsWith("book ") || lower.startsWith("part ") ||
+            lower.startsWith("act ") || lower.startsWith("scene ") || lower.startsWith("canto ")) {
+            if (p.length < 80) return true
+        }
+        if (lower == "contents" || lower == "table of contents" || lower == "preface" ||
+            lower == "prologue" || lower == "epilogue" || lower == "introduction" ||
+            lower == "dedication" || lower == "acknowledgments" || lower == "acknowledgements" ||
+            lower == "author's note" || lower == "foreword") {
+            return true
+        }
+
+        // Dotted leader / TOC format
+        if (p.count { it == '.' } > 6 && p.contains(Regex("\\.{2,}"))) return true
+
+        // Dominated by uppercase (title / author / header lines)
+        val letters = p.filter { it.isLetter() }
+        if (letters.isNotEmpty()) {
+            val upperCount = letters.count { it.isUpperCase() }
+            if (upperCount.toFloat() / letters.length > 0.50f && p.length < 160) return true
+        }
+
+        // Dominated by digits
+        val digits = p.filter { it.isDigit() }
+        if (digits.length > 8 && digits.toFloat() / p.length > 0.25f) return true
+
+        return false
+    }
+
+    // 1. First pass: find substantive prose paragraph (>= 12 words, complete sentences)
+    for (p in rawParagraphs) {
+        if (isHeaderOrTOC(p)) continue
+        val words = p.split(Regex("\\s+"))
+        if (words.size >= 12 && p.length >= 50 && (p.contains('.') || p.contains(',') || p.contains(';') || p.contains('—') || p.contains('-'))) {
+            return formatSynopsis(p, maxChars)
+        }
+    }
+
+    // 2. Second pass: relaxed prose criteria
+    for (p in rawParagraphs) {
+        if (skipKeywords.any { p.lowercase().contains(it) }) continue
+        val words = p.split(Regex("\\s+"))
+        if (words.size >= 8 && p.length >= 35) {
+            return formatSynopsis(p, maxChars)
+        }
+    }
+
+    // 3. Fallback: clean non-blank snippet
+    val flat = searchBody.replace(Regex("\\s+"), " ").trim()
+    return formatSynopsis(flat, maxChars)
+}
+
+private fun formatSynopsis(text: String, maxChars: Int): String {
+    val clean = text.replace(Regex("\\s+"), " ").trim()
+    if (clean.length <= maxChars) return clean
+
+    val minCut = (maxChars * 0.55).toInt()
+    val candidateSub = clean.substring(0, maxChars)
+    val lastSentenceEnd = candidateSub.lastIndexOfAny(charArrayOf('.', '!', '?'))
+    if (lastSentenceEnd >= minCut) {
+        return candidateSub.substring(0, lastSentenceEnd + 1).trim()
+    }
+
+    val lastSpace = candidateSub.lastIndexOf(' ')
+    return if (lastSpace >= minCut) {
+        candidateSub.substring(0, lastSpace).trim() + "…"
+    } else {
+        candidateSub.trim() + "…"
+    }
 }
 
 data class SavedDocument(
@@ -463,7 +589,7 @@ object VeritasThemePackCatalog {
     const val DEFAULT_ID = "veritas_media"
 
     val packOptions: List<Pair<String, String>> = listOf(
-        "veritas_media" to "Veritas Media",
+        "veritas_media" to "Vern Media",
         "material_you" to "Material You",
         "liquid_glass" to "Liquid Glass",
         "one_ui" to "One UI"
@@ -475,7 +601,7 @@ object VeritasThemePackCatalog {
 
     fun displayName(id: String): String {
         val normalized = normalizePackId(id)
-        return packOptions.firstOrNull { it.first == normalized }?.second ?: "Veritas Media"
+        return packOptions.firstOrNull { it.first == normalized }?.second ?: "Vern Media"
     }
 }
 

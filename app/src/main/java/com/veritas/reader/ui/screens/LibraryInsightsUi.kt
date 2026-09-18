@@ -715,7 +715,7 @@ internal fun shareGeneralNote(context: Context, note: GeneralNote) {
     }
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, note.title.ifBlank { "Veritas note" })
+        putExtra(Intent.EXTRA_SUBJECT, note.title.ifBlank { "Vern note" })
         putExtra(Intent.EXTRA_TEXT, plain)
     }
     runCatching { context.startActivity(Intent.createChooser(send, "Share note")) }

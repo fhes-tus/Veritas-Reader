@@ -38,10 +38,23 @@ import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Slideshow
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.ui.graphics.asImageBitmap
+import android.graphics.BitmapFactory
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.font.FontStyle
+import com.veritas.reader.ui.screens.CURATED_CLASSICS
+import com.veritas.reader.ui.screens.ClassicBookCover
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -550,39 +563,430 @@ internal fun MainDialogsHost(
             )
         }
 
+        @OptIn(ExperimentalMaterial3Api::class)
         uiState.detailsTarget?.let { target ->
-            AlertDialog(
-                onDismissRequest = { viewModel.updateState { it.copy(detailsTarget = null) } },
-                title = { Text(target.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Source: ${target.sourceLabel.ifBlank { "Text" }}")
-                        Text("Collection: ${target.collection.ifBlank { "Unfiled" }}")
-                        Text(
-                            "Progress: ${target.currentIndex + 1} / ${
-                                target.chunkCount.coerceAtLeast(
-                                    1
-                                )
-                            }"
-                        )
-                        Text("Characters: ${target.charCount}")
-                        Text("Updated: ${formatUpdated(target.updatedAt)}")
-                        Text(
-                            target.preview,
-                            maxLines = 4,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            val coverFile = remember(target.id) { CoverExtractor.coverFile(context, target.id) }
+            val coverBitmap = remember(coverFile) {
+                coverFile?.let { file ->
+                    if (file.exists()) runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull() else null
+                }
+            }
+            val progress = progressFraction(target)
+            val percent = (progress * 100).toInt().coerceIn(0, 100)
+            val bookmarksCount = remember(target.id, uiState.allAnnotations) {
+                uiState.allAnnotations.count { it.documentId == target.id && it.type == AnnotationType.BOOKMARK }
+            }
+            val notesCount = remember(target.id, uiState.allAnnotations, uiState.documentNotes) {
+                uiState.allAnnotations.count { it.documentId == target.id && it.type != AnnotationType.BOOKMARK } +
+                    (if (uiState.documentNotes.containsKey(target.id)) 1 else 0)
+            }
+            val matchingClassic = remember(target) {
+                CURATED_CLASSICS.firstOrNull { classic ->
+                    target.title.contains(classic.title, ignoreCase = true) ||
+                        (target.originalFileName.isNotBlank() && target.originalFileName.contains(classic.id, ignoreCase = true))
+                }
+            }
+
+            val singleParagraphSummary = remember(target.preview, target.id, matchingClassic) {
+                matchingClassic?.description?.takeIf { it.isNotBlank() }
+                    ?: run {
+                        val clean = extractSynopsisHeuristic(target.preview)
+                        if (clean.isNotBlank() && clean.split(Regex("\\s+")).size >= 10) {
+                            clean
+                        } else {
+                            val fullText = runCatching { viewModel.repository.readText(target) }.getOrNull().orEmpty()
+                            val fromFull = if (fullText.isNotBlank()) extractSynopsisHeuristic(fullText) else ""
+                            if (fromFull.isNotBlank()) fromFull else clean.ifBlank { target.preview }.ifBlank { "No preview synopsis available for this document." }
+                        }
                     }
-                },
-                confirmButton = {
-                    TextButton(onClick = { viewModel.updateState { it.copy(detailsTarget = null) } }) {
-                        Text(
-                            "Close"
-                        )
+            }
+
+            val displayAuthor = remember(target, matchingClassic) {
+                matchingClassic?.author ?: run {
+                    val t = target.title
+                    when {
+                        t.contains(" by ", ignoreCase = true) -> t.substringAfterLast(" by ", "").trim()
+                        t.contains(" - ") -> {
+                            val candidate = t.substringAfterLast(" - ").trim()
+                            if (candidate.length in 2..35 && !candidate.contains('.')) candidate else null
+                        }
+                        target.collection.isNotBlank() -> target.collection
+                        else -> null
                     }
                 }
-            )
+            }
+
+            val fileExtension = remember(target) {
+                viewModel.repository.detectExtensionFromNameOrType(
+                    displayName = target.title,
+                    sourceLabel = target.sourceLabel,
+                    mimeType = target.originalMimeType,
+                    fileName = target.originalFileName
+                ).uppercase()
+            }
+
+            val docFile = remember(target) {
+                viewModel.repository.originalFile(target) ?: java.io.File(viewModel.repository.docsDir, target.fileName).takeIf { it.exists() }
+            }
+
+            val fileSizeText = remember(docFile) {
+                docFile?.length()?.let { len ->
+                    if (len <= 0L) null
+                    else {
+                        val kb = len / 1024.0
+                        val mb = kb / 1024.0
+                        when {
+                            mb >= 1.0 -> String.format(Locale.US, "%.1f MB", mb)
+                            kb >= 1.0 -> String.format(Locale.US, "%.0f KB", kb)
+                            else -> "$len B"
+                        }
+                    }
+                }
+            }
+
+            val highlightQuote = remember(matchingClassic, uiState.allAnnotations, target.id) {
+                matchingClassic?.quote?.takeIf { it.isNotBlank() }
+                    ?: uiState.allAnnotations.firstOrNull { it.documentId == target.id && it.note.isNotBlank() }?.note?.take(160)
+            }
+
+            ModalBottomSheet(
+                onDismissRequest = { viewModel.updateState { it.copy(detailsTarget = null) } },
+                sheetState = sheetState,
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 36.dp)
+                        .navigationBarsPadding(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Centered Book Cover
+                    if (matchingClassic != null) {
+                        ClassicBookCover(
+                            book = matchingClassic,
+                            width = 110.dp,
+                            height = 160.dp,
+                            large = true
+                        )
+                    } else {
+                        Surface(
+                            modifier = Modifier
+                                .size(110.dp, 160.dp)
+                                .shadow(8.dp, RoundedCornerShape(12.dp)),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        ) {
+                            if (coverBitmap != null) {
+                                Image(
+                                    bitmap = coverBitmap.asImageBitmap(),
+                                    contentDescription = target.title,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    MaterialTheme.colorScheme.primaryContainer,
+                                                    MaterialTheme.colorScheme.surfaceContainerHighest
+                                                )
+                                            )
+                                        )
+                                        .padding(12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = when (fileExtension.lowercase()) {
+                                                "pdf" -> Icons.Outlined.PictureAsPdf
+                                                "epub" -> Icons.Outlined.Book
+                                                else -> Icons.Outlined.Description
+                                            },
+                                            contentDescription = null,
+                                            modifier = Modifier.size(36.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = fileExtension.ifBlank { target.sourceLabel.take(4).uppercase() },
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Title & Author (Centered)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                    ) {
+                        Text(
+                            text = target.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (!displayAuthor.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "by $displayAuthor",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+
+                    // Compact Horizontal Pills Row
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                text = fileExtension.ifBlank { target.sourceLabel.ifBlank { "Document" } },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        if (!fileSizeText.isNullOrBlank()) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = fileSizeText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            val lengthLabel = if (target.pageCount > 0) "${target.pageCount} pgs" else "${target.chunkCount} sents"
+                            Text(
+                                text = lengthLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                text = "⏱️ ${formatEstimatedReadTime(target)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        if (bookmarksCount > 0) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = "🔖 $bookmarksCount",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        if (notesCount > 0) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = "📝 $notesCount",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Highlight Quote Card
+                    if (!highlightQuote.isNullOrBlank()) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "“$highlightQuote”",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontStyle = FontStyle.Italic,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp)
+                            )
+                        }
+                    }
+
+                    // Full Synopsis directly underneath without "Overview" or "Summary" header
+                    Text(
+                        text = singleParagraphSummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Start,
+                        lineHeight = 20.sp,
+                        maxLines = 6,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Reading Progress Indicator (if started)
+                    if (progress > 0f) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Reading Progress",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "$percent%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(5.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Bottom Action Bar: Full-Width Stretched Read/Resume Button + Native Share Button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                viewModel.updateState { it.copy(detailsTarget = null) }
+                                viewModel.openSavedDocument(target)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (target.currentIndex > 0) Icons.Filled.PlayArrow else Icons.Outlined.Book,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (target.currentIndex > 0) "Resume" else "Read",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+
+                        FilledTonalIconButton(
+                            onClick = {
+                                val uri = viewModel.repository.originalUri(target)
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    if (uri != null) {
+                                        val mime = target.originalMimeType.ifBlank {
+                                            when (fileExtension.lowercase()) {
+                                                "pdf" -> "application/pdf"
+                                                "epub" -> "application/epub+zip"
+                                                "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                                "txt" -> "text/plain"
+                                                else -> "application/octet-stream"
+                                            }
+                                        }
+                                        type = mime
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        putExtra(Intent.EXTRA_SUBJECT, target.title)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    } else {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, target.title)
+                                        putExtra(Intent.EXTRA_TEXT, "${target.title}\n\n${target.preview}")
+                                    }
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share Document"))
+                            },
+                            modifier = Modifier.size(50.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Share,
+                                contentDescription = "Share Document",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         if (uiState.showBackupTools) {
@@ -604,10 +1008,10 @@ internal fun MainDialogsHost(
                     )
                 },
                 onExport = {
-                    backupExportLauncher.launch(veritasBackupFileName("veritas_backup"))
+                    backupExportLauncher.launch(veritasBackupFileName("vern_backup"))
                 },
                 onExportFull = {
-                    fullBackupExportLauncher.launch(veritasBackupZipFileName("veritas_full_backup"))
+                    fullBackupExportLauncher.launch(veritasBackupZipFileName("vern_full_backup"))
                 },
                 onImport = {
                     backupImportLauncher.launch(veritasBackupMimeTypes())
@@ -636,10 +1040,10 @@ internal fun MainDialogsHost(
                     )
                 },
                 onExportSyncPack = {
-                    backupExportLauncher.launch(veritasBackupFileName("veritas_sync_pack"))
+                    backupExportLauncher.launch(veritasBackupFileName("vern_sync_pack"))
                 },
                 onExportFull = {
-                    fullBackupExportLauncher.launch(veritasBackupZipFileName("veritas_full_backup"))
+                    fullBackupExportLauncher.launch(veritasBackupZipFileName("vern_full_backup"))
                 },
                 onShareSyncPack = { viewModel.updateState { it.copy(showSyncCenter = false) }; viewModel.shareLibrarySyncPack() },
                 onImportSyncPack = {

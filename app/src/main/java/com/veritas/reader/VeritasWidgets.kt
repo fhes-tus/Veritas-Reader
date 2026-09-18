@@ -72,7 +72,7 @@ class VeritasPlayerWidget : GlanceAppWidget() {
 
         provideContent {
             val size = androidx.glance.LocalSize.current
-            val title = PlaybackStateStore.documentTitle.ifBlank { "Veritas Reader" }
+            val title = PlaybackStateStore.documentTitle.ifBlank { "Vern" }
             val isPlaying = PlaybackStateStore.isPlaying
             val progressPercent = if (PlaybackStateStore.chunkCount > 0) {
                 ((PlaybackStateStore.currentIndex + 1) * 100) / PlaybackStateStore.chunkCount

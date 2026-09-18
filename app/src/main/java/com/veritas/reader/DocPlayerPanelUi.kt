@@ -549,7 +549,7 @@ internal fun DocPlayerPanel(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                "Spacing ${sectionSpacingDp}dp",
+                                "Line Spacing ${sectionSpacingDp}dp",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold

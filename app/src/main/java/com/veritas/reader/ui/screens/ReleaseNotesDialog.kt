@@ -46,7 +46,7 @@ fun ReleaseNotesDialog(
                     )
                 } else {
                     Text(
-                        text = "Veritas Reader has been updated to the latest version! Enjoy the new features and improvements.",
+                        text = "Vern has been updated to the latest version! Enjoy the new features and improvements.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

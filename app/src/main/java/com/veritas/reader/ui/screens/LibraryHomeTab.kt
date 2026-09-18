@@ -206,8 +206,10 @@ internal fun LibraryHomeTab(
     onRenameDocument: (SavedDocument) -> Unit,
     onShowDetails: (SavedDocument) -> Unit,
     onDeleteDocument: (SavedDocument) -> Unit,
+    onDownloadClassicBook: (ClassicBookEntry) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var previewClassicBook by remember { mutableStateOf<ClassicBookEntry?>(null) }
     var lastMainPageRefreshAt by remember { mutableLongStateOf(0L) }
     var internalIsHomeGridView by remember(isHomeGridView) { mutableStateOf(isHomeGridView) }
     val context = LocalContext.current
@@ -434,7 +436,20 @@ internal fun LibraryHomeTab(
                                             onOpen = { onOpenDocument(it) },
                                             onPlayPause = { onPlayPauseContinue(it) },
                                             onClear = { onClearContinueDocument(it) },
-                                            onAddContent = { onShowImportSheet() }
+                                            onAddContent = { onShowImportSheet() },
+                                            onPreviewClassic = { previewClassicBook = it },
+                                            onDownloadAndOpenClassic = { book ->
+                                                val installed = documents.firstOrNull {
+                                                    it.title.contains(book.title, ignoreCase = true) ||
+                                                    it.originalFileName.contains(book.id, ignoreCase = true)
+                                                }
+                                                if (installed != null) {
+                                                    onOpenDocument(installed)
+                                                } else {
+                                                    onDownloadClassicBook(book)
+                                                }
+                                            },
+                                            onShowDetails = { onShowDetails(it) }
                                         )
                                         }
                                     }
@@ -635,4 +650,19 @@ internal fun LibraryHomeTab(
                                     }
                                 }
 
+    previewClassicBook?.let { book ->
+        ClassicBookDetailSheet(
+            book = book,
+            existingDocuments = documents,
+            onDismiss = { previewClassicBook = null },
+            onDownloadBook = { b ->
+                previewClassicBook = null
+                onDownloadClassicBook(b)
+            },
+            onOpenBook = { doc ->
+                previewClassicBook = null
+                onOpenDocument(doc)
+            }
+        )
+    }
 }

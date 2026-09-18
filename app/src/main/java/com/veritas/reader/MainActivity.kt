@@ -196,6 +196,7 @@ import com.veritas.reader.ui.screens.RevampedOnboardingFlow
 import com.veritas.reader.ui.screens.ConfettiOverlay
 import com.veritas.reader.ui.OnboardingStep
 import com.veritas.reader.ui.OnboardingController
+import com.veritas.reader.ui.reloadReaderSettings
 import androidx.compose.ui.layout.onGloballyPositioned
 import java.io.File
 import java.text.SimpleDateFormat
@@ -273,6 +274,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        viewModel.reloadReaderSettings()
         updateVeritasWidgets(this)
     }
 

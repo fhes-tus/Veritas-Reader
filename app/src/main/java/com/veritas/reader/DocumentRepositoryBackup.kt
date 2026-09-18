@@ -1,4 +1,4 @@
-﻿package com.veritas.reader
+package com.veritas.reader
 
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -188,7 +188,7 @@ internal fun DocumentRepository.restoreFullBackupZip(input: InputStream, replace
             }
         }
         val json = backupJson
-            ?: throw IllegalArgumentException("This zip does not contain a Veritas backup.json.")
+            ?: throw IllegalArgumentException("This zip does not contain a Vern backup.json.")
         val (result, idMap) = restoreBackupJsonWithMap(json, replaceExisting)
         // Originals are keyed by originalFileName (carried inside the restored
         // documents), so they drop straight into place.
@@ -212,7 +212,7 @@ internal fun DocumentRepository.restoreFullBackupZip(input: InputStream, replace
 
 internal fun DocumentRepository.restoreBackupJsonWithMap(rawJson: String, replaceExisting: Boolean = false): Pair<BackupRestoreResult, Map<String, String>> {
     val root = runCatching { JSONObject(rawJson) }
-        .getOrElse { throw IllegalArgumentException("This is not a valid Veritas backup file.") }
+        .getOrElse { throw IllegalArgumentException("This is not a valid Vern backup file.") }
 
     val documentArray = root.optJSONArray("documents")
         ?: throw IllegalArgumentException("The backup does not contain a documents section.")

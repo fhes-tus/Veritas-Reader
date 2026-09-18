@@ -296,6 +296,10 @@ internal fun ReaderTopAppBar(
     onPlayQueue: () -> Unit,
     onOpenRsvpSpeedReader: () -> Unit,
     onOpenDocumentDetails: () -> Unit,
+    onOpenJumpToPage: () -> Unit = {},
+    onAddGeneralNote: () -> Unit = {},
+    onAddSentenceNote: () -> Unit = {},
+    onOpenBookmarks: () -> Unit = {},
     onReaderModeChange: (ReaderMode) -> Unit,
     pageItems: List<ReaderPageItem>,
     pagerState: androidx.compose.foundation.pager.PagerState,
@@ -428,7 +432,11 @@ onOpenAskAi = onOpenAskAi,
                             onToggleQueue = onToggleQueue,
                             onPlayQueue = onPlayQueue,
                             onOpenRsvpSpeedReader = onOpenRsvpSpeedReader,
-                            onOpenDocumentDetails = onOpenDocumentDetails
+                            onOpenDocumentDetails = onOpenDocumentDetails,
+                            onOpenJumpToPage = onOpenJumpToPage,
+                            onAddGeneralNote = onAddGeneralNote,
+                            onAddSentenceNote = onAddSentenceNote,
+                            onOpenBookmarks = onOpenBookmarks
                         )
                     }
                 }

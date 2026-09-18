@@ -27,7 +27,7 @@ object CrashReporter {
                     appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
                 }.getOrNull() ?: "?"
                 val report = buildString {
-                    appendLine("Veritas Reader crash report")
+                    appendLine("Vern crash report")
                     appendLine("Version: $version")
                     appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE})")
                     appendLine("Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
@@ -57,7 +57,7 @@ object CrashReporter {
                 file.delete()
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Veritas Reader crash report")
+                    putExtra(Intent.EXTRA_SUBJECT, "Vern crash report")
                     putExtra(Intent.EXTRA_TEXT, report)
                 }
                 runCatching {

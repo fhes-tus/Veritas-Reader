@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material.icons.outlined.TheaterComedy
@@ -590,10 +592,17 @@ fun AudioModeScreen(
                 }
 
                 // Right Bookmark button
-                IconButton(onClick = onToggleBookmark) {
-                    Text(
-                        text = if (isBookmarked) "🔖" else "🏷",
-                        fontSize = 24.sp
+                IconButton(
+                    onClick = {
+                        haptic.select()
+                        onToggleBookmark()
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (isBookmarked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkAdd,
+                        contentDescription = if (isBookmarked) "Remove Bookmark" else "Bookmark Sentence",
+                        tint = if (isBookmarked) MaterialTheme.colorScheme.primary else contentColor.copy(alpha = 0.8f),
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }

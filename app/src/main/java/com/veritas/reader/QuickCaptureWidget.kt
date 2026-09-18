@@ -68,7 +68,7 @@ class QuickCaptureWidget : GlanceAppWidget() {
                         ) {
                             Image(
                                 provider = ImageProvider(R.drawable.veritas_reader_icon),
-                                contentDescription = "Veritas",
+                                contentDescription = "Vern",
                                 modifier = GlanceModifier.size(26.dp)
                             )
                         }

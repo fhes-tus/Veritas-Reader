@@ -1,6 +1,7 @@
 package com.veritas.reader
 
 import android.animation.ValueAnimator
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
@@ -113,9 +114,9 @@ import kotlinx.coroutines.launch
         }
         toolbar.addView(pill)
 
-        toolbar.addView(iconButton(R.drawable.ic_m3_toc) { showTableOfContentsDialog() })
         toolbar.addView(iconButton(R.drawable.ic_m3_search) { toggleSearch() })
-        toolbar.addView(iconButton(R.drawable.ic_m3_rotate_right) { rotateViewer() })
+        toolbar.addView(iconButton(R.drawable.ic_m3_toc) { showTableOfContentsDialog() })
+        toolbar.addView(iconButton(R.drawable.ic_m3_contrast) { cyclePaperToneMode() })
         toolbar.addView(iconButton(R.drawable.ic_m3_more_vert) { showTopMenu(toolbar) })
         toolbarChrome = toolbar
 
@@ -136,16 +137,16 @@ import kotlinx.coroutines.launch
                 val fgG = scheme.onSurface.green
                 val fgB = scheme.onSurface.blue
                 
-                val deltaR = bgR - fgR
-                val deltaG = bgG - fgG
-                val deltaB = bgB - fgB
+                val scaleR = (bgR * 255f - fgR * 255f) / 255f
+                val scaleG = (bgG * 255f - fgG * 255f) / 255f
+                val scaleB = (bgB * 255f - fgB * 255f) / 255f
                 
                 val paint = android.graphics.Paint().apply {
                     colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
-                        0.299f * deltaR, 0.587f * deltaR, 0.114f * deltaR, 0.0f, fgR * 255.0f,
-                        0.299f * deltaG, 0.587f * deltaG, 0.114f * deltaG, 0.0f, fgG * 255.0f,
-                        0.299f * deltaB, 0.587f * deltaB, 0.114f * deltaB, 0.0f, fgB * 255.0f,
-                        0.0f,            0.0f,            0.0f,            1.0f, 0.0f
+                        scaleR, 0f,     0f,     0f, fgR * 255f,
+                        0f,     scaleG, 0f,     0f, fgG * 255f,
+                        0f,     0f,     scaleB, 0f, fgB * 255f,
+                        0f,     0f,     0f,     1f, 0f
                     ))
                 }
                 setLayerType(View.LAYER_TYPE_HARDWARE, paint)
@@ -248,6 +249,11 @@ import kotlinx.coroutines.launch
         applyPlayPauseIcon(PlaybackStateStore.isPlaying)
         controlRow.addView(requireNotNull(playPauseControl))
         controlRow.addView(iconButton(R.drawable.ic_m3_chevron_right) { sendPlaybackIntent(this, PlaybackActions.ACTION_NEXT) })
+        val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val rotateIcon = if (isLandscape) R.drawable.ic_m3_stay_primary_portrait else R.drawable.ic_m3_stay_primary_landscape
+        val rotBtn = iconButton(rotateIcon) { rotateViewer() }
+        rotateControl = rotBtn
+        controlRow.addView(rotBtn)
 
         // Expand arrow indicator
         panelExpandArrow = TextView(this).apply {
@@ -401,7 +407,7 @@ import kotlinx.coroutines.launch
             gravity = Gravity.CENTER
             setPadding(0, 12.dp, 0, 18.dp)
         })
-        root.addView(prominentButton("Back to Veritas") { finish() })
+        root.addView(prominentButton("Back to Vern") { finish() })
         setContentView(root)
     }
 
@@ -498,6 +504,13 @@ import kotlinx.coroutines.launch
         view.text = ""
         view.foreground = icon
         view.foregroundGravity = Gravity.CENTER
+    }
+
+    internal fun VeritasPdfViewerActivity.updateRotateIcon() {
+        val rotBtn = rotateControl ?: return
+        val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val rotateIcon = if (isLandscape) R.drawable.ic_m3_stay_primary_portrait else R.drawable.ic_m3_stay_primary_landscape
+        applyIconGlyph(rotBtn, rotateIcon)
     }
 
     internal fun VeritasPdfViewerActivity.prominentButton(label: String, action: () -> Unit): TextView {

@@ -217,7 +217,7 @@ internal fun PlaybackService.setupMediaSession() {
     )
     mediaSessionPlayer = player
     mediaSession = MediaSession.Builder(this, player)
-        .setId("VeritasReaderSession")
+        .setId("VernReaderSession")
         .build()
     updateMediaSessionMetadata()
     updateMediaSessionState()

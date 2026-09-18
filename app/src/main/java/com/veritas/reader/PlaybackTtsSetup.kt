@@ -46,7 +46,7 @@ internal fun PlaybackService.ensureTtsReadyAndSpeak() {
                     voiceLabel = fallbackVoice.name,
                     localeTag = fallbackVoice.localeTag,
                     enginePackage = resolvedEngine,
-                    engineLabel = if (resolvedEngine == VoiceManager.VERITAS_LITE) "Veritas Lite" else "Veritas Studio"
+                    engineLabel = if (resolvedEngine == VoiceManager.VERITAS_LITE) "Vern Lite" else "Vern Studio"
                 )
                 repository.saveVoiceSettings(updatedSettings)
                 PlaybackStateStore.statusMessage = "Switched to installed voice: ${fallbackVoice.name}"
@@ -54,7 +54,7 @@ internal fun PlaybackService.ensureTtsReadyAndSpeak() {
                 voiceToUse = fallbackVoice.id
                 installed = true
             } else {
-                Log.w(TAG, "No Veritas offline voices are downloaded. Temporarily falling back to system TTS.")
+                Log.w(TAG, "No Vern offline voices are downloaded. Temporarily falling back to system TTS.")
                 PlaybackStateStore.statusMessage = "Voice not downloaded. Falling back to system voice."
                 runCatching { veritasAudioBuffer?.flush() }
                 runCatching { veritasAudioBuffer?.shutdown() }
@@ -152,7 +152,7 @@ internal fun PlaybackService.ensureTtsReadyAndSpeakSelection(text: String) {
                     voiceLabel = fallbackVoice.name,
                     localeTag = fallbackVoice.localeTag,
                     enginePackage = resolvedEngine,
-                    engineLabel = if (resolvedEngine == VoiceManager.VERITAS_LITE) "Veritas Lite" else "Veritas Studio"
+                    engineLabel = if (resolvedEngine == VoiceManager.VERITAS_LITE) "Vern Lite" else "Vern Studio"
                 )
                 repository.saveVoiceSettings(updatedSettings)
                 PlaybackStateStore.statusMessage = "Switched to installed voice: ${fallbackVoice.name}"
@@ -160,7 +160,7 @@ internal fun PlaybackService.ensureTtsReadyAndSpeakSelection(text: String) {
                 voiceToUse = fallbackVoice.id
                 installed = true
             } else {
-                Log.w(TAG, "No Veritas offline voices are downloaded. Temporarily falling back to system TTS.")
+                Log.w(TAG, "No Vern offline voices are downloaded. Temporarily falling back to system TTS.")
                 PlaybackStateStore.statusMessage = "Voice not downloaded. Falling back to system voice."
                 runCatching { veritasAudioBuffer?.flush() }
                 runCatching { veritasAudioBuffer?.shutdown() }

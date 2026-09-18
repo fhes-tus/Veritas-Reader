@@ -171,3 +171,25 @@ fun ReaderViewModel.toggleQueue(document: SavedDocument) {
     }
 }
 
+fun ReaderViewModel.reorderDocuments(reorderedSubset: List<SavedDocument>) {
+    val currentDocs = _uiState.value.documents
+    val finalDocs = if (reorderedSubset.size == currentDocs.size) {
+        reorderedSubset
+    } else {
+        val reorderedIds = reorderedSubset.map { it.id }.toSet()
+        val queue = ArrayDeque(reorderedSubset)
+        currentDocs.map { doc ->
+            if (doc.id in reorderedIds && queue.isNotEmpty()) {
+                queue.removeFirst()
+            } else {
+                doc
+            }
+        }
+    }
+    _uiState.update { it.copy(documents = finalDocs) }
+    viewModelScope.launch(Dispatchers.IO) {
+        repository.saveDocuments(finalDocs)
+    }
+}
+
+

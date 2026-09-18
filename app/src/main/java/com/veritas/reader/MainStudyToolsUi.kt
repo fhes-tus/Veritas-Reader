@@ -280,7 +280,7 @@ internal fun AiFreeModeDialog(
                             fontWeight = FontWeight.Black
                         )
                         Text(
-                            "Veritas does not bundle a large offline model and does not require an API key. It prepares prompts for the AI apps already installed on this phone.",
+                            "Vern does not bundle a large offline model and does not require an API key. It prepares prompts for the AI apps already installed on this phone.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -290,7 +290,7 @@ internal fun AiFreeModeDialog(
                     Text("Open a document, tap Reader tools → AI, choose a task, then send the prepared prompt to ChatGPT, Gemini, Claude, Copilot, Perplexity, or another installed app. The prompt is also copied to your clipboard.")
                 }
                 InfoStepCard(title = "2. Paste the reply back") {
-                    Text("Flashcard and quiz replies can be pasted straight back into Veritas — cards join your spaced-repetition deck and quizzes become an in-app scored test.")
+                    Text("Flashcard and quiz replies can be pasted straight back into Vern — cards join your spaced-repetition deck and quizzes become an in-app scored test.")
                 }
                 InfoStepCard(title = "3. Base app stays lighter") {
                     Text("No heavy local AI model is bundled in the base app. A real offline model can be optional later as a separate downloadable pack.")
@@ -319,7 +319,7 @@ internal fun AiCenterDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Use installed AI apps or local study tools without adding paid APIs or account-gated services inside Veritas.",
+                    "Use installed AI apps or local study tools without adding paid APIs or account-gated services inside Vern.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text("$installedAiCount compatible AI app${if (installedAiCount == 1) "" else "s"} detected.")
@@ -1027,7 +1027,7 @@ private fun launchExternalAiHandoff(
     prompt: String
 ) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("Veritas AI Prompt", prompt))
+    clipboard.setPrimaryClip(ClipData.newPlainText("Vern AI Prompt", prompt))
 
     var launched = false
     if (packageName.isNotBlank()) {

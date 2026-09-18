@@ -79,6 +79,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     internal var viewerFragment: PdfViewerFragment? = null
     internal var pdfView: PdfView? = null
     internal var playPauseControl: TextView? = null
+    internal var rotateControl: TextView? = null
     internal var isSyncEnabled = true
     internal var syncPill: LinearLayout? = null
     internal var syncLabel: TextView? = null
@@ -132,6 +133,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         repository = DocumentRepository(applicationContext)
 
         val settings = repository.loadReaderSettings()
+        paperToneMode = PaperToneMode.fromString(settings.paperToneMode)
         val themeId = settings.themeId
         val packId = settings.themePackId
 
@@ -170,6 +172,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
         }
         document = metadata
         buildLayout(metadata.title.ifBlank { getString(R.string.app_name) })
+        applyPaperToneMode()
         loadHighlightTextAsync(metadata)
         loadPdfMetadataAndLinks(uri)
         runCatching {
@@ -186,7 +189,7 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             viewerFragment = fragment
             schedulePdfViewLookup(fragment)
         }.onFailure { error ->
-            showFallback("Veritas could not open this PDF viewer: ${error.message ?: "unknown error"}")
+            showFallback("Vern could not open this PDF viewer: ${error.message ?: "unknown error"}")
         }
     }
 
@@ -209,6 +212,13 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         viewerReadingStartedAt = System.currentTimeMillis()
+        val settings = repository.loadReaderSettings()
+        val newTone = PaperToneMode.fromString(settings.paperToneMode)
+        if (newTone != paperToneMode) {
+            paperToneMode = newTone
+            applyPaperToneMode()
+        }
+        updateRotateIcon()
         updatePlaybackControls()
         if (chromeVisible) scheduleChromeAutoHide()
         resetInactivityTimer()
@@ -295,10 +305,16 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
 
     internal fun rotateViewer() {
         requestedOrientation = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
+        updateRotateIcon()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateRotateIcon()
     }
 
     internal fun openOriginal() {
@@ -342,47 +358,57 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
                 val fgG = scheme.onSurface.green
                 val fgB = scheme.onSurface.blue
 
-                val deltaR = bgR - fgR
-                val deltaG = bgG - fgG
-                val deltaB = bgB - fgB
-
+                val isDark = resolvedTheme == "dark" || resolvedTheme == "amoled" || (0.299f * bgR + 0.587f * bgG + 0.114f * bgB) < 0.5f
+                if (isDark) {
+                    val scaleR = (bgR * 255f - fgR * 255f) / 255f
+                    val scaleG = (bgG * 255f - fgG * 255f) / 255f
+                    val scaleB = (bgB * 255f - fgB * 255f) / 255f
+                    val paint = android.graphics.Paint().apply {
+                        colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
+                            scaleR, 0f,     0f,     0f, fgR * 255f,
+                            0f,     scaleG, 0f,     0f, fgG * 255f,
+                            0f,     0f,     scaleB, 0f, fgB * 255f,
+                            0f,     0f,     0f,     1f, 0f
+                        ))
+                    }
+                    fragmentContainer?.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+                } else {
+                    val paint = android.graphics.Paint().apply {
+                        colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
+                            bgR, 0f,  0f,  0f, 0f,
+                            0f,  bgG, 0f,  0f, 0f,
+                            0f,  0f,  bgB, 0f, 0f,
+                            0f,  0f,  0f,  1f, 0f
+                        ))
+                    }
+                    fragmentContainer?.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+                }
+            }
+            PaperToneMode.DARK -> {
+                // Kindle Dark Slate: #141414 background (20), #E4E4E4 text (228)
+                val scale = (20f - 228f) / 255f
                 val paint = android.graphics.Paint().apply {
                     colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
-                        0.299f * deltaR, 0.587f * deltaR, 0.114f * deltaR, 0.0f, fgR * 255.0f,
-                        0.299f * deltaG, 0.587f * deltaG, 0.114f * deltaG, 0.0f, fgG * 255.0f,
-                        0.299f * deltaB, 0.587f * deltaB, 0.114f * deltaB, 0.0f, fgB * 255.0f,
-                        0.0f,            0.0f,            0.0f,            1.0f, 0.0f
+                        scale, 0f,    0f,    0f, 228f,
+                        0f,    scale, 0f,    0f, 228f,
+                        0f,    0f,    scale, 0f, 228f,
+                        0f,    0f,    0f,    1f, 0f
                     ))
                 }
                 fragmentContainer?.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
             }
-            PaperToneMode.DARK -> {
-                // Kindle Dark Slate: #141414 background (20), #E4E4E4 text (228)
-                val delta = (20f - 228f) / 255f
-                val colorMatrix = android.graphics.ColorMatrix(floatArrayOf(
-                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
-                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
-                    0.299f * delta, 0.587f * delta, 0.114f * delta, 0.0f, 228f,
-                    0.0f,           0.0f,           0.0f,           1.0f, 0.0f
-                ))
-                val paint = android.graphics.Paint().apply {
-                    colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
-                }
-                fragmentContainer?.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
-            }
             PaperToneMode.WARM_SEPIA -> {
-                // Warm Sepia: #FBF0D9 background (251, 240, 217), #3C2F2F ink (60, 47, 47)
-                val deltaR = (251f - 60f) / 255f
-                val deltaG = (240f - 47f) / 255f
-                val deltaB = (217f - 47f) / 255f
-                val colorMatrix = android.graphics.ColorMatrix(floatArrayOf(
-                    0.299f * deltaR, 0.587f * deltaR, 0.114f * deltaR, 0.0f, 60f,
-                    0.299f * deltaG, 0.587f * deltaG, 0.114f * deltaG, 0.0f, 47f,
-                    0.299f * deltaB, 0.587f * deltaB, 0.114f * deltaB, 0.0f, 47f,
-                    0.0f,            0.0f,            0.0f,            1.0f, 0.0f
-                ))
+                // Multiplicative Tint: #FBF0D9 background (251, 240, 217). Preserves 100% natural colors in photos!
+                val rScale = 251f / 255f
+                val gScale = 240f / 255f
+                val bScale = 217f / 255f
                 val paint = android.graphics.Paint().apply {
-                    colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
+                    colorFilter = android.graphics.ColorMatrixColorFilter(floatArrayOf(
+                        rScale, 0f,     0f,     0f, 0f,
+                        0f,     gScale, 0f,     0f, 0f,
+                        0f,     0f,     bScale, 0f, 0f,
+                        0f,     0f,     0f,     1f, 0f
+                    ))
                 }
                 fragmentContainer?.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
             }
@@ -399,6 +425,8 @@ class VeritasPdfViewerActivity : AppCompatActivity() {
             PaperToneMode.NATURAL_WHITE -> PaperToneMode.WARM_SEPIA
             PaperToneMode.WARM_SEPIA -> PaperToneMode.ACTIVE_THEME
         }
+        val currentSettings = repository.loadReaderSettings()
+        repository.saveReaderSettings(currentSettings.copy(paperToneMode = paperToneMode.name.lowercase()))
         applyPaperToneMode()
         val toastMessage = when (paperToneMode) {
             PaperToneMode.ACTIVE_THEME -> "Active Theme Paper Tone"

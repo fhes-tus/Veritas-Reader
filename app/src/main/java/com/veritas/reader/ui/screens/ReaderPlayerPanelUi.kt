@@ -107,7 +107,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.filled.StayCurrentLandscape
+import androidx.compose.material.icons.filled.StayCurrentPortrait
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -513,14 +516,24 @@ internal fun PlayerPanel(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val config = androidx.compose.ui.platform.LocalConfiguration.current
+                    val isLandscape = config.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
                     IconButton(
-                        onClick = onOpenAudioMode,
+                        onClick = {
+                            val activity = context as? android.app.Activity
+                            activity?.requestedOrientation = if (isLandscape) {
+                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            } else {
+                                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                            }
+                        },
                         modifier = Modifier.size(38.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Headphones,
-                            contentDescription = "Audio Immersion Mode",
-                            tint = MaterialTheme.colorScheme.primary,
+                            imageVector = if (isLandscape) Icons.Filled.StayCurrentPortrait else Icons.Filled.StayCurrentLandscape,
+                            contentDescription = if (isLandscape) "Switch to portrait" else "Switch to landscape",
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -775,7 +788,7 @@ internal fun PlayerPanel(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                "Spacing ${sectionSpacingDp}dp",
+                                "Line Spacing ${sectionSpacingDp}dp",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold

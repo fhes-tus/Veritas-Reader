@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
@@ -172,6 +173,35 @@ import androidx.compose.ui.graphics.toArgb
 
 
 @Composable
+internal fun rememberDocumentCover(documentId: String, title: String, originalFileName: String): android.graphics.Bitmap? {
+    val context = LocalContext.current
+    val coverFile = remember(documentId) { CoverExtractor.coverFile(context, documentId) }
+    return remember(coverFile, documentId, title) {
+        coverFile?.takeIf { it.exists() }?.let { file ->
+            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+        } ?: run {
+            val classic = CURATED_CLASSICS.firstOrNull { c ->
+                title.contains(c.title, ignoreCase = true) ||
+                (originalFileName.isNotBlank() && originalFileName.contains(c.id, ignoreCase = true))
+            }
+            if (classic != null) {
+                runCatching {
+                    context.assets.open("covers/${classic.id}.jpg").use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+                }.getOrNull()
+            } else if (title.contains("Who Moved My Cheese", ignoreCase = true)) {
+                runCatching {
+                    context.assets.open("covers/who_moved_my_cheese.jpg").use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+                }.getOrNull()
+            } else null
+        }
+    }
+}
+
+@Composable
 internal fun RecentImportItem(
     document: SavedDocument,
     isQueued: Boolean,
@@ -187,13 +217,7 @@ internal fun RecentImportItem(
     onDelete: () -> Unit
 ) {
     var showActions by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
-    val coverBitmap = remember(coverFile) {
-        coverFile?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-        }
-    }
+    val coverBitmap = rememberDocumentCover(document.id, document.title, document.originalFileName)
 
     Row(
         modifier = Modifier
@@ -332,13 +356,7 @@ internal fun HomeRecentBookGridItem(
     onOpen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
-    val coverBitmap = remember(coverFile) {
-        coverFile?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-        }
-    }
+    val coverBitmap = rememberDocumentCover(document.id, document.title, document.originalFileName)
 
     Card(
         modifier = modifier
@@ -474,13 +492,7 @@ fun DocumentCard(
     val showChips = viewMode == LibraryViewMode.MEDIUM || viewMode == LibraryViewMode.DETAILS
     val showPreview = viewMode == LibraryViewMode.DETAILS
 
-    val context = LocalContext.current
-    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
-    val coverBitmap = remember(coverFile) {
-        coverFile?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-        }
-    }
+    val coverBitmap = rememberDocumentCover(document.id, document.title, document.originalFileName)
 
     // Dips the card while held. DocumentCard drives taps through
     // detectTapGestures, so the press flag is tracked here rather than
@@ -633,19 +645,17 @@ fun DocumentCard(
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .background(
-                                if (isQueued) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                                CircleShape
-                            )
-                            .clickable { onToggleQueue() },
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
+                            .clickable { onShowDetails() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (isQueued) "✓" else "+",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = "Book Summary & Details",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                     Box {
@@ -711,13 +721,7 @@ fun DocumentTileCard(
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
         label = "documentTileSelectionScale"
     )
-    val context = LocalContext.current
-    val coverFile = remember(document.id) { CoverExtractor.coverFile(context, document.id) }
-    val coverBitmap = remember(coverFile) {
-        coverFile?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-        }
-    }
+    val coverBitmap = rememberDocumentCover(document.id, document.title, document.originalFileName)
     val isUnread = document.currentIndex == 0
 
     var pressed by remember { mutableStateOf(false) }
@@ -744,7 +748,6 @@ fun DocumentTileCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { if (selectionMode) onToggleSelected() else onOpen() }
                 .pointerInput(selectionMode, selected, document.id) {
                     detectTapGestures(
                         onPress = {
@@ -899,10 +902,10 @@ fun DocumentTileCard(
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             val subtitleText = buildString {
-                append(document.sourceLabel.uppercase())
+                append(document.sourceLabel.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() })
                 append(" • ")
                 append(formatEstimatedReadTime(document))
                 val progress = progressPercent(document)
@@ -910,13 +913,37 @@ fun DocumentTileCard(
                     append(" • $progress% read")
                 }
             }
-            Text(
-                text = subtitleText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = subtitleText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f))
+                        .clickable { onShowDetails() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = "Book Summary & Details",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
 
             if (progressFraction(document) > 0f) {
                 Spacer(modifier = Modifier.height(6.dp))

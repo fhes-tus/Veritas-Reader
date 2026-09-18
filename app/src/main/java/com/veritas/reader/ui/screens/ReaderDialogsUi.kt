@@ -1,6 +1,7 @@
 package com.veritas.reader.ui.screens
 
 
+import com.veritas.reader.R
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
@@ -588,11 +589,7 @@ internal fun ReaderDialogsAndSheetsHost(
             onDismiss = { onReaderModeChange(ReaderMode.TEXT) },
             isBookmarked = isBookmarked,
             onToggleBookmark = {
-                if (isBookmarked) {
-                    onToggleBookmark(currentIndex)
-                } else {
-                    onSetColorPaletteTarget(listOf(currentIndex))
-                }
+                onToggleBookmark(currentIndex)
             },
             rate = state.rate,
             onRateChange = onRateChange,
@@ -919,3 +916,96 @@ internal fun ReaderDialogsAndSheetsHost(
     }
 
 }
+
+@Composable
+fun JumpToPageDialog(
+    isOpen: Boolean,
+    currentPageIndex: Int,
+    pageCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    if (!isOpen) return
+    var jumpInput by remember(currentPageIndex) { mutableStateOf("${currentPageIndex + 1}") }
+    val parsed = jumpInput.toIntOrNull()
+    val isValid = parsed != null && parsed in 1..pageCount
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_m3_jump_page),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                "Jump to Page",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Enter a page number between 1 and $pageCount",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                OutlinedTextField(
+                    value = jumpInput,
+                    onValueChange = { input ->
+                        val digits = input.filter { it.isDigit() }.take(5)
+                        jumpInput = digits
+                    },
+                    singleLine = true,
+                    isError = jumpInput.isNotBlank() && !isValid,
+                    supportingText = if (jumpInput.isNotBlank() && !isValid) {
+                        { Text("Please enter 1 to $pageCount", color = MaterialTheme.colorScheme.error) }
+                    } else null,
+                    textStyle = MaterialTheme.typography.titleLarge.copy(
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (isValid && parsed != null) {
+                        onConfirm(parsed - 1)
+                        onDismiss()
+                    }
+                },
+                enabled = isValid,
+                shape = VeritasPackStyle.chipShape()
+            ) {
+                Text("Jump", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = VeritasPackStyle.cardShape(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    )
+}
+

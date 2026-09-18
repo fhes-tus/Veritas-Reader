@@ -94,7 +94,7 @@ object VoiceModelManager {
     val availablePackages = listOf(
         NeuralPackageDescriptor(
             id = "veritas_studio_pack",
-            title = "Veritas Studio",
+            title = "Vern Studio",
             description = "Richest, most expressive voices — 28 English speakers in one " +
                 "126MB download. Heavy: on mid-range phones it pauses between sentences.",
             engineType = OfflineEngineType.KOKORO,
@@ -102,7 +102,7 @@ object VoiceModelManager {
         ),
         NeuralPackageDescriptor(
             id = "veritas_lite_pack",
-            title = "Veritas Lite",
+            title = "Vern Lite",
             description = "12 UK and US voices, downloaded one at a time at about 20MB " +
                 "each. Reads continuously with no gaps on any phone.",
             engineType = OfflineEngineType.PIPER,
@@ -508,7 +508,7 @@ object VoiceModelManager {
                 connection.connectTimeout = 20_000
                 connection.readTimeout = 60_000
                 connection.instanceFollowRedirects = true
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; VeritasReader)")
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Vern)")
                 connection.connect()
 
                 val code = connection.responseCode

@@ -241,7 +241,7 @@ fun ThemePreviewCard(themePackId: String, themeId: String, vibrantHero: Boolean 
                             modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp))
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("Veritas", fontWeight = FontWeight.Black, color = scheme.onBackground, style = MaterialTheme.typography.titleMedium)
+                        Text("Vern", fontWeight = FontWeight.Black, color = scheme.onBackground, style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.weight(1f))
                         Box(modifier = Modifier.size(22.dp).background(scheme.surfaceVariant, CircleShape))
                     }
@@ -432,7 +432,10 @@ fun ReaderSettingsDialog(
     onToggleAutoPlayQueue: () -> Unit,
     onUiFontChange: (String) -> Unit = {},
     onPaperToneModeChange: (PaperToneMode) -> Unit = {},
-    onToggleAmoledMode: () -> Unit = {}
+    onToggleAmoledMode: () -> Unit = {},
+    currentPage: Int = 1,
+    totalPages: Int = 1,
+    onJumpToPage: ((Int) -> Unit)? = null
 ) {
     var themePacksExpanded by remember { mutableStateOf(false) }
     var colourThemesExpanded by remember { mutableStateOf(false) }
@@ -710,7 +713,7 @@ fun ReaderSettingsDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "Paragraph spacing",
+                        "Line spacing",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -728,6 +731,80 @@ fun ReaderSettingsDialog(
                     valueRange = 6f..24f,
                     steps = 17
                 )
+            }
+        }
+
+        // Jump to Page Card
+        if (totalPages > 1 && onJumpToPage != null) {
+            SettingsHubSectionTitle("Jump to page")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = VeritasPackStyle.cardShape(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                border = VeritasPackStyle.cardBorder(MaterialTheme.colorScheme)
+            ) {
+                var inputPageText by remember(currentPage) { mutableStateOf(currentPage.toString()) }
+                var inputError by remember { mutableStateOf(false) }
+
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Page number",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Page $currentPage of $totalPages",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inputPageText,
+                            onValueChange = { newText ->
+                                val digitsOnly = newText.filter { it.isDigit() }
+                                inputPageText = digitsOnly
+                                inputError = digitsOnly.toIntOrNull()?.let { it < 1 || it > totalPages } ?: false
+                            },
+                            singleLine = true,
+                            isError = inputError,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
+                            placeholder = { Text("1 - $totalPages") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        Button(
+                            onClick = {
+                                val target = inputPageText.toIntOrNull()
+                                if (target != null && target in 1..totalPages) {
+                                    onJumpToPage(target)
+                                    onDismiss()
+                                } else {
+                                    inputError = true
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            enabled = inputPageText.toIntOrNull() != null && !inputError
+                        ) {
+                            Text("Go")
+                        }
+                    }
+                }
             }
         }
 

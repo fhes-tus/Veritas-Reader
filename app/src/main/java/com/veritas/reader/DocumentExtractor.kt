@@ -624,7 +624,7 @@ object DocumentExtractor {
                 yield()
                 val cleaned = PdfTextCleaner.cleanPages(pageTexts, pageNumbers, normalizedOptions)
                 if (partial) {
-                    diagnostics.add("Opened ${pageTexts.size} of $selectedPageCount selected PDF pages after the foreground import window. Veritas will continue extracting the rest in the background.")
+                    diagnostics.add("Opened ${pageTexts.size} of $selectedPageCount selected PDF pages after the foreground import window. Vern will continue extracting the rest in the background.")
                 }
                 if (normalizedOptions.cleanupRepeatedLines && cleaned.removedRepeatedLineCount > 0) {
                     diagnostics.add("Removed ${cleaned.removedRepeatedLineCount} repeated header/footer line${if (cleaned.removedRepeatedLineCount == 1) "" else "s"}.")

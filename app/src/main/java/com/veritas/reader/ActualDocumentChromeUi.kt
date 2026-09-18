@@ -29,7 +29,10 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.StayCurrentLandscape
+import androidx.compose.material.icons.filled.StayCurrentPortrait
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -255,16 +258,24 @@ internal fun ActualDocumentTopBar(
                 )
             }
 
-            // Quick Switch to Text Reader
+            // Paper Tone Switcher
             IconButton(
-                onClick = onClose,
+                onClick = {
+                    val nextMode = when (paperToneMode) {
+                        PaperToneMode.ACTIVE_THEME -> PaperToneMode.DARK
+                        PaperToneMode.DARK -> PaperToneMode.NATURAL_WHITE
+                        PaperToneMode.NATURAL_WHITE -> PaperToneMode.WARM_SEPIA
+                        PaperToneMode.WARM_SEPIA -> PaperToneMode.ACTIVE_THEME
+                    }
+                    onPaperToneModeChange(nextMode)
+                },
                 modifier = Modifier
                     .size(38.dp)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f), CircleShape)
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.MenuBook,
-                    contentDescription = "Switch to Extracted Text",
+                    imageVector = Icons.Filled.InvertColors,
+                    contentDescription = "Paper Tone",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -278,8 +289,8 @@ internal fun ActualDocumentTopBar(
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f), CircleShape)
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.RotateRight,
-                    contentDescription = "Rotate",
+                    imageVector = if (isLandscape) Icons.Filled.StayCurrentPortrait else Icons.Filled.StayCurrentLandscape,
+                    contentDescription = if (isLandscape) "Switch to portrait" else "Switch to landscape",
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(20.dp)
                 )
@@ -394,21 +405,7 @@ internal fun ActualDocumentOverflowMenu(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
-        DropdownMenuItem(
-            text = {
-                Column {
-                    Text(if (topBarVisible) "Full Screen Mode" else "Exit Full Screen", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                    Text(if (topBarVisible) "Hide toolbar & player bars" else "Show toolbar & player bars", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            },
-            leadingIcon = {
-                Icon(painter = painterResource(R.drawable.ic_m3_fullscreen), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            },
-            onClick = {
-                onToggleFullScreen()
-                onDismiss()
-            }
-        )
+
         DropdownMenuItem(
             text = {
                 Column {

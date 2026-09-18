@@ -2,6 +2,7 @@ package com.veritas.reader.ui.screens
 
 import android.graphics.BitmapFactory
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.text.font.FontStyle
@@ -109,8 +110,15 @@ import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material3.*
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import kotlinx.coroutines.delay
 import java.util.UUID
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
@@ -220,6 +228,7 @@ fun LibraryScreen(
     onAdvancedPdfImport: () -> Unit,
     onOpenFileBrowser: () -> Unit,
     onOpenClassicsCatalog: () -> Unit = {},
+    onDownloadClassicBook: (ClassicBookEntry) -> Unit = {},
     onOpenReadingLists: () -> Unit,
     onOpenReadingHistory: () -> Unit,
     onOpenDocument: (SavedDocument) -> Unit,
@@ -241,6 +250,7 @@ fun LibraryScreen(
     onMoveQueueBy: (SavedDocument, Int) -> Unit,
     onRemoveFromQueue: (SavedDocument) -> Unit,
     onClearQueue: () -> Unit,
+    onReorderDocuments: (List<SavedDocument>) -> Unit = {},
     onOpenSyncCenter: () -> Unit,
     onOpenSettingsHub: () -> Unit,
     onRefreshMainPage: () -> Unit,
@@ -457,6 +467,16 @@ fun LibraryScreen(
         { tab: VeritasHomeTab ->
             selectedHomeTab = tab
             coroutineScope.launch { pagerState.animateScrollToPage(tab.ordinal) }
+        }
+    }
+
+    val isNotHomeTab = pagerState.currentPage != VeritasHomeTab.HOME.ordinal
+    BackHandler(enabled = selectionMode || showHomeSidebar || showImportSheet || isNotHomeTab) {
+        when {
+            selectionMode -> selectedDocumentIds = emptySet()
+            showHomeSidebar -> showHomeSidebar = false
+            showImportSheet -> showImportSheet = false
+            isNotHomeTab -> navigateToTab(VeritasHomeTab.HOME)
         }
     }
 
@@ -781,6 +801,45 @@ fun LibraryScreen(
                         .widthIn(max = 760.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    AnimatedVisibility(
+                        visible = uiState.isBatchImporting,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.5.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Importing files...",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "${uiState.batchImportCurrent} of ${uiState.batchImportTotal} processed",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     HorizontalPager(
                         state = pagerState,
                         beyondViewportPageCount = 1,
@@ -805,6 +864,7 @@ fun LibraryScreen(
                                     onClearContinueDocument = onClearContinueDocument,
                                     onShowImportSheet = { showImportSheet = true },
                                     onOpenClassicsCatalog = onOpenClassicsCatalog,
+                                    onDownloadClassicBook = onDownloadClassicBook,
                                     onNavigateToTab = navigateToTab,
                                     onSetSourceFilter = {
                                         sourceFilter = it
@@ -874,6 +934,7 @@ fun LibraryScreen(
                                     },
                                     onRefreshMainPage = onRefreshMainPage,
                                     isQueued = isQueued,
+                                    onReorderDocuments = onReorderDocuments,
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope
                                 )
@@ -939,6 +1000,14 @@ fun LibraryScreen(
                                 )
                             }
                         }
+                    }
+                }
+
+                val context = LocalContext.current
+                LaunchedEffect(uiState.importMessage) {
+                    val msg = uiState.importMessage
+                    if (!msg.isNullOrBlank()) {
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     }
                 }
             }

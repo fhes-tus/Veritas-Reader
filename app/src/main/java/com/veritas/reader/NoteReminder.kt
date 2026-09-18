@@ -79,7 +79,7 @@ object NoteReminderScheduler {
         val intent = Intent(context, NoteReminderReceiver::class.java).apply {
             action = ACTION_FIRE
             // The data uri makes the PendingIntent unique per note so cancel/replace works.
-            data = android.net.Uri.parse("veritas://note-reminder/$noteId")
+            data = android.net.Uri.parse("vern://note-reminder/$noteId")
             putExtra(EXTRA_NOTE_ID, noteId)
             putExtra(EXTRA_TITLE, title)
             putExtra(EXTRA_BODY, body)
@@ -141,7 +141,7 @@ class NoteReminderBootReceiver : BroadcastReceiver() {
                 val notes = repo.loadGeneralNotes()
                 val now = System.currentTimeMillis()
                 notes.filter { it.reminderAt != null && it.reminderAt > now }.forEach { note ->
-                    val title = note.title.ifBlank { "Veritas note" }
+                    val title = note.title.ifBlank { "Vern note" }
                     val body = note.content.take(120).ifBlank { "Tap to view note" }
                     val reminderTime = note.reminderAt ?: return@forEach
                     NoteReminderScheduler.schedule(context, note.id, title, body, reminderTime)

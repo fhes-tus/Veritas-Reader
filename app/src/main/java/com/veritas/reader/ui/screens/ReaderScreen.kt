@@ -350,6 +350,7 @@ fun ReaderScreen(
     onVoiceSelected: (TtsVoiceOption) -> Unit,
     onReaderModeChange: (ReaderMode) -> Unit,
     onPaperToneModeChange: (PaperToneMode) -> Unit = {},
+    onAddGeneralNote: () -> Unit = {},
     onAddBookmarkGroup: (List<Int>, String) -> Unit = { _, _ -> },
     onShareToAi: (ShareScope, ReaderTextSelection?, IntRange?, Boolean) -> Unit = { _, _, _, _ -> },
     showShareToAi: Boolean = false,
@@ -390,6 +391,7 @@ fun ReaderScreen(
     var showBookmarks by remember { mutableStateOf(false) }
     var showOutline by remember { mutableStateOf(false) }
     var showRsvpSpeedReader by remember(document.id) { mutableStateOf(false) }
+    var showJumpToPageDialog by remember(document.id) { mutableStateOf(false) }
     val showAudioMode = state.readerMode == ReaderMode.LISTEN
     var selectedTextSelection by remember(document.id) { mutableStateOf<ReaderTextSelection?>(null) }
     var selectedTextView by remember(document.id) { mutableStateOf<TextView?>(null) }
@@ -411,6 +413,24 @@ fun ReaderScreen(
         }
     }
     KeepScreenAwake(enabled = (state.readerMode == ReaderMode.TEXT), interactionTrigger = interactionTrigger)
+
+    androidx.activity.compose.BackHandler(enabled = true) {
+        when {
+            showDocumentDetails -> showDocumentDetails = false
+            showTools -> showTools = false
+            showJumpToPageDialog -> showJumpToPageDialog = false
+            showOutline -> showOutline = false
+            showBookmarks -> showBookmarks = false
+            showSearch -> {
+                showSearch = false
+                onSearchQueryChange("")
+            }
+            showRsvpSpeedReader -> showRsvpSpeedReader = false
+            showShareToAiSheet -> showShareToAiSheet = false
+            selectedTextSelection != null -> selectedTextSelection = null
+            else -> onBackToLibrary()
+        }
+    }
 
     val readerModel = remember(document.rawText, document.pageCount, document.chunks.size) {
         ReaderTextModelCache.get(document.id, document.rawText, document.pageCount)
@@ -641,15 +661,15 @@ fun ReaderScreen(
     )
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val topContentPadding by animateDpAsState(
-        targetValue = if (effectiveTopBarVisible) 148.dp else (topInset + 8.dp),
+    val animatedTopPadding by animateDpAsState(
+        targetValue = if (effectiveTopBarVisible) topInset + 56.dp else topInset + 8.dp,
         animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
-        label = "readerTopContentPadding"
+        label = "animatedTopPadding"
     )
-    val bottomContentPadding by animateDpAsState(
-        targetValue = if (effectiveBottomBarVisible) 96.dp else (bottomInset + 8.dp),
+    val animatedBottomPadding by animateDpAsState(
+        targetValue = if (effectiveBottomBarVisible) bottomInset + 64.dp else bottomInset + 12.dp,
         animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
-        label = "readerBottomContentPadding"
+        label = "animatedBottomPadding"
     )
 
     Box(
@@ -658,11 +678,11 @@ fun ReaderScreen(
             .background(VeritasPackStyle.backgroundBrush(MaterialTheme.colorScheme))
             .monitorReadingActivity { interactionTrigger = System.currentTimeMillis() }
     ) {
-        // 1. Full-screen Reading Content (with dynamic animated padding)
+        // 1. Full-screen Reading Content (Animated padding gives smooth toolbar transitions)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = topContentPadding, bottom = bottomContentPadding)
+                .padding(top = animatedTopPadding, bottom = animatedBottomPadding)
         ) {
             if (document.chunks.isEmpty()) {
                 Box(
@@ -737,7 +757,8 @@ fun ReaderScreen(
                                 shareToAiSelection = sel
                                 shareToAiNoPrompt = noPrompt
                                 showShareToAiSheet = true
-                            }
+                            },
+                            onFontSizeChange = onFontSizeChange
                         )
             }
         }
@@ -801,6 +822,10 @@ fun ReaderScreen(
             onPlayQueue = onPlayQueue,
             onOpenRsvpSpeedReader = { showRsvpSpeedReader = true },
             onOpenDocumentDetails = { showDocumentDetails = true },
+            onOpenJumpToPage = { showJumpToPageDialog = true },
+            onAddGeneralNote = onAddGeneralNote,
+            onAddSentenceNote = { onEditNote(currentIndex) },
+            onOpenBookmarks = { showBookmarks = true },
             onReaderModeChange = onReaderModeChange,
             pageItems = pageItems,
             pagerState = pagerState,
@@ -924,5 +949,17 @@ fun ReaderScreen(
         annotations = annotations,
         onAddBookmarkGroup = onAddBookmarkGroup,
         onDismissShareToAi = onDismissShareToAi
+    )
+
+    JumpToPageDialog(
+        isOpen = showJumpToPageDialog,
+        currentPageIndex = pagerState.currentPage,
+        pageCount = pageItems.size.coerceAtLeast(1),
+        onDismiss = { showJumpToPageDialog = false },
+        onConfirm = { targetPageIndex ->
+            coroutineScope.launch {
+                pagerState.animateScrollToPage(targetPageIndex.coerceIn(0, (pageItems.size - 1).coerceAtLeast(0)))
+            }
+        }
     )
 }

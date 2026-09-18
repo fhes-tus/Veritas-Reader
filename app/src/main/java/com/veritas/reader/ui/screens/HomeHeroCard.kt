@@ -42,9 +42,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import java.util.Calendar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -104,28 +108,46 @@ fun VeritasHomeHeroCard(
     onOpen: (SavedDocument) -> Unit,
     onPlayPause: (SavedDocument) -> Unit,
     onClear: (SavedDocument) -> Unit,
-    onAddContent: () -> Unit
+    onAddContent: () -> Unit,
+    onPreviewClassic: ((ClassicBookEntry) -> Unit)? = null,
+    onDownloadAndOpenClassic: ((ClassicBookEntry) -> Unit)? = null,
+    onShowDetails: ((SavedDocument) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val doc = continueDocument
 
     // ── Async, downsampled cover decode (never on the main thread) ──
     var cover by remember(doc?.id) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(doc?.id) {
+    LaunchedEffect(doc?.id, doc?.title) {
         cover = null
         val id = doc?.id ?: return@LaunchedEffect
         cover = withContext(Dispatchers.IO) {
             runCatching {
-                val file = CoverExtractor.coverFile(context, id) ?: return@runCatching null
-                if (!file.exists()) return@runCatching null
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.absolutePath, bounds)
-                var sample = 1
-                while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 512) sample *= 2
-                BitmapFactory.decodeFile(
-                    file.absolutePath,
-                    BitmapFactory.Options().apply { inSampleSize = sample }
-                )
+                val file = CoverExtractor.coverFile(context, id)
+                if (file != null && file.exists()) {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(file.absolutePath, bounds)
+                    var sample = 1
+                    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 512) sample *= 2
+                    BitmapFactory.decodeFile(
+                        file.absolutePath,
+                        BitmapFactory.Options().apply { inSampleSize = sample }
+                    )
+                } else {
+                    val classic = CURATED_CLASSICS.firstOrNull { c ->
+                        (doc.title.isNotBlank() && doc.title.contains(c.title, ignoreCase = true)) ||
+                        (doc.originalFileName.isNotBlank() && doc.originalFileName.contains(c.id, ignoreCase = true))
+                    }
+                    if (classic != null) {
+                        context.assets.open("covers/${classic.id}.jpg").use { stream ->
+                            BitmapFactory.decodeStream(stream)
+                        }
+                    } else if (doc.title.contains("Who Moved My Cheese", ignoreCase = true)) {
+                        context.assets.open("covers/who_moved_my_cheese.jpg").use { stream ->
+                            BitmapFactory.decodeStream(stream)
+                        }
+                    } else null
+                }
             }.getOrNull()
         }
     }
@@ -193,6 +215,18 @@ fun VeritasHomeHeroCard(
         insights[insightIndex % insights.size]
     }
 
+    val bookOfTheDay = remember { getBookOfTheDay() }
+    var classicCoverBitmap by remember(bookOfTheDay.id) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(bookOfTheDay.id) {
+        classicCoverBitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("covers/${bookOfTheDay.id}.jpg").use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            }.getOrNull()
+        }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -205,7 +239,10 @@ fun VeritasHomeHeroCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(gradient)
-                .clickable { if (doc != null) onOpen(doc) else onAddContent() }
+                .clickable {
+                    if (doc != null) onOpen(doc)
+                    else onDownloadAndOpenClassic?.invoke(bookOfTheDay) ?: onAddContent()
+                }
                 .padding(16.dp)
         ) {
             Row(
@@ -224,34 +261,96 @@ fun VeritasHomeHeroCard(
                             scaleY = coverScale
                         }
                         .clip(RoundedCornerShape(10.dp))
-                        .background(onCardColor.copy(alpha = 0.08f))
-                        .border(1.dp, onCardColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp)),
+                        .then(
+                            if (doc != null) Modifier.background(onCardColor.copy(alpha = 0.08f))
+                            else Modifier.background(Brush.linearGradient(bookOfTheDay.coverGradient))
+                        )
+                        .border(1.dp, onCardColor.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+                        .clickable {
+                            if (doc != null) {
+                                if (onShowDetails != null) onShowDetails(doc) else onOpen(doc)
+                            } else {
+                                onPreviewClassic?.invoke(bookOfTheDay)
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     if (doc != null) {
-                        VeritasCoverPlaceholder(
-                            documentId = doc.id,
-                            title = doc.title,
-                            sourceLabel = doc.sourceLabel,
+                        if (cover != null) {
+                            Image(
+                                bitmap = cover!!.asImageBitmap(),
+                                contentDescription = doc.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { alpha = coverAlpha }
+                            )
+                        } else {
+                            VeritasCoverPlaceholder(
+                                documentId = doc.id,
+                                title = doc.title,
+                                sourceLabel = doc.sourceLabel,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    } else if (classicCoverBitmap != null) {
+                        Image(
+                            bitmap = classicCoverBitmap!!.asImageBitmap(),
+                            contentDescription = bookOfTheDay.title,
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                            contentDescription = null,
-                            tint = onCardColor.copy(alpha = 0.55f),
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-                    cover?.let {
-                        Image(
-                            bitmap = it.asImageBitmap(),
-                            contentDescription = null,
+                        Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .alpha(coverAlpha),
-                            contentScale = ContentScale.Crop
-                        )
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "VERN CLASSIC",
+                                color = bookOfTheDay.accentColor.copy(alpha = 0.9f),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = bookOfTheDay.title,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = bookOfTheDay.author,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    fontSize = 9.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .background(bookOfTheDay.accentColor.copy(alpha = 0.2f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AutoStories,
+                                    contentDescription = null,
+                                    tint = bookOfTheDay.accentColor,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -271,7 +370,7 @@ fun VeritasHomeHeroCard(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Continue Reading",
+                                text = if (doc != null) "Continue Reading" else "✨ Book of the Day",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -289,7 +388,7 @@ fun VeritasHomeHeroCard(
                         }
 
                         Text(
-                            text = doc?.title ?: "No book in progress",
+                            text = doc?.title ?: bookOfTheDay.title,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             fontWeight = FontWeight.Bold,
@@ -297,19 +396,19 @@ fun VeritasHomeHeroCard(
                             style = MaterialTheme.typography.titleMedium
                         )
 
-                        // Subtitle line (Live insight or progress)
+                        // Subtitle line (Live insight or book synopsis/quote)
                         Text(
-                            text = insightLine,
-                            maxLines = 1,
+                            text = if (doc != null) insightLine else if (bookOfTheDay.quote.isNotBlank()) "“${bookOfTheDay.quote}”" else "${bookOfTheDay.author} • ${bookOfTheDay.genre}",
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall,
                             color = onCardColor.copy(alpha = 0.75f)
                         )
                     }
 
-                    // Progress indicator with percentage above the bar
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        if (doc != null) {
+                    // Progress indicator for active doc, or tags for Book of the Day
+                    if (doc != null) {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.End
@@ -321,16 +420,24 @@ fun VeritasHomeHeroCard(
                                     color = onCardColor.copy(alpha = 0.85f)
                                 )
                             }
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = onCardColor,
+                                trackColor = onCardColor.copy(alpha = 0.22f)
+                            )
                         }
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = onCardColor,
-                            trackColor = onCardColor.copy(alpha = 0.22f)
-                        )
+                    } else {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HeroPill(text = bookOfTheDay.genre, color = onCardColor)
+                            HeroPill(text = "${bookOfTheDay.estimatedMinutes}m read", color = onCardColor)
+                        }
                     }
 
                     // Stat pills on the left, Play button on the right
@@ -355,11 +462,14 @@ fun VeritasHomeHeroCard(
                                 .clip(CircleShape)
                                 .background(onCardColor.copy(alpha = 0.18f))
                                 .border(1.dp, onCardColor.copy(alpha = 0.25f), CircleShape)
-                                .clickable { if (doc != null) onPlayPause(doc) else onAddContent() },
+                                .clickable {
+                                    if (doc != null) onPlayPause(doc)
+                                    else onDownloadAndOpenClassic?.invoke(bookOfTheDay) ?: onAddContent()
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             AnimatedContent(
-                                targetState = if (doc == null) "add" else if (isPlayingThis) "pause" else "play",
+                                targetState = if (doc == null) "read" else if (isPlayingThis) "pause" else "play",
                                 transitionSpec = {
                                     (scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)) + fadeIn(tween(150)))
                                         .togetherWith(fadeOut(tween(100)))
@@ -368,12 +478,12 @@ fun VeritasHomeHeroCard(
                             ) { state ->
                                 Icon(
                                     imageVector = when (state) {
-                                        "add" -> Icons.Filled.Add
+                                        "read" -> Icons.Filled.AutoStories
                                         "pause" -> Icons.Filled.Pause
                                         else -> Icons.Filled.PlayArrow
                                     },
                                     contentDescription = when (state) {
-                                        "add" -> "Add content"
+                                        "read" -> "Read classic"
                                         "pause" -> "Pause"
                                         else -> "Play"
                                     },

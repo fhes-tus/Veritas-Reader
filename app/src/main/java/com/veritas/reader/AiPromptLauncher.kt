@@ -98,17 +98,17 @@ object AiPromptLauncher {
         val selectedPackage = preferredAiPackage(context, settings).orEmpty()
 
         val fileNameMd = when (scope) {
-            AiPromptScope.CURRENT_SENTENCE -> "Veritas - $sanitizedTitle - Sentence.md"
-            AiPromptScope.CURRENT_PAGE -> "Veritas - $sanitizedTitle - Page $minPage.md"
+            AiPromptScope.CURRENT_SENTENCE -> "Vern - $sanitizedTitle - Sentence.md"
+            AiPromptScope.CURRENT_PAGE -> "Vern - $sanitizedTitle - Page $minPage.md"
             AiPromptScope.CURRENT_SECTION -> {
-                if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
-                else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
+                if (minPage == maxPage) "Vern - $sanitizedTitle - Page $minPage.md"
+                else "Vern - $sanitizedTitle - Pages $minPage-$maxPage.md"
             }
             AiPromptScope.CUSTOM_PAGE_RANGE -> {
-                if (minPage == maxPage) "Veritas - $sanitizedTitle - Page $minPage.md"
-                else "Veritas - $sanitizedTitle - Pages $minPage-$maxPage.md"
+                if (minPage == maxPage) "Vern - $sanitizedTitle - Page $minPage.md"
+                else "Vern - $sanitizedTitle - Pages $minPage-$maxPage.md"
             }
-            AiPromptScope.WHOLE_DOCUMENT -> "Veritas - $sanitizedTitle - Entire Document.md"
+            AiPromptScope.WHOLE_DOCUMENT -> "Vern - $sanitizedTitle - Entire Document.md"
         }
 
         val prompt = buildPrompt(
@@ -124,7 +124,7 @@ object AiPromptLauncher {
 
         if (!noPrompt) {
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("Veritas Prompt", prompt))
+            clipboard.setPrimaryClip(ClipData.newPlainText("Vern Prompt", prompt))
             Toast.makeText(context, "Prompt copied to clipboard", Toast.LENGTH_SHORT).show()
         }
 
@@ -138,7 +138,7 @@ object AiPromptLauncher {
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFileMd)
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                clipData = ClipData.newRawUri("Veritas Share", uri)
+                clipData = ClipData.newRawUri("Vern Share", uri)
                 val truncatedText = if (textBody.length <= 60000) {
                     textBody
                 } else {
@@ -165,7 +165,7 @@ object AiPromptLauncher {
                         val uriTxt = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", shareFileTxt)
                         val txtIntent = Intent(shareIntent).apply {
                             putExtra(Intent.EXTRA_STREAM, uriTxt)
-                            clipData = ClipData.newRawUri("Veritas Share", uriTxt)
+                            clipData = ClipData.newRawUri("Vern Share", uriTxt)
                         }
                         context.startActivity(txtIntent)
                     } catch (e2: Exception) {
@@ -279,7 +279,7 @@ object AiPromptLauncher {
         }
 
         val builder = StringBuilder()
-        builder.appendLine("You are an expert study and learning companion for Veritas Reader.")
+        builder.appendLine("You are an expert study and learning companion for Vern.")
         builder.appendLine("Analyze the attached text from '${title.ifBlank { "the document" }}' and execute the following task:")
         builder.appendLine()
         builder.appendLine("Task Instructions:")
@@ -315,7 +315,7 @@ object AiPromptLauncher {
 
     fun copyPromptToClipboard(context: Context, prompt: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Veritas Reader AI prompt", prompt))
+        clipboard.setPrimaryClip(ClipData.newPlainText("Vern AI prompt", prompt))
     }
 
     fun copyTextToClipboard(context: Context, label: String, text: String) {

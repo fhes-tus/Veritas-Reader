@@ -1,6 +1,7 @@
 package com.veritas.reader.ui.screens
 
 
+import com.veritas.reader.R
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
@@ -282,7 +283,11 @@ internal fun ReaderToolsMenu(
     onToggleQueue: () -> Unit,
     onPlayQueue: () -> Unit,
     onOpenRsvpSpeedReader: () -> Unit = {},
-    onOpenDocumentDetails: () -> Unit = {}
+    onOpenDocumentDetails: () -> Unit = {},
+    onOpenJumpToPage: () -> Unit = {},
+    onAddGeneralNote: () -> Unit = {},
+    onAddSentenceNote: () -> Unit = {},
+    onOpenBookmarks: () -> Unit = onToggleBookmarks
 ) {
     val context = LocalContext.current
     var showAiChooser by remember { mutableStateOf(false) }
@@ -310,18 +315,38 @@ internal fun ReaderToolsMenu(
         onDismissRequest = onDismiss,
         modifier = Modifier.width(320.dp)
     ) {
-        Text(
-            "Reader tools",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Black
-        )
-        Text(
-            summary,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "Reader tools",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black
+            )
+            IconButton(
+                onClick = { choose(onOpenDocumentDetails) },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = "Document details",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        if (summary.isNotBlank()) {
+            Text(
+                summary,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
         Text(
             "Read",
@@ -330,17 +355,22 @@ internal fun ReaderToolsMenu(
             fontWeight = FontWeight.Bold
         )
         DropdownMenuItem(
+            text = { Text("Jump to page...") },
+            leadingIcon = {
+                Icon(
+                    painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_m3_jump_page),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            onClick = { choose(onOpenJumpToPage) }
+        )
+        DropdownMenuItem(
             text = { Text("RSVP Speed Reader") },
             leadingIcon = { Icon(Icons.Outlined.Bolt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            onClick = { choose(onOpenRsvpSpeedReader) })
-        DropdownMenuItem(
-            text = { Text(if (showSearch) "Hide search" else "Search document") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            onClick = { choose(onToggleSearch) })
-        DropdownMenuItem(
-            text = { Text("Document details") },
-            leadingIcon = { Icon(Icons.Outlined.Info, contentDescription = null) },
-            onClick = { choose(onOpenDocumentDetails) })
+            onClick = { choose(onOpenRsvpSpeedReader) }
+        )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.SLEEP_TIMER),
             label = if (sleepTimerLabel.isBlank()) "Sleep timer" else sleepTimerLabel,
@@ -357,7 +387,8 @@ internal fun ReaderToolsMenu(
             text = { Text("Play Queue ($queueCount)") },
             leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null) },
             enabled = queueCount > 0,
-            onClick = { choose(onPlayQueue) })
+            onClick = { choose(onPlayQueue) }
+        )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.READING_HISTORY),
             label = "Reading history",
@@ -372,9 +403,10 @@ internal fun ReaderToolsMenu(
             fontWeight = FontWeight.Bold
         )
         DropdownMenuItem(
-            text = { Text(if (showBookmarks) "Hide bookmarks" else "Bookmarks") },
+            text = { Text("Bookmarks") },
             leadingIcon = { Icon(Icons.Filled.Bookmark, contentDescription = null) },
-            onClick = { choose(onToggleBookmarks) })
+            onClick = { choose(onOpenBookmarks) }
+        )
         FeatureDropdownMenuItem(
             feature = readerFeature(VeritasFeatureId.BOOKMARKS_AND_NOTES),
             label = "Document notes${if (noteCount > 0) " • $noteCount sentence${if (noteCount == 1) "" else "s"}" else ""}",

@@ -193,8 +193,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             }
             if (documents.isEmpty()) {
                 repository.createDocument(
-                    title = "Veritas Welcome Guide",
-                    text = "Welcome to Veritas Reader! This is a sample document designed to help you explore the reading environment. Veritas lets you convert research papers, textbooks, EPUBs, docx files, web articles, and images into high-quality spoken audio. Long-press any sentence in this guide to try highlighting, bookmarking, adding study notes, or asking the AI Assistant a question. Adjust the voice speed or select premium voices in the expandable player panel below. Toggle different layout modes like TEXT for clean reading or LISTEN to follow along sentence-by-sentence. Enjoy your reading journey!",
+                    title = "Vern Welcome Guide",
+                    text = "Welcome to Vern! This is a sample document designed to help you explore the reading environment. Vern lets you convert research papers, textbooks, EPUBs, docx files, web articles, and images into high-quality spoken audio. Long-press any sentence in this guide to try highlighting, bookmarking, adding study notes, or asking the AI Assistant a question. Adjust the voice speed or select premium voices in the expandable player panel below. Toggle different layout modes like TEXT for clean reading or LISTEN to follow along sentence-by-sentence. Enjoy your reading journey!",
                     sourceLabel = "System"
                 )
             }
@@ -241,13 +241,29 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
             // Repair missing covers for existing files in the background without blocking UI
             documents.forEach { doc ->
-                if (doc.title.contains("Who Moved My Cheese", ignoreCase = true) && CoverExtractor.coverFile(application, doc.id) == null) {
-                    runCatching {
-                        application.assets.open("covers/who_moved_my_cheese.jpg").use { input ->
-                            val coversDir = CoverExtractor.coversDir(application)
-                            val coverFile = File(coversDir, "${doc.id}.cover.jpg")
-                            coverFile.outputStream().use { output ->
-                                input.copyTo(output)
+                if (CoverExtractor.coverFile(application, doc.id) == null) {
+                    val classic = com.veritas.reader.ui.screens.CURATED_CLASSICS.firstOrNull { c ->
+                        doc.title.contains(c.title, ignoreCase = true) ||
+                        (doc.originalFileName.isNotBlank() && doc.originalFileName.contains(c.id, ignoreCase = true))
+                    }
+                    if (classic != null) {
+                        runCatching {
+                            application.assets.open("covers/${classic.id}.jpg").use { input ->
+                                val coversDir = CoverExtractor.coversDir(application)
+                                val coverFile = File(coversDir, "${doc.id}.cover.jpg")
+                                coverFile.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                        }
+                    } else if (doc.title.contains("Who Moved My Cheese", ignoreCase = true)) {
+                        runCatching {
+                            application.assets.open("covers/who_moved_my_cheese.jpg").use { input ->
+                                val coversDir = CoverExtractor.coversDir(application)
+                                val coverFile = File(coversDir, "${doc.id}.cover.jpg")
+                                coverFile.outputStream().use { output ->
+                                    input.copyTo(output)
+                                }
                             }
                         }
                     }

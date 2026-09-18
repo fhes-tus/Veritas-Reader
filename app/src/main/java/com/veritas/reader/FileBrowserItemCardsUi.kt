@@ -530,7 +530,7 @@ internal fun FileBrowserDeleteConfirmationDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "This removes the file from your phone's storage, not just from Veritas. It cannot be undone.",
+                    "This removes the file from your phone's storage, not just from Vern. It cannot be undone.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Column(

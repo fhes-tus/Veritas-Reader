@@ -32,9 +32,13 @@ fun ReaderViewModel.checkForUpdates(isManual: Boolean = false) {
             // Delete old update file if it exists in the cache
             runCatching {
                 val context = getApplication<Application>()
-                val oldFile = File(context.cacheDir, "veritas_update.apk")
+                val oldFile = File(context.cacheDir, "vern_update.apk")
                 if (oldFile.exists()) {
                     oldFile.delete()
+                }
+                val legacyFile = File(context.cacheDir, "veritas_update.apk")
+                if (legacyFile.exists()) {
+                    legacyFile.delete()
                 }
             }
 
@@ -42,7 +46,7 @@ fun ReaderViewModel.checkForUpdates(isManual: Boolean = false) {
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-            connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")
+            connection.setRequestProperty("User-Agent", "Vern-Android-App")
             connection.connectTimeout = 8000
             connection.readTimeout = 8000
             if (connection.responseCode == 200) {
@@ -80,7 +84,7 @@ fun ReaderViewModel.checkForUpdates(isManual: Boolean = false) {
                     _uiState.update {
                         it.copy(
                             isCheckingForUpdates = false,
-                            updateStatusMessage = if (isManual) "Veritas Reader is up to date (v$localVersion)" else it.updateStatusMessage
+                            updateStatusMessage = if (isManual) "Vern is up to date (v$localVersion)" else it.updateStatusMessage
                         )
                     }
                 }
@@ -115,7 +119,7 @@ fun ReaderViewModel.startUpdateDownload(apkUrl: String) {
             )
         }
         val context = getApplication<Application>()
-        val apkFile = File(context.cacheDir, "veritas_update.apk")
+        val apkFile = File(context.cacheDir, "vern_update.apk")
         var success = false
         try {
             var currentUrl = apkUrl
@@ -127,7 +131,7 @@ fun ReaderViewModel.startUpdateDownload(apkUrl: String) {
                 connection.instanceFollowRedirects = true
                 connection.connectTimeout = 15000
                 connection.readTimeout = 15000
-                connection.setRequestProperty("User-Agent", "VeritasReader-Android-App")
+                connection.setRequestProperty("User-Agent", "Vern-Android-App")
 
                 val status = connection.responseCode
                 if (status == HttpURLConnection.HTTP_MOVED_TEMP ||

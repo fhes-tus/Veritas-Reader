@@ -324,7 +324,7 @@ internal fun CalendarHeatMap(
                                                     val formattedDate = SimpleDateFormat("MMMM dd, yyyy", Locale.US).format(Date(day.timeMillis))
                                                     val msg = when {
                                                         isActive -> "Logged reading on $formattedDate! 📖"
-                                                        isOpened -> "Veritas Reader opened on $formattedDate ⚡"
+                                                        isOpened -> "Vern opened on $formattedDate ⚡"
                                                         else -> "No activity logged on $formattedDate."
                                                     }
                                                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -388,7 +388,7 @@ internal fun CalendarHeatMap(
                                 Text(
                                     text = when {
                                         isInspectedActive -> "Active reading session logged"
-                                        isInspectedOpened -> "Veritas Reader opened"
+                                        isInspectedOpened -> "Vern opened"
                                         else -> "No reading activity recorded"
                                     },
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),

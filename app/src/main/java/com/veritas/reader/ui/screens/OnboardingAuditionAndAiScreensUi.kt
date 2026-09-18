@@ -446,7 +446,7 @@ fun OnboardingFeatureShowcaseScreen() {
         )
 
         Text(
-            text = "Here is what makes reading in Veritas uniquely powerful.",
+            text = "Here is what makes reading in Vern uniquely powerful.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

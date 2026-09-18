@@ -17,20 +17,20 @@ enum class OnboardingPage(
     WELCOME_HERO(
         pageIndex = 0,
         title = "Read at the Speed of Thought",
-        subtitle = "Veritas combines high-fidelity text-to-speech, multi-format document reading, and intelligent AI study tools.",
-        spokenDescription = "Welcome to Veritas! Your personalized sanctuary for reading, listening, and study. Let's take a quick moment to tune your experience."
+        subtitle = "Vern combines high-fidelity text-to-speech, multi-format document reading, and intelligent AI study tools.",
+        spokenDescription = "Welcome to Vern! Your personalized sanctuary for reading, listening, and study. Let's take a quick moment to tune your experience."
     ),
     PERSONA_SELECTION(
         pageIndex = 1,
         title = "What best describes you?",
         subtitle = "This information will help guide our development efforts to provide features and improvements that are relevant to you.",
-        spokenDescription = "Tell us how you read so Veritas can tailor your narration speed, document tools, and study preferences."
+        spokenDescription = "Tell us how you read so Vern can tailor your narration speed, document tools, and study preferences."
     ),
     NAME_INPUT(
         pageIndex = 2,
         title = "What should we call you?",
-        subtitle = "Enter your name so Veritas can welcome you every time you open your library and personalize your study decks.",
-        spokenDescription = "What should we call you? Enter your name so Veritas can personalize your greeting, study sessions, and daily insights."
+        subtitle = "Enter your name so Vern can welcome you every time you open your library and personalize your study decks.",
+        spokenDescription = "What should we call you? Enter your name so Vern can personalize your greeting, study sessions, and daily insights."
     ),
     VOICE_AUDITION(
         pageIndex = 3,

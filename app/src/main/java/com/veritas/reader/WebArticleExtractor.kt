@@ -20,7 +20,7 @@ data class WebArticle(
 
 object WebArticleExtractor {
     private const val USER_AGENT =
-        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 VeritasReader/2.0"
+        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 VernReader/2.0"
 
     suspend fun extract(urlText: String): WebArticle = withContext(Dispatchers.IO) {
         val normalizedUrl = normalizeUrl(urlText)

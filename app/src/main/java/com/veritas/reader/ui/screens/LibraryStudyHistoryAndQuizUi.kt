@@ -400,6 +400,22 @@ internal fun LazyListScope.studyHistorySection(
                                     },
                                     modifier = Modifier.animateItem()
                                 ) {
+                                    val context = LocalContext.current
+                                    val coverFile = remember(historyEntry.documentId) { CoverExtractor.coverFile(context, historyEntry.documentId) }
+                                    val coverBitmap = remember(coverFile) {
+                                        coverFile?.let { file ->
+                                            if (file.exists()) runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull() else null
+                                        }
+                                    }
+                                    val safeChunkCount = historyEntry.chunkCount.coerceAtLeast(doc?.chunkCount ?: 1).coerceAtLeast(1)
+                                    val safeIndex = historyEntry.currentIndex.coerceIn(0, safeChunkCount - 1)
+                                    val safeProgress = ((safeIndex + 1).toFloat() / safeChunkCount.toFloat()).coerceIn(0f, 1f)
+                                    val percent = (safeProgress * 100f).toInt().coerceIn(0, 100)
+                                    val locale = LocalConfiguration.current.locales[0]
+                                    val openedTime = remember(historyEntry.openedAt, locale) {
+                                        SimpleDateFormat("dd MMM, HH:mm", locale).format(Date(historyEntry.openedAt))
+                                    }
+
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -410,12 +426,12 @@ internal fun LazyListScope.studyHistorySection(
                                                     }
                                                 } else Modifier
                                             ),
-                                        shape = VeritasPackStyle.compactShape(),
+                                        shape = RoundedCornerShape(16.dp),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (isRemoved) {
                                                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                             } else {
-                                                MaterialTheme.colorScheme.surface.copy(alpha = VeritasPackStyle.surfaceAlpha())
+                                                MaterialTheme.colorScheme.surfaceContainerLow
                                             }
                                         ),
                                         border = BorderStroke(
@@ -423,60 +439,68 @@ internal fun LazyListScope.studyHistorySection(
                                             if (isRemoved) {
                                                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)
                                             } else {
-                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                                             }
-                                        )
+                                        ),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = if (isRemoved) 0.dp else 2.dp)
                                     ) {
-                                        Column(modifier = Modifier.fillMaxWidth()) {
-                                            Row(
-                                                modifier = Modifier.padding(14.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                                verticalAlignment = Alignment.CenterVertically
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(52.dp, 68.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(
+                                                        if (isRemoved) MaterialTheme.colorScheme.surfaceVariant
+                                                        else MaterialTheme.colorScheme.primaryContainer
+                                                    ),
+                                                contentAlignment = Alignment.Center
                                             ) {
-                                                Column(
-                                                    modifier = Modifier.weight(1f),
-                                                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                                                ) {
-                                                    Text(
-                                                        text = historyEntry.title,
-                                                        fontWeight = FontWeight.Bold,
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = if (isRemoved) {
-                                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                                        } else {
-                                                            MaterialTheme.colorScheme.onSurface
-                                                        },
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
+                                                if (coverBitmap != null) {
+                                                    Image(
+                                                        bitmap = coverBitmap.asImageBitmap(),
+                                                        contentDescription = historyEntry.title,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Crop
                                                     )
+                                                } else {
                                                     Text(
-                                                        text = if (isRemoved) "Removed" else "Sentence ${historyEntry.currentIndex + 1} of ${historyEntry.chunkCount}",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = if (isRemoved) {
-                                                            MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
-                                                        } else {
-                                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                                        }
-                                                    )
-                                                    val locale = LocalConfiguration.current.locales[0]
-                                                    val openedTime = remember(historyEntry.openedAt, locale) {
-                                                        SimpleDateFormat("dd MMM, HH:mm", locale).format(Date(historyEntry.openedAt))
-                                                    }
-                                                    Text(
-                                                        text = "Opened $openedTime",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (isRemoved) 0.3f else 0.5f)
+                                                        text = (doc?.sourceLabel ?: "DOC").take(3).uppercase(),
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Black,
+                                                        color = if (isRemoved) MaterialTheme.colorScheme.onSurfaceVariant
+                                                        else MaterialTheme.colorScheme.onPrimaryContainer
                                                     )
                                                 }
+                                            }
+
+                                            Column(
+                                                modifier = Modifier.weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = historyEntry.title,
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    color = if (isRemoved) {
+                                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                                    } else {
+                                                        MaterialTheme.colorScheme.onSurface
+                                                    },
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
 
                                                 if (isRemoved) {
                                                     Surface(
                                                         shape = RoundedCornerShape(4.dp),
-                                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
-                                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f)
                                                     ) {
                                                         Text(
-                                                            text = "Removed",
+                                                            text = "Removed from library",
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = MaterialTheme.colorScheme.onErrorContainer,
                                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -484,24 +508,61 @@ internal fun LazyListScope.studyHistorySection(
                                                         )
                                                     }
                                                 } else {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            color = MaterialTheme.colorScheme.secondaryContainer
+                                                        ) {
+                                                            Text(
+                                                                "$percent%",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                        Text(
+                                                            "Sentence ${safeIndex + 1} of $safeChunkCount",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+
+                                                    LinearProgressIndicator(
+                                                        progress = { safeProgress },
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(4.dp)
+                                                            .clip(RoundedCornerShape(2.dp)),
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                                    )
+                                                }
+
+                                                Text(
+                                                    text = "Opened $openedTime",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (isRemoved) 0.3f else 0.8f)
+                                                )
+                                            }
+
+                                            if (!isRemoved) {
+                                                IconButton(
+                                                    onClick = { onOpenDocumentAt(doc!!, historyEntry.currentIndex) },
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                                                ) {
                                                     Icon(
-                                                        imageVector = Icons.Filled.ChevronRight,
-                                                        contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                        Icons.Filled.PlayArrow,
+                                                        contentDescription = "Resume",
+                                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
                                                     )
                                                 }
                                             }
-
-                                            LinearProgressIndicator(
-                                                progress = { progress },
-                                                modifier = Modifier.fillMaxWidth().height(3.dp),
-                                                color = if (isRemoved) {
-                                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                                } else {
-                                                    MaterialTheme.colorScheme.primary
-                                                },
-                                                trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f)
-                                            )
                                         }
                                     }
                                 }
