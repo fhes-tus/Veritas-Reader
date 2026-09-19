@@ -186,16 +186,14 @@ def get_feature_detail(topic):
 
 def get_guide_content():
     text = (
-        "🎧 <b>Masterclass: How to Get Ultra-Natural Voices</b>\n\n"
-        "Vern TTS uses your phone's built-in Android speech engine. By default, some phones use a low-quality system voice. You can turn this into an <b>ultra-realistic, human-like voice</b> in 60 seconds completely free!\n\n"
-        "<b>How to enable High-Quality Natural Voices:</b>\n"
-        "1. Open your phone's <b>Settings</b>.\n"
-        "2. Search for <b>\"Text-to-Speech\"</b> (or go to <i>Accessibility > Text-to-speech output</i>).\n"
-        "3. Under <b>Preferred Engine</b>, select <b>Speech Services by Google</b> (or Samsung TTS).\n"
-        "4. Tap the <b>⚙️ Gear icon</b> next to Preferred Engine.\n"
-        "5. Tap <b>Install voice data</b>, choose your language (e.g., <i>English - United States</i>), and download the <b>Voice Pack (High Quality / Network or Neural)</b>.\n"
-        "6. Return to <b>Vern TTS</b> — tap the speaker icon while reading to switch to your new high-definition voice!\n\n"
-        "💡 <i>Pro Tip: Speech Services by Google offers over 15 distinct accents and natural vocal timbres that sound indistinguishable from human narrators!</i>"
+        "🎧 <b>Masterclass: How to Customize & Preview Voices</b>\n\n"
+        "Vern TTS gives you complete control over narration directly <b>inside the app</b>:\n\n"
+        "<b>1. In-App Voice Engine & Picker:</b>\n"
+        "While reading any document, tap the <b>Speaker icon</b> on the bottom player bar. Tap the voice picker to switch between available engines (such as Vern Lite, Vern Studio, Google Speech, or Samsung) and preview different vocal styles.\n\n"
+        "<b>2. Real-Time Pitch & Velocity:</b>\n"
+        "Use the in-app sliders to adjust speech speed from <b>0.5x up to 3.0x</b> and tune vocal pitch to your preference.\n\n"
+        "<b>3. Optional Extra Voice Packs:</b>\n"
+        "If you want additional neural accents or languages, you can also download them from Android Settings > Accessibility > Text-to-Speech output. Vern TTS will automatically detect and list them in your in-app voice menu!"
     )
     markup = {
         "inline_keyboard": [
@@ -249,8 +247,8 @@ def get_faq_detail(topic):
     if topic == "audio":
         title = "🎧 <b>Audio & Speech Engine FAQs</b>"
         body = (
-            "<b>Q: Why does the voice sound robotic on my phone?</b>\n"
-            "A: Vern uses Android's on-device speech engine. Many phones default to low-res voice samples. To fix this in 30 seconds: open Android Settings > Text-to-speech > install Google Speech Services and download high-quality voice packs.\n\n"
+            "<b>Q: Why does the voice sound robotic, and how do I customize it?</b>\n"
+            "A: You can customize voices directly inside the app! While reading, tap the speaker icon on the bottom player bar to open the Voice Picker. You can switch between engines (Vern Lite, Vern Studio, Google, or Samsung) and select smoother voices. You can also download extra neural voice packs in Android Settings > Text-to-speech, and Vern will automatically list them in the in-app picker.\n\n"
             "<b>Q: Can I listen with my phone screen turned off?</b>\n"
             "A: Yes! Vern TTS features a persistent Android Media Notification service. It continues narration in the background while your phone is locked or while using other apps.\n\n"
             "<b>Q: Can I change playback speed and pitch?</b>\n"
