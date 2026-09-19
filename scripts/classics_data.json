@@ -1,0 +1,317 @@
+[
+  {
+    "id": "classic_wizard_of_oz",
+    "title": "The Wonderful Wizard of Oz",
+    "author": "L. Frank Baum",
+    "genre": "Family & Youth",
+    "category": "Family & Youth",
+    "description": "Dorothy's magical journey through the Land of Oz with the Scarecrow, Tin Woodman, and Cowardly Lion.",
+    "quote": "There is no place like home."
+  },
+  {
+    "id": "classic_alice_wonderland",
+    "title": "Alice in Wonderland",
+    "author": "Lewis Carroll",
+    "genre": "Family & Youth",
+    "category": "Family & Youth",
+    "description": "Alice plunges down a rabbit hole into a whimsical, topsy-turvy subterranean fantasy world.",
+    "quote": "Curiouser and curiouser!"
+  },
+  {
+    "id": "classic_peter_pan",
+    "title": "Peter Pan",
+    "author": "J.M. Barrie",
+    "genre": "Family & Youth",
+    "category": "Family & Youth",
+    "description": "The boy who wouldn't grow up whisks Wendy and her brothers away to the enchanted island of Neverland.",
+    "quote": "To live will be an awfully big adventure."
+  },
+  {
+    "id": "classic_anne_green_gables",
+    "title": "Anne of Green Gables",
+    "author": "L.M. Montgomery",
+    "genre": "Family & Youth",
+    "category": "Family & Youth",
+    "description": "An imaginative, fiercely spirited red-headed orphan brings joy and vitality to Prince Edward Island.",
+    "quote": "Dear old world, you are very lovely, and I am glad to be alive in you."
+  },
+  {
+    "id": "classic_secret_garden",
+    "title": "The Secret Garden",
+    "author": "Frances Hodgson Burnett",
+    "genre": "Family & Youth",
+    "category": "Family & Youth",
+    "description": "Mary Lennox discovers an overgrown, locked garden that heals her spirit and transforms her family.",
+    "quote": "If you look the right way, you can see that the whole world is a garden."
+  },
+  {
+    "id": "classic_aesop",
+    "title": "Aesop's Fables",
+    "author": "Aesop",
+    "genre": "Family & Youth",
+    "category": "Family & Youth",
+    "description": "Timeless moral tales starring clever animals teaching wisdom, honesty, and humility.",
+    "quote": "No act of kindness, no matter how small, is ever wasted."
+  },
+  {
+    "id": "classic_sherlock_holmes",
+    "title": "The Adventures of Sherlock Holmes",
+    "author": "Arthur Conan Doyle",
+    "genre": "Mystery",
+    "category": "Mystery",
+    "description": "Twelve brilliant detective cases solved by Sherlock Holmes and Dr. Watson at 221B Baker Street.",
+    "quote": "When you have eliminated the impossible, whatever remains must be the truth."
+  },
+  {
+    "id": "classic_hound_baskervilles",
+    "title": "The Hound of the Baskervilles",
+    "author": "Arthur Conan Doyle",
+    "genre": "Mystery",
+    "category": "Mystery",
+    "description": "Holmes investigates the curse of a spectral hound haunting the foggy Dartmoor bogs.",
+    "quote": "The world is full of obvious things which nobody ever observes."
+  },
+  {
+    "id": "classic_styles",
+    "title": "The Mysterious Affair at Styles",
+    "author": "Agatha Christie",
+    "genre": "Mystery",
+    "category": "Mystery",
+    "description": "The dazzling mystery debut introducing the eccentric and meticulous Belgian detective Hercule Poirot.",
+    "quote": "Instinct is a marvelous thing. It can neither be explained nor ignored."
+  },
+  {
+    "id": "classic_rue_morgue",
+    "title": "The Murders in the Rue Morgue",
+    "author": "Edgar Allan Poe",
+    "genre": "Mystery",
+    "category": "Mystery",
+    "description": "The pioneering locked-room whodunit where detective C. Auguste Dupin solves an impossible double murder.",
+    "quote": "To observe attentively is to remember distinctly."
+  },
+  {
+    "id": "classic_around_world_80_days",
+    "title": "Around the World in 80 Days",
+    "author": "Jules Verne",
+    "genre": "Adventure",
+    "category": "Adventure",
+    "description": "Phileas Fogg bets his fortune on a breathless, high-stakes global race across steamers, trains, and elephants.",
+    "quote": "Anything one man can imagine, other men can make real."
+  },
+  {
+    "id": "classic_treasure_island",
+    "title": "Treasure Island",
+    "author": "Robert Louis Stevenson",
+    "genre": "Adventure",
+    "category": "Adventure",
+    "description": "Young Jim Hawkins discovers a pirate treasure map, setting sail against the cunning Long John Silver.",
+    "quote": "Fifteen men on the dead man's chest\u2014Yo-ho-ho, and a bottle of rum!"
+  },
+  {
+    "id": "classic_call_of_the_wild",
+    "title": "The Call of the Wild",
+    "author": "Jack London",
+    "genre": "Adventure",
+    "category": "Adventure",
+    "description": "Stolen from California and sold into the Yukon gold rush, Buck must rediscover his primal wolf instincts.",
+    "quote": "He was mastered by the sheer surging of life, the tidal wave of being."
+  },
+  {
+    "id": "classic_twenty_thousand_leagues",
+    "title": "20,000 Leagues Under the Sea",
+    "author": "Jules Verne",
+    "genre": "Adventure",
+    "category": "Adventure",
+    "description": "Professor Aronnax embarks on an awe-inspiring underwater voyage aboard Captain Nemo's submarine, the Nautilus.",
+    "quote": "The sea is everything. It covers seven tenths of the terrestrial globe."
+  },
+  {
+    "id": "classic_three_musketeers",
+    "title": "The Three Musketeers",
+    "author": "Alexandre Dumas",
+    "genre": "Adventure",
+    "category": "Adventure",
+    "description": "D'Artagnan joins Athos, Porthos, and Aramis in swashbuckling swordplay, state intrigue, and brotherhood.",
+    "quote": "All for one and one for all, united we stand divided we fall."
+  },
+  {
+    "id": "classic_pride_and_prejudice",
+    "title": "Pride and Prejudice",
+    "author": "Jane Austen",
+    "genre": "Romance & Drama",
+    "category": "Romance",
+    "description": "The sparkling romantic battle of wits between the witty Elizabeth Bennet and proud Mr. Darcy.",
+    "quote": "I declare after all there is no enjoyment like reading!"
+  },
+  {
+    "id": "classic_little_women",
+    "title": "Little Women",
+    "author": "Louisa May Alcott",
+    "genre": "Romance & Drama",
+    "category": "Romance",
+    "description": "The heartwarming story of the four March sisters navigating love, creativity, ambition, and family.",
+    "quote": "I am not afraid of storms, for I am learning how to sail my ship."
+  },
+  {
+    "id": "classic_jane_eyre",
+    "title": "Jane Eyre",
+    "author": "Charlotte Bront\u00eb",
+    "genre": "Romance & Drama",
+    "category": "Romance",
+    "description": "An independent orphaned governess falls for the brooding Mr. Rochester while uncovering Thornfield's dark secret.",
+    "quote": "I am no bird; and no net ensnares me; I am a free human being."
+  },
+  {
+    "id": "classic_sense_and_sensibility",
+    "title": "Sense and Sensibility",
+    "author": "Jane Austen",
+    "genre": "Romance & Drama",
+    "category": "Romance",
+    "description": "The Dashwood sisters find love and learn to balance reason and intense emotion in Victorian society.",
+    "quote": "It isn't what we say or think that defines us, but what we do."
+  },
+  {
+    "id": "classic_ben_franklin",
+    "title": "The Autobiography of Benjamin Franklin",
+    "author": "Benjamin Franklin",
+    "genre": "Life & Habits",
+    "category": "Life & Habits",
+    "description": "The founding father's charming handbook on daily routines, practical virtues, and personal self-discipline.",
+    "quote": "Energy and persistence conquer all things."
+  },
+  {
+    "id": "classic_as_a_man_thinketh",
+    "title": "As a Man Thinketh",
+    "author": "James Allen",
+    "genre": "Life & Habits",
+    "category": "Life & Habits",
+    "description": "A short, profound handbook explaining how the mind shapes personal destiny, joy, and success.",
+    "quote": "A man is literally what he thinks, his character being the sum of his thoughts."
+  },
+  {
+    "id": "classic_the_prophet",
+    "title": "The Prophet",
+    "author": "Kahlil Gibran",
+    "genre": "Life & Habits",
+    "category": "Life & Habits",
+    "description": "Twenty-six poetic essays offering gentle reflections on love, marriage, work, friendship, and peace.",
+    "quote": "Work is love made visible."
+  },
+  {
+    "id": "classic_self_reliance",
+    "title": "Self-Reliance",
+    "author": "Ralph Waldo Emerson",
+    "genre": "Life & Habits",
+    "category": "Life & Habits",
+    "description": "An inspiring manifesto urging every person to trust their inner intuition rather than societal conformity.",
+    "quote": "To be yourself in a world trying to make you something else is great accomplishment."
+  },
+  {
+    "id": "classic_meditations",
+    "title": "Meditations",
+    "author": "Marcus Aurelius",
+    "genre": "Life & Habits",
+    "category": "Life & Habits",
+    "description": "Private journals of the Roman Emperor on stoic duty, resilience, emotional mastery, and inner peace.",
+    "quote": "You have power over your mind - not outside events. Realize this, and find strength."
+  },
+  {
+    "id": "classic_art_of_war",
+    "title": "The Art of War",
+    "author": "Sun Tzu",
+    "genre": "Life & Habits",
+    "category": "Life & Habits",
+    "description": "Ancient Chinese strategic wisdom on leadership, deception, conflict resolution, and self-possession.",
+    "quote": "In the midst of chaos, there is also opportunity."
+  },
+  {
+    "id": "classic_gift_of_magi",
+    "title": "The Gift of the Magi",
+    "author": "O. Henry",
+    "genre": "Quick Reads",
+    "category": "Quick Reads",
+    "description": "A heartwarming Christmas masterpiece about love, selfless sacrifice, and the true meaning of giving.",
+    "quote": "Of all who give and receive gifts, such as they are wisest."
+  },
+  {
+    "id": "classic_christmas_carol",
+    "title": "A Christmas Carol",
+    "author": "Charles Dickens",
+    "genre": "Quick Reads",
+    "category": "Quick Reads",
+    "description": "The miserly Ebenezer Scrooge is visited by three spirits who transform his cold heart into joyful generosity.",
+    "quote": "I will honour Christmas in my heart, and try to keep it all the year."
+  },
+  {
+    "id": "classic_yellow_wallpaper",
+    "title": "The Yellow Wallpaper",
+    "author": "Charlotte Perkins Gilman",
+    "genre": "Quick Reads",
+    "category": "Quick Reads",
+    "description": "A chilling psychological tale documenting a woman's battle for autonomy and creativity in a confined room.",
+    "quote": "I got out at last, in spite of you and Jane!"
+  },
+  {
+    "id": "classic_metamorphosis",
+    "title": "The Metamorphosis",
+    "author": "Franz Kafka",
+    "genre": "Quick Reads",
+    "category": "Quick Reads",
+    "description": "Traveling salesman Gregor Samsa awakens one morning to find himself transformed into a giant insect.",
+    "quote": "One morning Gregor Samsa awoke transformed in his bed into a monstrous vermin."
+  },
+  {
+    "id": "classic_monte_cristo",
+    "title": "The Count of Monte Cristo",
+    "author": "Alexandre Dumas",
+    "genre": "Epic Classics",
+    "category": "Epic Classics",
+    "description": "The ultimate saga of betrayal, hidden treasure, enduring patience, retribution, and redemption.",
+    "quote": "All human wisdom is contained in these two words: Wait and Hope."
+  },
+  {
+    "id": "classic_frankenstein",
+    "title": "Frankenstein",
+    "author": "Mary Shelley",
+    "genre": "Epic Classics",
+    "category": "Epic Classics",
+    "description": "The seminal sci-fi gothic tragedy of Victor Frankenstein and the sentient creature he brought to life.",
+    "quote": "Beware; for I am fearless, and therefore powerful."
+  },
+  {
+    "id": "classic_dracula",
+    "title": "Dracula",
+    "author": "Bram Stoker",
+    "genre": "Epic Classics",
+    "category": "Epic Classics",
+    "description": "The definitive vampire classic detailing Count Dracula's attempt to move from Transylvania to England.",
+    "quote": "We learn from failure, not from success!"
+  },
+  {
+    "id": "classic_dorian_gray",
+    "title": "The Picture of Dorian Gray",
+    "author": "Oscar Wilde",
+    "genre": "Epic Classics",
+    "category": "Epic Classics",
+    "description": "A hedonistic young man sells his soul for eternal youth while his portrait absorbs the sins of his life.",
+    "quote": "The books that the world calls immoral are books that show the world its own shame."
+  },
+  {
+    "id": "classic_tale_two_cities",
+    "title": "A Tale of Two Cities",
+    "author": "Charles Dickens",
+    "genre": "Epic Classics",
+    "category": "Epic Classics",
+    "description": "Set in London and Paris during the French Revolution, depicting sacrifice, love, and redemption.",
+    "quote": "It was the best of times, it was the worst of times."
+  },
+  {
+    "id": "classic_walden",
+    "title": "Walden",
+    "author": "Henry David Thoreau",
+    "genre": "Epic Classics",
+    "category": "Epic Classics",
+    "description": "A reflection upon simple living in natural surroundings and personal declaration of independence.",
+    "quote": "I went to the woods because I wished to live deliberately."
+  }
+]

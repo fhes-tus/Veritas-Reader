@@ -1,0 +1,37 @@
+name: Weekly Classic Book Spotlight
+
+on:
+  schedule:
+    # Every Monday at 10:00 UTC
+    - cron: '0 10 * * 1'
+  workflow_dispatch:
+    inputs:
+      book_id:
+        description: 'Specific Book ID (optional, e.g. classic_pride_and_prejudice)'
+        required: false
+        default: ''
+
+jobs:
+  spotlight:
+    name: Post Classic Spotlight to @myreader_veritas
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Post Spotlight
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || '8285832720:AAHM20ABnUrB1VzLM81eUgkO6NdXnb7Je-o' }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID || '@myreader_veritas' }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ -n "${{ github.event.inputs.book_id }}" ]; then
+            python scripts/spotlight_book.py --id "${{ github.event.inputs.book_id }}"
+          else
+            python scripts/spotlight_book.py
+          fi

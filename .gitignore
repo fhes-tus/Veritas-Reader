@@ -66,5 +66,8 @@ apks/
 *.tar.bz2
 *.bz2
 kokoro-en-v0_19/
-piper_out/
 ui_concepts/
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class

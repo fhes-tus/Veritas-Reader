@@ -6,7 +6,7 @@
 
 ### *Your intelligent, private reading companion, neural audiobook studio, and active-recall study suite for Android.*
 
-[![Latest Release](https://img.shields.io/badge/Release-v2.5.0-orange.svg)](https://github.com/fhes-tus/Veritas-Reader/releases)
+[![Latest Release](https://img.shields.io/badge/Release-v2.5.0-orange.svg)](https://github.com/fhes-tus/Vern-TTS/releases)
 [![Target Platform](https://img.shields.io/badge/Platform-Android%2016%20(API%2036)-3DDC84.svg?logo=android&logoColor=white)](https://developer.android.com/)
 [![Minimum SDK](https://img.shields.io/badge/Min%20SDK-Android%209.0%20(API%2028)-blue.svg)](https://developer.android.com/)
 [![Language](https://img.shields.io/badge/Kotlin-2.4.0-7F52FF.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
@@ -114,7 +114,7 @@ Designed with an **offline-first, privacy-respecting philosophy**, your document
 
 Download the latest release APK from the official repository releases:
 
-👉 **[Download Latest Veritas Reader Release](https://github.com/fhes-tus/Veritas-Reader/releases/latest)**
+👉 **[Download Latest Veritas Reader Release](https://github.com/fhes-tus/Vern-TTS/releases/latest)**
 
 | Recommended For | Architecture |
 | :--- | :--- |
@@ -143,7 +143,7 @@ Veritas Reader is built adhering strictly to modern Android development standard
 
 ## 🤝 Contributing & Feedback
 
-Suggestions, bug reports, and pull requests are welcome! Feel free to open an issue on the [Issues page](https://github.com/fhes-tus/Veritas-Reader/issues).
+Suggestions, bug reports, and pull requests are welcome! Feel free to open an issue on the [Issues page](https://github.com/fhes-tus/Vern-TTS/issues).
 
 ---
 
