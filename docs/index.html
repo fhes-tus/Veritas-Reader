@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vern TTS — A Quiet Reader &amp; Natural Speech Engine</title>
+  <title>Vern TTS — Private Book Reader &amp; Natural Speech Engine</title>
   <meta name="description" content="An uncompromised offline reading sanctuary for Android. 100% on-device neural speech synthesis, 35+ curated classics, built-in study hub, and zero telemetry." />
-  <meta property="og:title" content="Vern TTS — A Quiet Reader &amp; Natural Speech Engine" />
+  <meta property="og:title" content="Vern TTS — Private Book Reader &amp; Natural Speech Engine" />
   <meta property="og:description" content="Read and listen to EPUB, PDF, DOCX, and TXT with authentic classic covers, zero tracking, built-in study hub, and offline neural speech." />
   <meta property="og:image" content="playstore_feature_graphic_1024x500.png" />
   <meta property="og:type" content="website" />
@@ -257,6 +257,36 @@
     [data-theme="light"] .theme-icon-sun { display: none; }
     [data-theme="light"] .theme-icon-moon { display: inline-block; }
 
+    /* Top Nav Icon Links (GitHub, Telegram) */
+    .nav-icon-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 36px;
+      padding: 0 10px;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .nav-icon-link:hover {
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+      background: var(--bg-surface-subtle);
+    }
+
+    .nav-label {
+      display: inline;
+    }
+
     /* Buttons */
     .btn {
       display: inline-flex;
@@ -302,7 +332,7 @@
     }
 
     /* ==========================================================================
-       HERO SECTION (THE QUIET READER MASTHEAD)
+       HERO SECTION (EDITORIAL MASTHEAD)
        ========================================================================== */
     .hero-section {
       padding: 68px 0 54px;
@@ -702,7 +732,7 @@
     }
 
     /* ==========================================================================
-       THE ARCHITECTURE OF QUIET SOFTWARE (ENGINEERING PILLARS)
+       THE ARCHITECTURE OF PRIVATE SOFTWARE (ENGINEERING PILLARS)
        ========================================================================== */
     .grid-3col {
       display: grid;
@@ -1161,9 +1191,48 @@
       color: var(--text-primary);
     }
 
+    .footer-access-grid {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .access-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 13px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .access-pill:hover {
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+      background: var(--bg-surface-hover);
+      transform: translateY(-1px);
+    }
+
     /* ==========================================================================
        RESPONSIVE RULES (DESKTOP >= 820px vs MOBILE < 820px & < 600px)
        ========================================================================== */
+    @media (max-width: 990px) {
+      .nav-label {
+        display: none;
+      }
+      .nav-icon-link {
+        width: 36px;
+        padding: 0;
+      }
+    }
+
     @media (max-width: 820px) {
       .nav-links {
         display: none;
@@ -1233,8 +1302,31 @@
         display: none;
       }
 
-      .nav-cta-group .btn-outline {
-        display: none; /* Hide secondary GitHub button on narrow mobile to keep header uncluttered */
+      .nav-bar {
+        height: 56px;
+      }
+
+      .nav-cta-group {
+        gap: 6px;
+      }
+
+      .theme-toggle-btn,
+      .nav-icon-link {
+        width: 34px;
+        height: 34px;
+        padding: 0;
+      }
+
+      .theme-toggle-btn .svg-icon,
+      .nav-icon-link .svg-icon {
+        width: 15px;
+        height: 15px;
+      }
+
+      .nav-cta-group .btn-primary {
+        padding: 6px 11px;
+        font-size: 12.5px;
+        height: 34px;
       }
 
       .hero-section {
@@ -1353,10 +1445,18 @@
             <svg class="svg-icon theme-icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
           </button>
 
-          <a href="https://github.com/fhes-tus/Vern-TTS" class="btn btn-outline" target="_blank" rel="noopener">
+          <!-- GitHub Repo Link -->
+          <a href="https://github.com/fhes-tus/Vern-TTS" class="nav-icon-link" target="_blank" rel="noopener" aria-label="GitHub Repository" title="GitHub Repository">
             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
-            <span>GitHub</span>
+            <span class="nav-label">GitHub</span>
           </a>
+
+          <!-- Telegram Community Link -->
+          <a href="https://t.me/myreader_veritas" class="nav-icon-link" target="_blank" rel="noopener" aria-label="Telegram Community" title="Telegram Community">
+            <svg class="svg-icon" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            <span class="nav-label">Telegram</span>
+          </a>
+
           <a href="#download" class="btn btn-primary">
             <svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>Get APK</span>
@@ -1366,7 +1466,7 @@
     </div>
   </header>
 
-  <!-- HERO SECTION: A QUIET READER (CENTERED & DIGNIFIED) -->
+  <!-- HERO SECTION (CENTERED & DIGNIFIED) -->
   <section class="hero-section">
     <div class="container">
       <div class="status-pill">
@@ -1375,11 +1475,11 @@
       </div>
 
       <h1 class="hero-title">
-        A Quiet Reader &amp; <em>Natural Speech Engine</em>.
+        A Private Sanctuary for Reading &amp; <em>Natural Speech</em>.
       </h1>
 
       <p class="hero-subtitle">
-        Rooted in <i>Vernehmen</i> (to hear and perceive). Vern TTS is an uncompromised offline reading instrument for Android—combining distraction-free typography, on-device neural voice narration, and zero telemetry tracking.
+        Rooted in <i>Vernehmen</i> (to hear and perceive). Vern TTS is an uncompromised Android reading studio combining on-device neural voice narration with zero cloud surveillance.
       </p>
 
       <div class="hero-cta">
@@ -1613,12 +1713,12 @@
     </div>
   </section>
 
-  <!-- THE ARCHITECTURE OF QUIET SOFTWARE -->
+  <!-- THE ARCHITECTURE OF PRIVATE SOFTWARE -->
   <section class="content-section" id="architecture">
     <div class="container">
       <div class="section-head">
         <div class="eyebrow">Engineering Teardown</div>
-        <h2>The Architecture of Quiet Software</h2>
+        <h2>The Architecture of Private Software</h2>
         <p>Built with native Jetpack Compose for Android 8 through 15. Every architectural decision protects your focus, battery life, and data sovereignty.</p>
       </div>
 
@@ -2016,10 +2116,23 @@
           <p>© 2026 Vern TTS. Open source software under Apache 2.0 license.</p>
         </div>
 
-        <div class="footer-links">
-          <a href="https://github.com/fhes-tus/Vern-TTS" target="_blank" rel="noopener">GitHub Repository</a>
-          <a href="https://t.me/veritas_reader_app" target="_blank" rel="noopener">Telegram Community</a>
-          <a href="#download">Release APKs</a>
+        <div class="footer-access-grid">
+          <a href="https://github.com/fhes-tus/Vern-TTS" target="_blank" rel="noopener" class="access-pill" title="GitHub Repository">
+            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+            <span>GitHub</span>
+          </a>
+          <a href="https://t.me/myreader_veritas" target="_blank" rel="noopener" class="access-pill" title="Telegram Community">
+            <svg class="svg-icon" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            <span>Telegram</span>
+          </a>
+          <a href="https://x.com/_1st2us" target="_blank" rel="noopener" class="access-pill" title="X (Twitter)">
+            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            <span>X (Twitter)</span>
+          </a>
+          <a href="mailto:myreader.veritas@gmail.com?subject=Vern%20TTS%20Inquiry%20%26%20Feedback" class="access-pill" title="Email Feedback &amp; Support">
+            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <span>Email</span>
+          </a>
         </div>
       </div>
     </div>
