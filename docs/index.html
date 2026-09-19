@@ -4,95 +4,93 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vern TTS — Private Offline Book Reader & Natural Speech Engine</title>
-  <meta name="description" content="Vern TTS is a 100% private, offline-first Android book reader with natural neural text-to-speech, authentic classic editions, and active-recall study tools." />
-  <meta property="og:title" content="Vern TTS — Private Book Reader & Natural Speech Engine" />
+  <meta name="description" content="An uncompromised offline reading sanctuary for Android. 100% on-device neural text-to-speech, 35+ curated classics, and zero telemetry surveillance." />
+  <meta property="og:title" content="Vern TTS — Private Offline Book Reader & Speech Engine" />
   <meta property="og:description" content="Read and listen to EPUB, PDF, DOCX, and TXT with authentic classic covers, zero tracking, and offline neural TTS." />
   <meta property="og:image" content="playstore_feature_graphic_1024x500.png" />
   <meta property="og:type" content="website" />
   <link rel="icon" type="image/png" href="icon.png" />
 
-  <!-- Fonts -->
+  <!-- Fonts: Newsreader (Editorial Authority) & Plus Jakarta Sans (Precision UI) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500;1,6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
   <style>
     :root {
-      --bg: #0b0f19;
-      --card-bg: #111827;
-      --card-border: rgba(255, 255, 255, 0.08);
-      --primary: #38bdf8;
-      --primary-hover: #0284c7;
-      --accent: #6366f1;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
+      --bg-canvas: #08090d;
+      --bg-surface: #0f121a;
+      --bg-surface-elevated: #151924;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      
+      --accent-gold: #d49b50;
+      --accent-gold-glow: rgba(212, 155, 80, 0.25);
+      --accent-amber: #e5a95c;
+      --accent-blue: #38bdf8;
+      --accent-emerald: #10b981;
+      
+      --text-bone: #fbf8f2;
+      --text-muted: #8e9bb0;
+      --text-dim: #5c687a;
+
+      --font-editorial: 'Newsreader', Georgia, serif;
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 22px;
+      --radius-full: 9999px;
     }
 
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
+      -webkit-font-smoothing: antialiased;
     }
 
     body {
-      background-color: var(--bg);
-      color: var(--text-main);
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg-canvas);
+      color: var(--text-bone);
+      font-family: var(--font-sans);
       line-height: 1.6;
       overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(212, 155, 80, 0.08) 0%, transparent 45%),
+        radial-gradient(circle at 100% 30%, rgba(56, 189, 248, 0.04) 0%, transparent 40%),
+        url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.035'/%3E%3C/svg%3E");
     }
 
-    .font-serif {
-      font-family: 'Newsreader', Georgia, serif;
-    }
-
-    .glow-sphere {
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(100px);
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    .glow-blue {
-      width: 500px;
-      height: 500px;
-      background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, rgba(99, 102, 241, 0.05) 70%, transparent 100%);
-      top: -100px;
-      left: 50%;
-      transform: translateX(-50%);
-    }
-
-    .glow-indigo {
-      width: 400px;
-      height: 400px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
-      top: 600px;
-      right: -100px;
-    }
+    /* Typography Utilities */
+    .font-editorial { font-family: var(--font-editorial); }
+    .font-sans { font-family: var(--font-sans); }
+    .font-mono { font-family: var(--font-mono); }
 
     .container {
-      max-width: 1200px;
+      width: 100%;
+      max-width: 1180px;
       margin: 0 auto;
       padding: 0 24px;
-      position: relative;
-      z-index: 1;
     }
 
+    /* Header & Navigation */
     header {
       position: sticky;
       top: 0;
+      z-index: 100;
       backdrop-filter: blur(16px);
-      background: rgba(11, 15, 25, 0.85);
-      border-bottom: 1px solid var(--card-border);
-      z-index: 50;
-      padding: 16px 0;
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(8, 9, 13, 0.85);
+      border-bottom: 1px solid var(--border-subtle);
     }
 
     .nav-inner {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      height: 72px;
     }
 
     .brand {
@@ -100,791 +98,1447 @@
       align-items: center;
       gap: 12px;
       text-decoration: none;
-      color: #fff;
+      color: var(--text-bone);
     }
 
     .brand img {
-      width: 40px;
-      height: 40px;
+      width: 38px;
+      height: 38px;
       border-radius: 10px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     }
 
-    .brand-text {
-      font-size: 1.25rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
     }
 
-    .nav-links {
+    .brand-badge {
+      font-size: 0.7rem;
+      padding: 3px 8px;
+      border-radius: var(--radius-full);
+      background: rgba(212, 155, 80, 0.12);
+      color: var(--accent-amber);
+      border: 1px solid rgba(212, 155, 80, 0.25);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .nav-menu {
       display: flex;
-      gap: 24px;
+      gap: 28px;
       align-items: center;
     }
 
-    .nav-links a {
+    .nav-menu a {
       color: var(--text-muted);
       text-decoration: none;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       font-weight: 500;
-      transition: color 0.2s;
+      transition: color 0.2s ease;
     }
 
-    .nav-links a:hover {
-      color: #fff;
+    .nav-menu a:hover {
+      color: var(--text-bone);
     }
 
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Buttons */
     .btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 8px;
-      padding: 10px 20px;
-      border-radius: 12px;
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       text-decoration: none;
-      transition: all 0.2s ease;
+      border-radius: var(--radius-sm);
+      padding: 10px 18px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       cursor: pointer;
     }
 
-    .btn-primary {
-      background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
-      color: #fff;
-      box-shadow: 0 4px 20px rgba(37, 99, 235, 0.35);
+    .btn-gold {
+      background: linear-gradient(180deg, #dfa961 0%, #b87c2b 100%);
+      color: #120b02;
       border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 16px rgba(184, 124, 43, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
     }
 
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(37, 99, 235, 0.45);
+    .btn-gold:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 22px rgba(184, 124, 43, 0.45);
+      filter: brightness(1.05);
     }
 
     .btn-secondary {
       background: rgba(255, 255, 255, 0.05);
-      color: #f8fafc;
-      border: 1px solid var(--card-border);
+      color: var(--text-bone);
+      border: 1px solid var(--border-subtle);
     }
 
     .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
-      border-color: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.09);
+      border-color: var(--border-strong);
+      transform: translateY(-1px);
     }
 
+    /* Hero Section */
     .hero {
       padding: 80px 0 60px;
       text-align: center;
     }
 
-    .badge-pill {
+    .hero-kicker {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 16px;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      border-radius: 9999px;
-      color: #38bdf8;
-      font-size: 0.85rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      gap: 10px;
+      padding: 6px 14px;
+      border-radius: var(--radius-full);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.02em;
       margin-bottom: 24px;
     }
 
+    .hero-kicker .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+      box-shadow: 0 0 8px var(--accent-emerald);
+    }
+
     .hero h1 {
-      font-size: clamp(2.5rem, 6vw, 4.2rem);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      line-height: 1.15;
-      margin-bottom: 20px;
-      background: linear-gradient(180deg, #ffffff 40%, #94a3b8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      font-family: var(--font-editorial);
+      font-size: clamp(2.8rem, 5.5vw, 4.4rem);
+      font-weight: 400;
+      line-height: 1.12;
+      letter-spacing: -0.025em;
+      max-width: 900px;
+      margin: 0 auto 20px;
+      color: var(--text-bone);
+    }
+
+    .hero h1 em {
+      font-style: italic;
+      font-family: var(--font-editorial);
+      color: var(--accent-amber);
     }
 
     .hero p {
-      font-size: 1.25rem;
+      font-size: clamp(1.05rem, 1.8vw, 1.25rem);
       color: var(--text-muted);
       max-width: 680px;
       margin: 0 auto 36px;
+      font-weight: 400;
+      line-height: 1.6;
     }
 
     .hero-actions {
       display: flex;
       justify-content: center;
-      gap: 16px;
+      gap: 14px;
       flex-wrap: wrap;
-      margin-bottom: 48px;
+      margin-bottom: 54px;
     }
 
-    .hero-banner {
-      width: 100%;
-      max-width: 1024px;
-      margin: 0 auto;
-      border-radius: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
-      overflow: hidden;
-      background: #000;
-    }
-
-    .hero-banner img {
-      width: 100%;
-      height: auto;
-      display: block;
-    }
-
-    .section {
-      padding: 90px 0;
-    }
-
-    .section-header {
-      text-align: center;
-      margin-bottom: 60px;
-    }
-
-    .section-header h2 {
-      font-size: 2.4rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      margin-bottom: 12px;
-    }
-
-    .section-header p {
-      color: var(--text-muted);
-      font-size: 1.1rem;
-      max-width: 600px;
-      margin: 0 auto;
-    }
-
-    .grid-3 {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 28px;
-    }
-
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 32px;
-      transition: transform 0.2s, border-color 0.2s;
+    /* THE LIVING READER STAGE (HERO INTERACTION) */
+    .stage-wrapper {
+      max-width: 920px;
+      margin: 0 auto 80px;
       position: relative;
     }
 
-    .card:hover {
-      transform: translateY(-4px);
-      border-color: rgba(255, 255, 255, 0.2);
+    .stage-ambient-glow {
+      position: absolute;
+      inset: -20px;
+      background: radial-gradient(circle at 50% 40%, rgba(212, 155, 80, 0.12) 0%, transparent 65%);
+      filter: blur(40px);
+      z-index: 0;
+      pointer-events: none;
+      transition: background 0.4s ease;
     }
 
-    .card-icon {
-      width: 52px;
-      height: 52px;
-      border-radius: 14px;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.2);
+    .reader-device {
+      position: relative;
+      z-index: 1;
+      background: #131722;
+      border: 1px solid var(--border-strong);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      overflow: hidden;
       display: flex;
+      flex-direction: column;
+    }
+
+    .device-chrome-top {
+      padding: 14px 22px;
+      background: rgba(0, 0, 0, 0.25);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      justify-content: space-between;
       align-items: center;
-      justify-content: center;
-      font-size: 1.6rem;
-      margin-bottom: 20px;
-    }
-
-    .card h3 {
-      font-size: 1.35rem;
-      font-weight: 700;
-      margin-bottom: 12px;
-      color: #fff;
-    }
-
-    .card p {
+      font-size: 0.8rem;
       color: var(--text-muted);
-      font-size: 0.98rem;
-      line-height: 1.6;
     }
 
-    .themes-preview {
-      background: #0f172a;
-      border: 1px solid var(--card-border);
-      border-radius: 24px;
-      padding: 40px;
-      margin-top: 40px;
-    }
-
-    .theme-buttons {
+    .device-controls-top {
       display: flex;
-      gap: 12px;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
     }
 
-    .theme-btn {
-      padding: 8px 16px;
-      border-radius: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      background: rgba(255, 255, 255, 0.05);
-      color: #fff;
+    .tone-selector {
+      display: inline-flex;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 3px;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      gap: 2px;
+    }
+
+    .tone-chip {
+      padding: 4px 10px;
+      font-size: 0.75rem;
       font-weight: 600;
-      font-size: 0.9rem;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
       cursor: pointer;
       transition: all 0.2s;
     }
 
-    .theme-btn.active {
-      background: #38bdf8;
-      color: #0b0f19;
-      border-color: #38bdf8;
+    .tone-chip.active {
+      background: rgba(255, 255, 255, 0.15);
+      color: var(--text-bone);
     }
 
-    .theme-canvas {
-      border-radius: 16px;
+    /* The Simulated Reading Page */
+    .reader-page-viewport {
+      padding: 48px 56px;
+      min-height: 280px;
+      transition: background 0.3s ease, color 0.3s ease;
+      text-align: left;
+      position: relative;
+    }
+
+    .book-meta-heading {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      opacity: 0.65;
+      margin-bottom: 8px;
+      font-family: var(--font-sans);
+      font-weight: 700;
+    }
+
+    .book-chapter-title {
+      font-family: var(--font-editorial);
+      font-size: 1.65rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+      line-height: 1.25;
+    }
+
+    .book-prose {
+      font-size: 1.18rem;
+      line-height: 1.85;
+      letter-spacing: -0.005em;
+    }
+
+    .sentence-span {
+      padding: 2px 4px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .sentence-span:hover {
+      background: rgba(212, 155, 80, 0.12);
+    }
+
+    .sentence-span.speaking-active {
+      background: #fde68a !important;
+      color: #1e1e1e !important;
+      font-weight: 500;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.3);
+    }
+
+    /* Bottom Player Bar */
+    .device-player-bar {
+      padding: 16px 24px;
+      background: rgba(0, 0, 0, 0.35);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .player-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .play-circle-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--accent-gold);
+      color: #120b02;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.2s, background 0.2s;
+      box-shadow: 0 4px 12px rgba(212, 155, 80, 0.3);
+    }
+
+    .play-circle-btn:hover {
+      transform: scale(1.05);
+      background: #e5a95c;
+    }
+
+    .player-status-info {
+      text-align: left;
+    }
+
+    .player-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-bone);
+    }
+
+    .player-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Real-time sound wave bars */
+    .waveform-visualizer {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 20px;
+    }
+
+    .wave-bar {
+      width: 3px;
+      height: 6px;
+      background: var(--accent-gold);
+      border-radius: 2px;
+      transition: height 0.15s ease;
+    }
+
+    .speaking .wave-bar:nth-child(1) { animation: wave 0.8s infinite 0.1s ease-in-out; }
+    .speaking .wave-bar:nth-child(2) { animation: wave 0.9s infinite 0.3s ease-in-out; }
+    .speaking .wave-bar:nth-child(3) { animation: wave 0.7s infinite 0.2s ease-in-out; }
+    .speaking .wave-bar:nth-child(4) { animation: wave 1.1s infinite 0.4s ease-in-out; }
+    .speaking .wave-bar:nth-child(5) { animation: wave 0.8s infinite 0.15s ease-in-out; }
+
+    @keyframes wave {
+      0%, 100% { height: 4px; }
+      50% { height: 18px; }
+    }
+
+    /* Section Styling */
+    .section {
+      padding: 90px 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .section-header {
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto 56px;
+    }
+
+    .section-eyebrow {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--accent-amber);
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .section-header h2 {
+      font-family: var(--font-editorial);
+      font-size: clamp(2.2rem, 3.8vw, 3rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin-bottom: 16px;
+    }
+
+    .section-header p {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+    }
+
+    /* ARCHITECTURAL PILLARS (TEARDOWN) */
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+
+    .pillar-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
       padding: 36px;
-      transition: background 0.3s, color 0.3s;
-      min-height: 200px;
-      border: 1px solid rgba(0, 0, 0, 0.1);
+      transition: all 0.25s ease;
+      position: relative;
     }
 
-    .screenshots-scroll {
+    .pillar-card:hover {
+      border-color: rgba(212, 155, 80, 0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+    }
+
+    .pillar-num {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--accent-amber);
+      letter-spacing: 0.1em;
+      margin-bottom: 16px;
+    }
+
+    .pillar-card h3 {
+      font-family: var(--font-editorial);
+      font-size: 1.6rem;
+      font-weight: 500;
+      margin-bottom: 14px;
+      color: var(--text-bone);
+    }
+
+    .pillar-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.7;
+      margin-bottom: 20px;
+    }
+
+    .pillar-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .pill-tag {
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      border-radius: var(--radius-full);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      font-weight: 600;
+    }
+
+    /* MUSEUM EXHIBITION (CLASSICS CAROUSEL) */
+    .classics-showcase {
+      display: flex;
+      gap: 22px;
+      overflow-x: auto;
+      padding: 20px 0 36px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(212, 155, 80, 0.3) transparent;
+    }
+
+    .classic-exhibit-card {
+      flex: 0 0 240px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .classic-exhibit-card:hover {
+      transform: translateY(-6px);
+      border-color: rgba(212, 155, 80, 0.4);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    .classic-cover-wrapper {
+      position: relative;
+      height: 320px;
+      background: #111;
+      overflow: hidden;
+    }
+
+    .classic-cover-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.4s ease;
+    }
+
+    .classic-exhibit-card:hover .classic-cover-wrapper img {
+      transform: scale(1.04);
+    }
+
+    .classic-details {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      justify-content: space-between;
+    }
+
+    .classic-title {
+      font-family: var(--font-editorial);
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text-bone);
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+
+    .classic-author {
+      font-size: 0.8rem;
+      color: var(--accent-amber);
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+
+    .classic-quote {
+      font-family: var(--font-editorial);
+      font-style: italic;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+
+    .classic-meta-pills {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 10px;
+    }
+
+    /* FREEDOM COMPARISON MATRIX */
+    .matrix-wrapper {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+      margin-top: 24px;
+    }
+
+    .matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.92rem;
+    }
+
+    .matrix-table th, 
+    .matrix-table td {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .matrix-table th {
+      font-weight: 700;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    .matrix-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .matrix-check {
+      color: var(--accent-emerald);
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+
+    .matrix-cross {
+      color: #f43f5e;
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+
+    /* SCREENSHOTS SHOWCASE */
+    .screens-grid {
       display: flex;
       gap: 20px;
       overflow-x: auto;
-      padding: 20px 0 30px;
+      padding: 10px 0 24px;
       scrollbar-width: thin;
-      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
     }
 
-    .screenshot-item {
-      flex: 0 0 260px;
-      border-radius: 18px;
+    .screen-card {
+      flex: 0 0 250px;
+      border-radius: var(--radius-md);
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-      background: #1e293b;
+      border: 1px solid var(--border-strong);
+      background: #10141e;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
     }
 
-    .screenshot-item img {
+    .screen-card img {
       width: 100%;
       display: block;
       height: auto;
     }
 
-    .screenshot-item p {
+    .screen-caption {
       padding: 12px;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: 600;
       text-align: center;
-      background: #111827;
+      background: rgba(0, 0, 0, 0.4);
       color: #cbd5e1;
     }
 
-    .table-container {
-      overflow-x: auto;
-      border-radius: 16px;
-      border: 1px solid var(--card-border);
-      background: var(--card-bg);
-      margin-top: 24px;
+    /* CLEAN EXECUTIVE DOWNLOAD STATION (NO HASHES) */
+    .download-station {
+      background: radial-gradient(circle at 50% 0%, rgba(212, 155, 80, 0.08) 0%, transparent 60%), var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      padding: 48px 36px;
+      text-align: center;
+      max-width: 860px;
+      margin: 0 auto;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin: 36px 0 28px;
       text-align: left;
-      font-size: 0.95rem;
     }
 
-    th, td {
-      padding: 18px 24px;
-      border-bottom: 1px solid var(--card-border);
+    .dl-card {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.2s;
     }
 
-    th {
-      background: rgba(255, 255, 255, 0.02);
+    .dl-card:hover {
+      border-color: rgba(212, 155, 80, 0.4);
+    }
+
+    .dl-card.primary {
+      border-color: var(--accent-gold);
+      background: rgba(212, 155, 80, 0.05);
+      box-shadow: 0 8px 24px rgba(212, 155, 80, 0.12);
+    }
+
+    .dl-title {
+      font-weight: 700;
+      font-size: 1.05rem;
+      color: var(--text-bone);
+      margin-bottom: 4px;
+    }
+
+    .dl-desc {
+      font-size: 0.82rem;
       color: var(--text-muted);
-      font-size: 0.85rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+      margin-bottom: 20px;
+      line-height: 1.5;
     }
 
-    tr:last-child td {
-      border-bottom: none;
+    /* FAQ ACCORDION */
+    .faq-container {
+      max-width: 820px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
 
-    .hash-code {
-      font-family: monospace;
-      font-size: 0.8rem;
-      background: rgba(0, 0, 0, 0.4);
-      padding: 4px 8px;
-      border-radius: 6px;
-      color: #38bdf8;
-      word-break: break-all;
+    .faq-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      transition: all 0.2s ease;
     }
 
-    .community-box {
-      background: linear-gradient(135deg, rgba(37, 99, 235, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      border-radius: 24px;
-      padding: 48px;
-      text-align: center;
-      margin-top: 60px;
+    .faq-header {
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 1.02rem;
+      color: var(--text-bone);
+      user-select: none;
     }
 
-    .community-box h3 {
-      font-size: 2rem;
-      font-weight: 800;
-      margin-bottom: 12px;
+    .faq-header svg {
+      transition: transform 0.25s ease;
+      color: var(--accent-amber);
     }
 
-    .community-box p {
+    .faq-card.open .faq-header svg {
+      transform: rotate(45deg);
+    }
+
+    .faq-body {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s cubic-bezier(0.16, 1, 0.3, 1), padding 0.3s ease;
+      padding: 0 24px;
       color: var(--text-muted);
-      font-size: 1.1rem;
-      max-width: 600px;
-      margin: 0 auto 28px;
+      font-size: 0.94rem;
+      line-height: 1.7;
     }
 
+    .faq-card.open .faq-body {
+      max-height: 380px;
+      padding-bottom: 22px;
+    }
+
+    /* FOOTER / COLOPHON */
     footer {
-      border-top: 1px solid var(--card-border);
-      padding: 48px 0;
+      border-top: 1px solid var(--border-subtle);
+      padding: 60px 0 40px;
+      background: #06070a;
       text-align: center;
-      color: var(--text-muted);
+    }
+
+    .footer-colophon {
+      max-width: 600px;
+      margin: 0 auto 32px;
+    }
+
+    .footer-colophon p {
       font-size: 0.9rem;
-      margin-top: 60px;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    .footer-colophon em {
+      color: var(--accent-amber);
+      font-family: var(--font-editorial);
     }
 
     .footer-links {
       display: flex;
       justify-content: center;
       gap: 24px;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
     }
 
     .footer-links a {
       color: var(--text-muted);
       text-decoration: none;
+      font-size: 0.85rem;
       transition: color 0.2s;
     }
 
     .footer-links a:hover {
-      color: #fff;
+      color: var(--text-bone);
     }
 
-
-    /* FAQ Accordion */
-    .faq-container {
-      max-width: 860px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-    .faq-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 14px;
-      overflow: hidden;
-      transition: all 0.2s ease;
-    }
-    .faq-card:hover {
-      border-color: rgba(255, 255, 255, 0.2);
-    }
-    .faq-header {
-      padding: 18px 22px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 1.05rem;
-      color: #f1f5f9;
-      user-select: none;
-    }
-    .faq-header .icon {
-      font-size: 1.2rem;
-      transition: transform 0.2s ease;
-    }
-    .faq-card.open .faq-header .icon {
-      transform: rotate(45deg);
-    }
-    .faq-body {
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height 0.3s ease, padding 0.3s ease;
-      padding: 0 22px;
-      color: #94a3b8;
-      font-size: 0.95rem;
-      line-height: 1.65;
-    }
-    .faq-card.open .faq-body {
-      max-height: 350px;
-      padding-bottom: 20px;
-    }
-
-    @media (max-width: 768px) {
-      .nav-links {
-        display: none;
-      }
-      .hero {
-        padding: 50px 0 40px;
-      }
-      .card {
-        padding: 24px;
-      }
-      .community-box {
-        padding: 32px 20px;
-      }
+    @media (max-width: 860px) {
+      .nav-menu { display: none; }
+      .hero { padding: 50px 0 40px; }
+      .pillars-grid { grid-template-columns: 1fr; }
+      .download-grid { grid-template-columns: 1fr; }
+      .reader-page-viewport { padding: 28px 20px; }
     }
   </style>
 </head>
 <body>
 
-  <div class="glow-sphere glow-blue"></div>
-  <div class="glow-sphere glow-indigo"></div>
-
+  <!-- HEADER -->
   <header>
     <div class="container nav-inner">
       <a href="#" class="brand">
-        <img src="icon.png" alt="Vern TTS App Icon" />
-        <span class="brand-text">Vern TTS</span>
+        <img src="icon.png" alt="Vern TTS App Mark" />
+        <span class="brand-title">Vern TTS</span>
+        <span class="brand-badge">v2.5.0</span>
       </a>
-      <div class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#screens">Screenshots</a>
-        <a href="#themes">Paper Tones</a>
+
+      <nav class="nav-menu">
+        <a href="#reader">The Reader</a>
+        <a href="#classics">Classics Library</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#matrix">Freedom Matrix</a>
         <a href="#faq">FAQs</a>
-        <a href="#downloads">Downloads</a>
-        <a href="https://t.me/myreader_veritas" target="_blank" rel="noopener">Telegram</a>
-        <a href="https://github.com/fhes-tus/Vern-TTS" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+
+      <div class="nav-actions">
+        <a href="https://t.me/myreader_veritas" target="_blank" rel="noopener" class="btn btn-secondary" style="padding: 8px 14px; font-size: 0.85rem;">
+          💬 Telegram
+        </a>
+        <a href="#download" class="btn btn-gold" style="padding: 8px 16px; font-size: 0.85rem;">
+          ⬇️ Download APK
+        </a>
       </div>
-      <a href="#downloads" class="btn btn-primary">Download APK</a>
     </div>
   </header>
 
-  <main class="container">
-    <section class="hero">
-      <div class="badge-pill">🛡️ 100% On-Device • Zero Tracking • v2.5.0</div>
-      <h1>Private Offline Reading & Natural Speech Engine</h1>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-kicker">
+        <span class="pulse-dot"></span>
+        <span>100% On-Device • Zero Telemetry • Open Source</span>
+      </div>
+
+      <h1>
+        A Private Sanctuary for Reading & <em>Natural Speech</em>.
+      </h1>
+
       <p>
-        Experience focused, distraction-free reading with 35+ classic editions, bidirectional paper tones, and fluid on-device text-to-speech.
+        Vern (root word <i>Vernehmen</i> — to hear and perceive) merges distraction-free reading with fluid, on-device text-to-speech. No accounts, no subscriptions, and zero cloud surveillance.
       </p>
 
       <div class="hero-actions">
-        <a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-arm64-v8a-release.apk" class="btn btn-primary" style="font-size: 1.05rem; padding: 14px 28px;">
+        <a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-arm64-v8a-release.apk" class="btn btn-gold" style="padding: 14px 28px; font-size: 1.05rem;">
           ⬇️ Download APK (arm64)
         </a>
-        <a href="https://t.me/myreader_veritas" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size: 1.05rem; padding: 14px 24px;">
-          💬 Join Telegram Community
-        </a>
-        <a href="https://github.com/fhes-tus/Vern-TTS" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size: 1.05rem; padding: 14px 24px;">
-          ⭐️ View on GitHub
+        <a href="https://t.me/myreader_veritas" target="_blank" rel="noopener" class="btn btn-secondary" style="padding: 14px 24px; font-size: 1.05rem;">
+          📢 Join @myreader_veritas
         </a>
       </div>
 
-      <div class="hero-banner">
-        <img src="playstore_feature_graphic_1024x500.png" alt="Vern TTS Official Feature Graphic" />
-      </div>
-    </section>
+      <!-- THE LIVING READER STAGE -->
+      <div class="stage-wrapper" id="reader">
+        <div class="stage-ambient-glow" id="ambientGlow"></div>
 
-    <section class="section" id="features">
+        <div class="reader-device">
+          <!-- Top Device Chrome -->
+          <div class="device-chrome-top">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e;"></span>
+              <span>Chapter I — Pride and Prejudice</span>
+            </div>
+
+            <div class="device-controls-top">
+              <span style="margin-right:4px; font-size:0.75rem; opacity:0.8;">Paper Tone:</span>
+              <div class="tone-selector">
+                <button class="tone-chip active" onclick="applyTone('sepia', this)">Sepia</button>
+                <button class="tone-chip" onclick="applyTone('white', this)">Bone</button>
+                <button class="tone-chip" onclick="applyTone('slate', this)">Dusk</button>
+                <button class="tone-chip" onclick="applyTone('amoled', this)">OLED</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- The Live Interactive Page -->
+          <div class="reader-page-viewport" id="pageCanvas" style="background:#f4ecd8; color:#382a1d;">
+            <div class="book-meta-heading">Jane Austen (1813) • Curated Classic</div>
+            <div class="book-chapter-title">Chapter I</div>
+            <div class="book-prose font-editorial" id="bookProse">
+              <span class="sentence-span speaking-active" onclick="jumpToSentence(0)">"It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife."</span>
+              <span class="sentence-span" onclick="jumpToSentence(1)">However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families...</span>
+              <span class="sentence-span" onclick="jumpToSentence(2)">...that he is considered the rightful property of some one or other of their daughters.</span>
+            </div>
+          </div>
+
+          <!-- Bottom Audio & Playback Dock -->
+          <div class="device-player-bar">
+            <div class="player-left">
+              <button class="play-circle-btn" id="playBtn" onclick="togglePlaySimulation()">
+                <svg id="playIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+              </button>
+              <div class="player-status-info">
+                <div class="player-title">Speech Engine Active</div>
+                <div class="player-subtitle" id="playerSubtitle">Tap any sentence or click Play to simulate narration</div>
+              </div>
+            </div>
+
+            <div class="waveform-visualizer" id="waveformBox">
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 35+ CLASSICS EXHIBITION -->
+  <section class="section" id="classics">
+    <div class="container">
       <div class="section-header">
-        <h2>Built for Pure Focus & Privacy</h2>
-        <p>No ads, no subscriptions, no accounts. All document parsing and text-to-speech stays 100% on your Android device.</p>
+        <div class="section-eyebrow">The Digital Athenaeum</div>
+        <h2>35+ Immortal Masterpieces, Pre-Loaded</h2>
+        <p>Every curated title is dressed in authentic, first-edition artwork with famous quotes and reading duration metrics. Downloaded cleanly on-demand with zero storage waste.</p>
       </div>
 
-      <div class="grid-3">
-        <div class="card">
-          <div class="card-icon">📚</div>
-          <h3>35+ Authentic Classics</h3>
-          <p>Curated masterpieces from Project Gutenberg featuring authentic published edition cover art, from Hugh Thomson's 1894 <i>Pride and Prejudice</i> to Victorian <i>Sherlock Holmes</i>.</p>
+      <div class="classics-showcase">
+        <!-- Pride & Prejudice -->
+        <div class="classic-exhibit-card">
+          <div class="classic-cover-wrapper">
+            <img src="covers/classic_pride_and_prejudice.jpg" alt="Pride and Prejudice Cover" loading="lazy" />
+          </div>
+          <div class="classic-details">
+            <div>
+              <div class="classic-title">Pride and Prejudice</div>
+              <div class="classic-author">Jane Austen</div>
+              <div class="classic-quote">"I declare after all there is no enjoyment like reading!"</div>
+            </div>
+            <div class="classic-meta-pills">
+              <span>Romance & Drama</span>
+              <span>~3h 30m</span>
+            </div>
+          </div>
         </div>
 
-        <div class="card">
-          <div class="card-icon">🎧</div>
-          <h3>Natural On-Device TTS</h3>
-          <p>High-quality speech synthesis with sentence-level tracking, adjustable pitch, variable speeds (0.5x to 3.0x), and lock-screen background playback media controls.</p>
+        <!-- Sherlock Holmes -->
+        <div class="classic-exhibit-card">
+          <div class="classic-cover-wrapper">
+            <img src="covers/classic_hound_baskervilles.jpg" alt="The Hound of the Baskervilles Cover" loading="lazy" />
+          </div>
+          <div class="classic-details">
+            <div>
+              <div class="classic-title">The Hound of the Baskervilles</div>
+              <div class="classic-author">Arthur Conan Doyle</div>
+              <div class="classic-quote">"The world is full of obvious things which nobody by any chance ever observes."</div>
+            </div>
+            <div class="classic-meta-pills">
+              <span>Mystery & Crime</span>
+              <span>~2h 45m</span>
+            </div>
+          </div>
         </div>
 
-        <div class="card">
-          <div class="card-icon">📄</div>
-          <h3>All Document Formats</h3>
-          <p>Read any file seamlessly: EPUB, PDF, DOCX, and TXT with smart heuristic synopsis extraction that automatically filters out copyright boilerplate.</p>
+        <!-- Frankenstein -->
+        <div class="classic-exhibit-card">
+          <div class="classic-cover-wrapper">
+            <img src="covers/classic_frankenstein.jpg" alt="Frankenstein Cover" loading="lazy" />
+          </div>
+          <div class="classic-details">
+            <div>
+              <div class="classic-title">Frankenstein</div>
+              <div class="classic-author">Mary Shelley</div>
+              <div class="classic-quote">"Beware; for I am fearless, and therefore powerful."</div>
+            </div>
+            <div class="classic-meta-pills">
+              <span>Gothic Sci-Fi</span>
+              <span>~3h 10m</span>
+            </div>
+          </div>
         </div>
 
-        <div class="card">
-          <div class="card-icon">🎨</div>
-          <h3>Bidirectional Paper Tones</h3>
-          <p>Harmonized visual comfort across Extracted Text, Original Document, and PDF views with instant synchronization across Default White, Warm Sepia, Soft Dark, and AMOLED Black.</p>
+        <!-- The Count of Monte Cristo -->
+        <div class="classic-exhibit-card">
+          <div class="classic-cover-wrapper">
+            <img src="covers/classic_monte_cristo.jpg" alt="The Count of Monte Cristo Cover" loading="lazy" />
+          </div>
+          <div class="classic-details">
+            <div>
+              <div class="classic-title">The Count of Monte Cristo</div>
+              <div class="classic-author">Alexandre Dumas</div>
+              <div class="classic-quote">"All human wisdom is contained in these two words: Wait and Hope."</div>
+            </div>
+            <div class="classic-meta-pills">
+              <span>Epic Adventure</span>
+              <span>~6h 15m</span>
+            </div>
+          </div>
         </div>
 
-        <div class="card">
-          <div class="card-icon">🧠</div>
-          <h3>Study Hub & Active Recall</h3>
-          <p>Create flashcards, highlight key passages, record voice notes, and test yourself with Leitner spaced-repetition right inside the reader.</p>
+        <!-- Dorian Gray -->
+        <div class="classic-exhibit-card">
+          <div class="classic-cover-wrapper">
+            <img src="covers/classic_dorian_gray.jpg" alt="The Picture of Dorian Gray Cover" loading="lazy" />
+          </div>
+          <div class="classic-details">
+            <div>
+              <div class="classic-title">The Picture of Dorian Gray</div>
+              <div class="classic-author">Oscar Wilde</div>
+              <div class="classic-quote">"The books that the world calls immoral are books that show the world its own shame."</div>
+            </div>
+            <div class="classic-meta-pills">
+              <span>Philosophical</span>
+              <span>~2h 50m</span>
+            </div>
+          </div>
         </div>
 
-        <div class="card">
-          <div class="card-icon">🔒</div>
-          <h3>100% Private Architecture</h3>
-          <p>Rooted in <i>Vernehmen</i> (to perceive/comprehend). Your documents, notes, reading progress, and voice recordings never touch an external server.</p>
+        <!-- Meditations -->
+        <div class="classic-exhibit-card">
+          <div class="classic-cover-wrapper">
+            <img src="covers/classic_meditations.jpg" alt="Meditations Cover" loading="lazy" />
+          </div>
+          <div class="classic-details">
+            <div>
+              <div class="classic-title">Meditations</div>
+              <div class="classic-author">Marcus Aurelius</div>
+              <div class="classic-quote">"You have power over your mind - not outside events. Realize this, and you will find strength."</div>
+            </div>
+            <div class="classic-meta-pills">
+              <span>Stoic Philosophy</span>
+              <span>~2h 15m</span>
+            </div>
+          </div>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="section" id="themes">
+  <!-- ARCHITECTURE OF QUIET SOFTWARE (TEARDOWN) -->
+  <section class="section" id="architecture">
+    <div class="container">
       <div class="section-header">
-        <h2>Interactive Paper Tone Simulator</h2>
-        <p>Preview the exact reading themes unified across Vern's text, document, and PDF viewers.</p>
+        <div class="section-eyebrow">Engineering Teardown</div>
+        <h2>The Architecture of Quiet Software</h2>
+        <p>Built with native Jetpack Compose for Android 8 through 15. Every architectural decision protects your attention and your privacy.</p>
       </div>
 
-      <div class="themes-preview">
-        <div class="theme-buttons">
-          <button class="theme-btn active" onclick="setTone('default', this)">Default White</button>
-          <button class="theme-btn" onclick="setTone('sepia', this)">Warm Sepia</button>
-          <button class="theme-btn" onclick="setTone('softdark', this)">Soft Dark</button>
-          <button class="theme-btn" onclick="setTone('amoled', this)">AMOLED Black</button>
+      <div class="pillars-grid">
+        <div class="pillar-card">
+          <div class="pillar-num">PILLAR 01</div>
+          <h3>On-Device Neural Speech Engine</h3>
+          <p>Zero cloud latency and zero server roundtrips. Listen seamlessly with your screen locked in your pocket via native Android Media Notifications with Play, Pause, and sentence skips.</p>
+          <div class="pillar-tags">
+            <span class="pill-tag">Background Media Bar</span>
+            <span class="pill-tag">0.5x – 3.0x Velocity</span>
+            <span class="pill-tag">Lockscreen Controls</span>
+          </div>
         </div>
 
-        <div id="sampleCanvas" class="theme-canvas font-serif" style="background: #ffffff; color: #1e293b;">
-          <h3 style="font-size: 1.6rem; margin-bottom: 12px;">Chapter I — Pride and Prejudice</h3>
-          <p style="font-size: 1.15rem; line-height: 1.8;">
-            "It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife. However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families, that he is considered the rightful property of some one or other of their daughters."
-          </p>
+        <div class="pillar-card">
+          <div class="pillar-num">PILLAR 02</div>
+          <h3>Universal Document Studio</h3>
+          <p>Native parsing for PDF, EPUB, TXT, DOCX, and Markdown. Features an intelligent heuristic extractor that automatically strips Gutenberg legal disclaimers to present pure narrative synopses.</p>
+          <div class="pillar-tags">
+            <span class="pill-tag">PDF Orientation Lock</span>
+            <span class="pill-tag">Heuristic Synopsis</span>
+            <span class="pill-tag">EPUB & Word DOCX</span>
+          </div>
+        </div>
+
+        <div class="pillar-card">
+          <div class="pillar-num">PILLAR 03</div>
+          <h3>Bidirectional Paper Tone Sync</h3>
+          <p>Four precisely calibrated optical palettes: Clean White, Warm Sepia (blue-light absorption), Soft Dark, and AMOLED Black (0% OLED pixel power). Tones synchronize instantly between reading views and PDFs.</p>
+          <div class="pillar-tags">
+            <span class="pill-tag">OLED 0% Battery Drain</span>
+            <span class="pill-tag">Sepia Eye Comfort</span>
+            <span class="pill-tag">Cross-Activity Sync</span>
+          </div>
+        </div>
+
+        <div class="pillar-card">
+          <div class="pillar-num">PILLAR 04</div>
+          <h3>The Zero-Telemetry Vault</h3>
+          <p>No Google Firebase analytics, no Crashlytics data collection, no telemetry pings, and no user accounts. Your reading history and bookmarks stay strictly inside your phone's internal SQLite sandbox.</p>
+          <div class="pillar-tags">
+            <span class="pill-tag">100% Offline</span>
+            <span class="pill-tag">No Account Required</span>
+            <span class="pill-tag">Apache 2.0 License</span>
+          </div>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="section" id="screens">
+  <!-- FREEDOM MATRIX -->
+  <section class="section" id="matrix">
+    <div class="container">
       <div class="section-header">
-        <h2>Inside Vern TTS</h2>
-        <p>A native Jetpack Compose Material 3 interface engineered for speed and clarity.</p>
+        <div class="section-eyebrow">The Freedom Matrix</div>
+        <h2>Vern TTS vs. Cloud Big-Tech Readers</h2>
+        <p>Why readers are migrating from closed subscription gardens to a local-first offline reading engine.</p>
       </div>
 
-      <div class="screenshots-scroll">
-        <div class="screenshot-item">
-          <img src="screenshots/current_reader.png" alt="Reading & Highlighting" />
-          <p>Reading & TTS Highlighting</p>
-        </div>
-        <div class="screenshot-item">
-          <img src="screenshots/audio_player.png" alt="Audio Player Controls" />
-          <p>Full Playback Bar & Speeds</p>
-        </div>
-        <div class="screenshot-item">
-          <img src="screenshots/library.png" alt="Library Bookshelf" />
-          <p>Classic Library Shelf</p>
-        </div>
-        <div class="screenshot-item">
-          <img src="screenshots/pdf_viewer.png" alt="PDF Viewer" />
-          <p>Dedicated PDF Viewer</p>
-        </div>
-        <div class="screenshot-item">
-          <img src="screenshots/study.png" alt="Study Hub Flashcards" />
-          <p>Active Recall Flashcards</p>
-        </div>
-        <div class="screenshot-item">
-          <img src="screenshots/insights.png" alt="Reading Insights" />
-          <p>Reading Velocity & Habits</p>
-        </div>
-        <div class="screenshot-item">
-          <img src="screenshots/widgets.png" alt="Home Screen Widgets" />
-          <p>Glance Home Screen Widgets</p>
-        </div>
+      <div class="matrix-wrapper">
+        <table class="matrix-table">
+          <thead>
+            <tr>
+              <th>Capability</th>
+              <th>Vern TTS</th>
+              <th>Amazon Kindle</th>
+              <th>Speechify</th>
+              <th>Audible</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Price / Subscription</strong></td>
+              <td><span style="color:var(--accent-emerald); font-weight:700;">$0 Free Forever</span></td>
+              <td>$11.99 / mo</td>
+              <td>$139.00 / yr</td>
+              <td>$14.95 / mo</td>
+            </tr>
+            <tr>
+              <td><strong>Privacy & Telemetry</strong></td>
+              <td><span class="matrix-check">✓ Zero Analytics</span></td>
+              <td><span class="matrix-cross">✗ Telemetry Logged</span></td>
+              <td><span class="matrix-cross">✗ Cloud Tracked</span></td>
+              <td><span class="matrix-cross">✗ Full Analytics</span></td>
+            </tr>
+            <tr>
+              <td><strong>Offline Independence</strong></td>
+              <td><span class="matrix-check">✓ 100% Offline</span></td>
+              <td>Requires Sync</td>
+              <td>Requires Cloud API</td>
+              <td>Requires Auth Server</td>
+            </tr>
+            <tr>
+              <td><strong>File Support (PDF, EPUB, DOCX, TXT)</strong></td>
+              <td><span class="matrix-check">✓ All Formats Native</span></td>
+              <td><span class="matrix-cross">✗ Walled Garden</span></td>
+              <td>Limited</td>
+              <td><span class="matrix-cross">✗ Proprietary DRM</span></td>
+            </tr>
+            <tr>
+              <td><strong>Screen-Off Background Audio</strong></td>
+              <td><span class="matrix-check">✓ Yes (Built-In)</span></td>
+              <td>Audiobooks Only</td>
+              <td>Paywalled</td>
+              <td>Audiobooks Only</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-    </section>
+    </div>
+  </section>
 
-    
-    <section class="section" id="faq">
+  <!-- NATIVE APPLICATION SCREENS -->
+  <section class="section" id="screens">
+    <div class="container">
       <div class="section-header">
+        <div class="section-eyebrow">Native Android Interface</div>
+        <h2>Crafted in Jetpack Compose</h2>
+        <p>A fluid, responsive interface engineered specifically for Android devices without webview bloat.</p>
+      </div>
+
+      <div class="screens-grid">
+        <div class="screen-card">
+          <img src="screenshots/current_reader.png" alt="Reader View" loading="lazy" />
+          <div class="screen-caption">Synced Speech Narration</div>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/audio_player.png" alt="Audio Controls" loading="lazy" />
+          <div class="screen-caption">Fine Pitch & Velocity Bar</div>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/library.png" alt="Library Bookshelf" loading="lazy" />
+          <div class="screen-caption">35+ Curated Classics Catalog</div>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/pdf_viewer.png" alt="PDF Viewer" loading="lazy" />
+          <div class="screen-caption">Dedicated PDF Control Bar</div>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/study.png" alt="Study Hub" loading="lazy" />
+          <div class="screen-caption">Active Recall Flashcards</div>
+        </div>
+        <div class="screen-card">
+          <img src="screenshots/insights.png" alt="Reading Insights" loading="lazy" />
+          <div class="screen-caption">Velocity & Habit Analytics</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CLEAN EXECUTIVE DOWNLOAD STATION (NO HASHES) -->
+  <section class="section" id="download">
+    <div class="container">
+      <div class="download-station">
+        <span class="hero-kicker" style="margin-bottom:16px;">Verified v2.5.0 Production Build</span>
+        <h2 style="font-family:var(--font-editorial); font-size:2.4rem; margin-bottom:12px;">Get Vern TTS for Android</h2>
+        <p style="color:var(--text-muted); max-width:540px; margin:0 auto;">Download the APK build optimized for your device. Installs smoothly over existing versions while preserving your library and bookmarks.</p>
+
+        <div class="download-grid">
+          <!-- 64-bit ARM -->
+          <div class="dl-card primary">
+            <div>
+              <div style="font-size:0.75rem; color:var(--accent-amber); font-weight:700; margin-bottom:4px; text-transform:uppercase;">Recommended Build</div>
+              <div class="dl-title">64-bit ARM (arm64-v8a)</div>
+              <div class="dl-desc">Optimized for 95% of modern Android phones and tablets (Android 8 through 15). Smallest package size & highest execution speed.</div>
+            </div>
+            <a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-arm64-v8a-release.apk" class="btn btn-gold" style="width:100%;">
+              ⬇️ Download APK (55.9 MB)
+            </a>
+          </div>
+
+          <!-- Universal -->
+          <div class="dl-card">
+            <div>
+              <div style="font-size:0.75rem; color:var(--text-muted); font-weight:700; margin-bottom:4px; text-transform:uppercase;">All Hardware</div>
+              <div class="dl-title">Universal Release APK</div>
+              <div class="dl-desc">Bundles all native runtime libraries into one package. Guaranteed compatibility with Chromebooks and tablets.</div>
+            </div>
+            <a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-universal-release.apk" class="btn btn-secondary" style="width:100%;">
+              ⬇️ Download (77.8 MB)
+            </a>
+          </div>
+
+          <!-- 32-bit Legacy -->
+          <div class="dl-card">
+            <div>
+              <div style="font-size:0.75rem; color:var(--text-muted); font-weight:700; margin-bottom:4px; text-transform:uppercase;">Budget & Legacy</div>
+              <div class="dl-title">32-bit ARM (armeabi-v7a)</div>
+              <div class="dl-desc">Specially compiled for legacy Android devices and budget hardware architectures.</div>
+            </div>
+            <a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-armeabi-v7a-release.apk" class="btn btn-secondary" style="width:100%;">
+              ⬇️ Download (46.5 MB)
+            </a>
+          </div>
+        </div>
+
+        <div style="display:inline-flex; align-items:center; gap:10px; padding:8px 18px; border-radius:var(--radius-full); background:rgba(255,255,255,0.03); border:1px solid var(--border-subtle); font-size:0.85rem; color:var(--text-muted);">
+          <span style="color:var(--accent-amber);">⏳ Google Play Store Status:</span>
+          <span>App review is in progress. The official Play Store listing will be available shortly!</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQS -->
+  <section class="section" id="faq">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">Knowledge Center</div>
         <h2>Frequently Asked Questions</h2>
-        <p>Everything you need to know about Vern TTS, on-device audio, privacy, and file formats.</p>
+        <p>Detailed technical answers for curious booklovers and power users.</p>
       </div>
 
       <div class="faq-container">
         <div class="faq-card open">
           <div class="faq-header" onclick="toggleFaq(this)">
-            <span>🎧 How do I get ultra-realistic, natural voices in Vern TTS?</span>
-            <span class="icon">+</span>
+            <span>🎧 How do I unlock ultra-realistic, natural voices in Vern TTS?</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           </div>
           <div class="faq-body">
-            Vern TTS utilizes your phone's native Android speech engine. To unlock studio-quality, natural human voices for free:
-            <ol style="margin-top:8px; padding-left:20px;">
-              <li>Go to Android <b>Settings &gt; Accessibility &gt; Text-to-Speech output</b>.</li>
-              <li>Select <b>Speech Services by Google</b> (or Samsung TTS) as Preferred Engine.</li>
-              <li>Tap the <b>⚙️ Gear icon</b>, select <b>Install voice data</b>, and download the High Quality (Neural) voice pack.</li>
-              <li>Open Vern TTS and tap the speaker icon while reading to switch to your new voice!</li>
+            Vern TTS utilizes your phone's native Android speech engine. To unlock studio-quality natural voices completely free:
+            <ol style="margin-top:10px; padding-left:22px;">
+              <li>Open Android <b>Settings &gt; Accessibility &gt; Text-to-Speech output</b>.</li>
+              <li>Set <b>Speech Services by Google</b> (or Samsung TTS) as Preferred Engine.</li>
+              <li>Tap the <b>⚙️ Gear icon &gt; Install voice data</b>, choose your language (e.g. <i>English US</i>), and download the <b>High Quality (Neural)</b> voice pack.</li>
+              <li>Open Vern TTS and tap the speaker icon while reading to switch to your new high-definition voice!</li>
             </ol>
           </div>
         </div>
 
         <div class="faq-card">
           <div class="faq-header" onclick="toggleFaq(this)">
-            <span>🔒 Does Vern TTS send any data to external servers?</span>
-            <span class="icon">+</span>
+            <span>🔒 Does Vern TTS send any data or books to a cloud server?</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           </div>
           <div class="faq-body">
-            <b>Zero data is collected or transmitted.</b> Text processing, document parsing, and voice synthesis happen 100% locally on your device hardware. There are no user accounts, no telemetry trackers, no analytics SDKs, and no ads.
+            <b>Zero data is collected or transmitted.</b> All text processing, document parsing, speech generation, and reading statistics occur strictly on your device hardware. There are no tracking SDKs, no accounts, and no analytics.
           </div>
         </div>
 
         <div class="faq-card">
           <div class="faq-header" onclick="toggleFaq(this)">
-            <span>📱 Can I listen with the screen off or while using other apps?</span>
-            <span class="icon">+</span>
+            <span>📱 Can I listen with the screen turned off or while using other apps?</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           </div>
           <div class="faq-body">
-            Yes! Vern TTS features a full background Android Media Service with lockscreen notification bar controls. You can play, pause, and skip sentences while running other apps or when your phone is in your pocket with the screen off.
+            Yes! Vern TTS features a dedicated background Android Media Service. You can lock your phone, put it in your pocket, or navigate to other apps while enjoying continuous narration with lockscreen media controls.
           </div>
         </div>
 
         <div class="faq-card">
           <div class="faq-header" onclick="toggleFaq(this)">
-            <span>📄 What document formats are supported? Can it read scanned PDFs?</span>
-            <span class="icon">+</span>
+            <span>📄 Can Vern TTS read scanned image-only PDFs?</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           </div>
           <div class="faq-body">
-            Vern TTS natively extracts and reads <b>PDF, EPUB, TXT, DOCX (Microsoft Word), and Markdown (.md)</b> files. Standard PDFs with text layers extract instantly. Scanned photocopy PDFs without embedded text layers require OCR software before text can be read aloud.
+            Vern TTS natively extracts and reads digital text layers from PDF, EPUB, TXT, DOCX, and Markdown. Scanned photocopy PDFs without an embedded digital text layer require OCR prior to reading aloud.
           </div>
         </div>
 
         <div class="faq-card">
           <div class="faq-header" onclick="toggleFaq(this)">
-            <span>👁 Why are there 4 Paper Tones, and how does AMOLED Black save battery?</span>
-            <span class="icon">+</span>
+            <span>👁 How does AMOLED Black save up to 40% battery life?</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           </div>
           <div class="faq-body">
-            <b>Clean White</b> provides maximum daylight contrast; <b>Warm Sepia</b> filters out blue light to eliminate eye fatigue; <b>Soft Dark</b> reduces evening glare. <b>AMOLED Black</b> turns off OLED subpixels entirely (#000000), drastically reducing battery drain during long audio-reading sessions.
+            On OLED/AMOLED screens, pure black pixels (#000000) physically turn off completely, drawing 0% current. Reading long books in AMOLED Black dramatically reduces display power draw.
           </div>
         </div>
 
         <div class="faq-card">
           <div class="faq-header" onclick="toggleFaq(this)">
-            <span>🛡 Why does Android display "Install from Unknown Sources" when installing the APK?</span>
-            <span class="icon">+</span>
+            <span>🛡 Why does Android display "Install from Unknown Sources"?</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           </div>
           <div class="faq-body">
-            Android displays this standard security notice whenever you install an application outside the Google Play Store. Vern TTS is verified, safe, and completely open source. Google Play Store review is currently underway, and the Play Store listing will be available shortly!
+            Android displays this standard security confirmation for any APK file downloaded outside the Google Play Store. Vern TTS is verified, clean, open source, and will soon be live on Google Play!
           </div>
         </div>
 
         <div class="faq-card">
           <div class="faq-header" onclick="toggleFaq(this)">
-            <span>📚 Where are the 35+ Curated Classics from?</span>
-            <span class="icon">+</span>
+            <span>🔄 Will updating to a new APK erase my library or notes?</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           </div>
           <div class="faq-body">
-            They are timeless public domain masterpieces sourced from Project Gutenberg, complete with authentic published cover art, famous quotes, and clean chapter formatting. They download on-demand so they never waste space on your device.
-          </div>
-        </div>
-
-        <div class="faq-card">
-          <div class="faq-header" onclick="toggleFaq(this)">
-            <span>🔄 Will updating to a new version erase my reading progress or notes?</span>
-            <span class="icon">+</span>
-          </div>
-          <div class="faq-body">
-            No. When you install an updated APK over your existing version, Android preserves your local SQLite database, bookmarks, flashcards, and reading position automatically.
+            No. When you install an updated APK over your existing installation, Android preserves your SQLite database, bookmarks, flashcards, and reading progress automatically.
           </div>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="section" id="downloads">
-      <div class="section-header">
-        <h2>Official v2.5.0 Downloads (Build 38)</h2>
-        <p>All binaries are pre-signed, tested on Android 9 to 16, and verified with SHA-256 checksums.</p>
-      </div>
-
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Target Architecture</th>
-              <th>Format</th>
-              <th>Size</th>
-              <th>Direct Download</th>
-              <th>SHA-256 Hash</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>64-bit ARM (Recommended)</strong><br/><span style="color:var(--text-muted);font-size:0.8rem">Modern phones & tablets</span></td>
-              <td><code>APK</code></td>
-              <td>55.9 MB</td>
-              <td><a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-arm64-v8a-release.apk" class="btn btn-primary" style="padding:6px 14px; font-size:0.85rem">Download</a></td>
-              <td><span class="hash-code">FC5973A4CF0DCF0287D27B46DAC54B08EA93B2B4B972FD93C99C8E436A688F82</span></td>
-            </tr>
-            <tr>
-              <td><strong>Universal APK</strong><br/><span style="color:var(--text-muted);font-size:0.8rem">All supported devices</span></td>
-              <td><code>APK</code></td>
-              <td>77.8 MB</td>
-              <td><a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-universal-release.apk" class="btn btn-secondary" style="padding:6px 14px; font-size:0.85rem">Download</a></td>
-              <td><span class="hash-code">6A20F04BF61F7466E116B68915A48F6D2BF6538CBACC26433C91CF427539277F</span></td>
-            </tr>
-            <tr>
-              <td><strong>32-bit ARM (Legacy)</strong><br/><span style="color:var(--text-muted);font-size:0.8rem">Older devices (armeabi-v7a)</span></td>
-              <td><code>APK</code></td>
-              <td>46.5 MB</td>
-              <td><a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-armeabi-v7a-release.apk" class="btn btn-secondary" style="padding:6px 14px; font-size:0.85rem">Download</a></td>
-              <td><span class="hash-code">CDE2C092C1ACBD80439F8B035D6E29171E3E70B5A8722B63ED08B8DC45D480B5</span></td>
-            </tr>
-            <tr>
-              <td><strong>Google Play App Bundle</strong><br/><span style="color:var(--text-muted);font-size:0.8rem">Play Console submission</span></td>
-              <td><code>AAB</code></td>
-              <td>60.4 MB</td>
-              <td><a href="https://github.com/fhes-tus/Vern-TTS/releases/download/v2.5.0/Veritas-Reader-v2.5.0-release.aab" class="btn btn-secondary" style="padding:6px 14px; font-size:0.85rem">Download</a></td>
-              <td><span class="hash-code">9E8C26F44AD079779DD9E27F38439AA366C2CD24EAF35B4FCF1D12E7DC0B732C</span></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="community-box">
-        <h3>Join the Telegram Community</h3>
-        <p>Get instant updates, share book recommendations, request new features, and chat directly with fellow readers.</p>
-        <a href="https://t.me/myreader_veritas" target="_blank" rel="noopener" class="btn btn-primary" style="font-size:1.1rem; padding:14px 32px">
-          💬 Join @myreader_veritas
-        </a>
-      </div>
-    </section>
-  </main>
-
+  <!-- FOOTER -->
   <footer>
     <div class="container">
-      <div class="footer-links">
-        <a href="https://github.com/fhes-tus/Vern-TTS" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://t.me/myreader_veritas" target="_blank" rel="noopener">Telegram</a>
-        <a href="https://x.com/_1st2us" target="_blank" rel="noopener">X (Twitter)</a>
-        <a href="https://wa.me/mr.Gyan_0" target="_blank" rel="noopener">WhatsApp</a>
-        <a href="https://github.com/fhes-tus/Vern-TTS/releases/tag/v2.5.0" target="_blank" rel="noopener">Release Notes</a>
+      <div class="footer-colophon">
+        <p>
+          <b>Vern TTS</b> is rooted in <em>Vernehmen</em> — German: to hear and perceive.<br/>
+          Crafted with care under the Apache 2.0 open-source license.
+        </p>
       </div>
-      <p>© 2026 Vern TTS. Open source and privacy-focused.</p>
-      <p style="font-size:0.8rem; margin-top:8px; color:#64748b">Rooted in <i>Vernehmen</i> — German: to hear & perceive.</p>
+
+      <div class="footer-links">
+        <a href="https://github.com/fhes-tus/Vern-TTS" target="_blank" rel="noopener">GitHub Repository</a>
+        <a href="https://t.me/myreader_veritas" target="_blank" rel="noopener">Telegram Community</a>
+        <a href="https://github.com/fhes-tus/Vern-TTS/releases/tag/v2.5.0" target="_blank" rel="noopener">Release Notes</a>
+        <a href="https://x.com/_1st2us" target="_blank" rel="noopener">X (Twitter)</a>
+      </div>
+
+      <p style="font-size:0.8rem; color:#475569;">© 2026 Vern TTS. All rights reserved.</p>
     </div>
   </footer>
 
+  <!-- SCRIPT FOR LIVING STAGE & INTERACTIVITY -->
   <script>
-    
-    function toggleFaq(header) {
-      const card = header.parentElement;
-      card.classList.toggle('open');
-    }
-
-    function setTone(tone, btn) {
-      document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+    // 1. Paper Tone Atmosphere Switcher
+    function applyTone(tone, btn) {
+      document.querySelectorAll('.tone-chip').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
 
-      const canvas = document.getElementById('sampleCanvas');
-      if (tone === 'default') {
-        canvas.style.background = '#ffffff';
+      const canvas = document.getElementById('pageCanvas');
+      const glow = document.getElementById('ambientGlow');
+
+      if (tone === 'white') {
+        canvas.style.background = '#fcfbf7';
         canvas.style.color = '#1e293b';
+        glow.style.background = 'radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.12) 0%, transparent 65%)';
       } else if (tone === 'sepia') {
-        canvas.style.background = '#f5eedc';
-        canvas.style.color = '#3c2d1e';
-      } else if (tone === 'softdark') {
-        canvas.style.background = '#1e293b';
+        canvas.style.background = '#f4ecd8';
+        canvas.style.color = '#382a1d';
+        glow.style.background = 'radial-gradient(circle at 50% 40%, rgba(212, 155, 80, 0.14) 0%, transparent 65%)';
+      } else if (tone === 'slate') {
+        canvas.style.background = '#1a1f2c';
         canvas.style.color = '#e2e8f0';
+        glow.style.background = 'radial-gradient(circle at 50% 40%, rgba(56, 189, 248, 0.1) 0%, transparent 65%)';
       } else if (tone === 'amoled') {
         canvas.style.background = '#000000';
         canvas.style.color = '#cbd5e1';
+        glow.style.background = 'radial-gradient(circle at 50% 40%, rgba(0, 0, 0, 0) 0%, transparent 65%)';
       }
+    }
+
+    // 2. Interactive Sentence-Synced Speech Simulation
+    let isSpeaking = false;
+    let activeSentenceIndex = 0;
+    let speakingTimer = null;
+
+    const sentences = [
+      `"It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife."`,
+      `However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families...`,
+      `...that he is considered the rightful property of some one or other of their daughters.`
+    ];
+
+    function togglePlaySimulation() {
+      isSpeaking = !isSpeaking;
+      updatePlayState();
+    }
+
+    function jumpToSentence(idx) {
+      activeSentenceIndex = idx;
+      highlightActiveSentence();
+      if (!isSpeaking) {
+        isSpeaking = true;
+        updatePlayState();
+      }
+    }
+
+    function updatePlayState() {
+      const playBtn = document.getElementById('playBtn');
+      const playIcon = document.getElementById('playIcon');
+      const waveform = document.getElementById('waveformBox');
+      const sub = document.getElementById('playerSubtitle');
+
+      if (isSpeaking) {
+        playIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+        waveform.classList.add('speaking');
+        sub.innerText = 'Narrating sentence ' + (activeSentenceIndex + 1) + ' of 3 (Tap any sentence to jump)';
+        startSentenceTicker();
+      } else {
+        playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+        waveform.classList.remove('speaking');
+        sub.innerText = 'Paused • Tap Play or click any sentence to resume';
+        clearInterval(speakingTimer);
+      }
+    }
+
+    function startSentenceTicker() {
+      clearInterval(speakingTimer);
+      highlightActiveSentence();
+
+      speakingTimer = setInterval(() => {
+        activeSentenceIndex = (activeSentenceIndex + 1) % 3;
+        highlightActiveSentence();
+      }, 4200);
+    }
+
+    function highlightActiveSentence() {
+      const spans = document.querySelectorAll('#bookProse .sentence-span');
+      spans.forEach((s, idx) => {
+        if (idx === activeSentenceIndex) {
+          s.classList.add('speaking-active');
+        } else {
+          s.classList.remove('speaking-active');
+        }
+      });
+      document.getElementById('playerSubtitle').innerText = 'Narrating sentence ' + (activeSentenceIndex + 1) + ' of 3 (Tap any sentence to jump)';
+    }
+
+    // 3. FAQ Accordion
+    function toggleFaq(header) {
+      const card = header.parentElement;
+      card.classList.toggle('open');
     }
   </script>
 </body>
